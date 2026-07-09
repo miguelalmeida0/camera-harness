@@ -1,0 +1,40 @@
+{
+  "name": "darkquest-camera-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:adapter": "node --experimental-strip-types packages/perception/live-perception-adapter/test/gate1a-live-adapter.test.ts && node --experimental-strip-types packages/perception/live-perception-adapter/test/gate1b-live-adapter.test.ts && node --experimental-strip-types packages/perception/browser-local-capture/test/browser-local-capture.test.ts && node packages/perception/browser-local-capture/test/prototype-flow.test.mjs",
+    "test:recorder": "node --experimental-strip-types packages/replay/live-trace-recorder/test/live-trace-recorder.test.ts && node --experimental-strip-types packages/replay/live-trace-recorder/test/live-trace-recorder-gate1b.test.ts",
+    "test:movement-recognition": "node packages/perception/browser-local-capture/test/movement-recognition.test.mjs",
+    "test:movement-recognition:live": "node packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs",
+    "gate:0b": "node packages/evals/bin/darkquest-eval.mjs gate-0b fixtures/replay/gate_0b_manifest.json",
+    "gate:1a": "node packages/evals/bin/darkquest-eval.mjs gate-1a fixtures/replay/gate_1a_manifest.json",
+    "gate:1b": "node packages/evals/bin/darkquest-eval.mjs gate-1b fixtures/replay/gate_1b_manifest.json",
+    "gate:1c": "node packages/evals/bin/darkquest-eval.mjs gate-1c fixtures/replay/gate_1c_manifest.json",
+    "gate:1d": "node packages/evals/bin/gate-1d-check.mjs",
+    "gate:1e": "node packages/evals/bin/gate-1e-check.mjs",
+    "gate:1f": "node packages/evals/bin/gate-1f-check.mjs",
+    "gate:2a": "node packages/evals/bin/gate-2a-check.mjs",
+    "gate:3b": "node packages/evals/bin/gate-3b-check.mjs",
+    "gate:3b:live": "node packages/evals/bin/gate-3b-live-check.mjs",
+    "gate:4a": "node packages/evals/bin/gate-4a-check.mjs",
+    "gate:4a:engine": "node packages/evals/bin/gate-4a-engine-check.mjs",
+    "gate:v1": "node packages/evals/bin/gate-v1-product-freeze-check.mjs",
+    "gate:v1:research": "node packages/evals/bin/gate-v1-research-layer-check.mjs",
+    "suggestions:validate": "node packages/evals/bin/gate-3b-live-check.mjs --present-only",
+    "suggestions:report": "node packages/evals/bin/suggestions-report.mjs",
+    "suggestions:bundle:validate": "node packages/evals/bin/suggestions-bundle-validate.mjs",
+    "suggestions:bundle:split": "node packages/evals/bin/suggestions-bundle-split.mjs",
+    "dev:trace:validate": "node packages/evals/bin/dev-trace-validate.mjs runs/dev/gate-1d-dry-run-export.json",
+    "physical:capture": "node packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs",
+    "physical:export": "node packages/replay/live-trace-recorder/scripts/export-physical-trace.mjs --operator-confirmed",
+    "physical:validate": "node packages/replay/live-trace-recorder/scripts/validate-physical-trace.mjs fixtures/replay/live/live_physical_focus_ritual_001.v0.json",
+    "verify:physical": "npm run physical:validate && node packages/evals/bin/darkquest-eval.mjs replay --repeat 3 fixtures/replay/live/live_physical_focus_ritual_001.v0.json && npm run gate:0b && npm run gate:1a && npm run gate:1b && npm run gate:1c && npm run test:adapter && npm run test:recorder && npm run typecheck",
+    "typecheck": "node --check packages/evals/bin/darkquest-eval.mjs && node --check packages/evals/bin/gate-1d-check.mjs && node --check packages/evals/bin/gate-1e-check.mjs && node --check packages/evals/bin/gate-1f-check.mjs && node --check packages/evals/bin/gate-2a-check.mjs && node --check packages/evals/bin/gate-3b-check.mjs && node --check packages/evals/bin/gate-3b-live-check.mjs && node --check packages/evals/bin/gate-4a-check.mjs && node --check packages/evals/bin/gate-4a-engine-check.mjs && node --check packages/evals/bin/gate-v1-product-freeze-check.mjs && node --check packages/evals/bin/gate-v1-research-layer-check.mjs && node --check packages/evals/bin/suggestions-report.mjs && node --check packages/evals/bin/suggestions-bundle-validate.mjs && node --check packages/evals/bin/suggestions-bundle-split.mjs && node --check packages/evals/bin/dev-trace-validate.mjs && node --check packages/replay/live-trace-recorder/bin/darkquest-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/export-physical-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/validate-physical-trace.mjs && node --check packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs && node --check packages/perception/browser-local-capture/prototype/local-capture.js && node --check packages/perception/browser-local-capture/server/movement-recognition-provider.mjs && node --check packages/perception/browser-local-capture/server/movement-recognition-server.mjs && node --check packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs"
+  },
+  "movementRecognitionRecommendedEnv": {
+    "MOVEMENT_RECOGNITION_MODEL": "google/gemma-4-31B-it:cerebras",
+    "MOVEMENT_RECOGNITION_MODEL_CANDIDATES": "google/gemma-4-31B-it:cerebras,meta-llama/Llama-4-Scout-17B-16E-Instruct:groq,CohereLabs/aya-vision-32b:cohere,zai-org/GLM-4.5V:zai-org,MiniMaxAI/MiniMax-M3:together"
+  }
+}

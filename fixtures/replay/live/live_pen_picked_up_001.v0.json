@@ -1,0 +1,431 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_pen_picked_up_001",
+  "name": "Gate 1A live pen picked up",
+  "description": "Controlled symbolic live trace through Gate 1A live pen picked up.",
+  "created_by": "PARALLAX live-perception-adapter",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_focus_ritual_001",
+        "zone_ids": [
+          "zone_focus",
+          "zone_notebook",
+          "zone_pen_tool",
+          "zone_keyboard",
+          "zone_away"
+        ],
+        "calibration_id": "cal_live_focus_ritual_001",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_scene_calibrated",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_phone_moved_to_zone_away",
+      "type": "object.moved",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.92,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 1000
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_1000_obj_phone_moved_to_zone_away",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_pen_placed_zone_pen_tool",
+      "type": "object.placed",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_pen",
+        "object_type": "pen",
+        "zone_id": "zone_pen_tool",
+        "dwell_ms": 1000
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_1000_obj_pen_placed_zone_pen_tool",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_keyboard_placed_zone_keyboard",
+      "type": "object.placed",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.91,
+      "payload": {
+        "object_id": "obj_keyboard",
+        "object_type": "keyboard",
+        "zone_id": "zone_keyboard",
+        "dwell_ms": 1000
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_1000_obj_keyboard_placed_zone_keyboard",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_notebook_placed_zone_notebook",
+      "type": "object.placed",
+      "timestamp_ms": 2200,
+      "producer": "perception.local",
+      "confidence": 0.91,
+      "payload": {
+        "object_id": "obj_notebook",
+        "object_type": "notebook",
+        "zone_id": "zone_notebook",
+        "dwell_ms": 800
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_2200_obj_notebook_placed_zone_notebook",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_hand_right_entered_zone_pen_tool",
+      "type": "hand.entered_zone",
+      "timestamp_ms": 3000,
+      "producer": "perception.local",
+      "confidence": 0.89,
+      "payload": {
+        "hand_id": "hand_right",
+        "zone_id": "zone_pen_tool",
+        "tracking_id": "trk_hand_right"
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_3000_hand_right_entered_zone_pen_tool",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_hand_right_entered_zone_notebook",
+      "type": "hand.entered_zone",
+      "timestamp_ms": 3300,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "hand_id": "hand_right",
+        "zone_id": "zone_notebook",
+        "tracking_id": "trk_hand_right"
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_3300_hand_right_entered_zone_notebook",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_pen_moved_to_zone_notebook",
+      "type": "object.moved",
+      "timestamp_ms": 3300,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_pen",
+        "object_type": "pen",
+        "from_zone_id": "zone_pen_tool",
+        "to_zone_id": "zone_notebook",
+        "duration_ms": 300
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_frm_3300_obj_pen_moved_to_zone_notebook",
+          "contains_raw_media": false
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_evt_scene_calibrated",
+        "event_id": "evt_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 0,
+        "must_occur_before_ms": 1,
+        "min_confidence": 0.94,
+        "payload_match": {
+          "session_id": "ses_live_focus_ritual_001",
+          "zone_ids": [
+            "zone_focus",
+            "zone_notebook",
+            "zone_pen_tool",
+            "zone_keyboard",
+            "zone_away"
+          ],
+          "calibration_id": "cal_live_focus_ritual_001",
+          "scene_confidence": 0.94
+        },
+        "evidence_includes": [
+          "ev_scene_calibrated"
+        ]
+      },
+      {
+        "id": "expect_evt_phone_moved_to_zone_away",
+        "event_id": "evt_phone_moved_to_zone_away",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 1001,
+        "min_confidence": 0.92,
+        "payload_match": {
+          "object_id": "obj_phone",
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away",
+          "duration_ms": 1000
+        },
+        "evidence_includes": [
+          "ev_frm_1000_obj_phone_moved_to_zone_away"
+        ]
+      },
+      {
+        "id": "expect_evt_pen_placed_zone_pen_tool",
+        "event_id": "evt_pen_placed_zone_pen_tool",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 1001,
+        "min_confidence": 0.9,
+        "payload_match": {
+          "object_id": "obj_pen",
+          "object_type": "pen",
+          "zone_id": "zone_pen_tool",
+          "dwell_ms": 1000
+        },
+        "evidence_includes": [
+          "ev_frm_1000_obj_pen_placed_zone_pen_tool"
+        ]
+      },
+      {
+        "id": "expect_evt_keyboard_placed_zone_keyboard",
+        "event_id": "evt_keyboard_placed_zone_keyboard",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 1001,
+        "min_confidence": 0.91,
+        "payload_match": {
+          "object_id": "obj_keyboard",
+          "object_type": "keyboard",
+          "zone_id": "zone_keyboard",
+          "dwell_ms": 1000
+        },
+        "evidence_includes": [
+          "ev_frm_1000_obj_keyboard_placed_zone_keyboard"
+        ]
+      },
+      {
+        "id": "expect_evt_notebook_placed_zone_notebook",
+        "event_id": "evt_notebook_placed_zone_notebook",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 2200,
+        "must_occur_before_ms": 2201,
+        "min_confidence": 0.91,
+        "payload_match": {
+          "object_id": "obj_notebook",
+          "object_type": "notebook",
+          "zone_id": "zone_notebook",
+          "dwell_ms": 800
+        },
+        "evidence_includes": [
+          "ev_frm_2200_obj_notebook_placed_zone_notebook"
+        ]
+      },
+      {
+        "id": "expect_evt_hand_right_entered_zone_pen_tool",
+        "event_id": "evt_hand_right_entered_zone_pen_tool",
+        "type": "hand.entered_zone",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 3000,
+        "must_occur_before_ms": 3001,
+        "min_confidence": 0.89,
+        "payload_match": {
+          "hand_id": "hand_right",
+          "zone_id": "zone_pen_tool",
+          "tracking_id": "trk_hand_right"
+        },
+        "evidence_includes": [
+          "ev_frm_3000_hand_right_entered_zone_pen_tool"
+        ]
+      },
+      {
+        "id": "expect_evt_hand_right_entered_zone_notebook",
+        "event_id": "evt_hand_right_entered_zone_notebook",
+        "type": "hand.entered_zone",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 3300,
+        "must_occur_before_ms": 3301,
+        "min_confidence": 0.9,
+        "payload_match": {
+          "hand_id": "hand_right",
+          "zone_id": "zone_notebook",
+          "tracking_id": "trk_hand_right"
+        },
+        "evidence_includes": [
+          "ev_frm_3300_hand_right_entered_zone_notebook"
+        ]
+      },
+      {
+        "id": "expect_evt_pen_moved_to_zone_notebook",
+        "event_id": "evt_pen_moved_to_zone_notebook",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 3300,
+        "must_occur_before_ms": 3301,
+        "min_confidence": 0.9,
+        "payload_match": {
+          "object_id": "obj_pen",
+          "object_type": "pen",
+          "from_zone_id": "zone_pen_tool",
+          "to_zone_id": "zone_notebook",
+          "duration_ms": 300
+        },
+        "evidence_includes": [
+          "ev_frm_3300_obj_pen_moved_to_zone_notebook"
+        ]
+      }
+    ],
+    "quest_transitions": [
+      {
+        "from_state": "phone_removal_pending",
+        "to_state": "phone_removed",
+        "trigger_event_id": "evt_phone_moved_to_zone_away",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_phone_away"
+      },
+      {
+        "from_state": "notebook_pending",
+        "to_state": "notebook_opened",
+        "trigger_event_id": "evt_notebook_placed_zone_notebook",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_notebook_open"
+      },
+      {
+        "from_state": "pen_pending",
+        "to_state": "pen_detected",
+        "trigger_event_id": "evt_pen_moved_to_zone_notebook",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_pen_pickup"
+      }
+    ],
+    "hud_commands": [
+      {
+        "command_id": "hud_mark_phone_away",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_phone_away",
+        "evidence_includes": [
+          "evt_step_phone_away_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_notebook_open",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_notebook_open",
+        "evidence_includes": [
+          "evt_step_notebook_open_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_pen_pickup",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_pen_pickup",
+        "evidence_includes": [
+          "evt_step_pen_pickup_completed"
+        ]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [
+      "agent.escalation_requested"
+    ],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 1
+      },
+      {
+        "approved_tier": 2
+      },
+      {
+        "approved_tier": 3
+      },
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      },
+      {
+        "input_class": "raw_video"
+      },
+      {
+        "input_class": "raw_frame"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

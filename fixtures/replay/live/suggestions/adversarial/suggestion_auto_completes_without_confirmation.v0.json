@@ -1,0 +1,74 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "suggestion_auto_completes_without_confirmation",
+  "name": "Adversarial suggestion auto-completes without confirmation",
+  "description": "Suggestion-only local motion trace that incorrectly completes a step without manual confirmation.",
+  "created_by": "GAUNTLET Gate 3B-Live",
+  "trace_origin": {
+    "source": "browser.local_camera",
+    "raw_media_persisted": false,
+    "cloud_calls_enabled": false,
+    "physical_capture": true,
+    "operator_confirmed_physical_session": true
+  },
+  "suggestion_summary": {
+    "suggestions_generated": 1,
+    "suggestions_accepted": 0,
+    "suggestions_rejected": 0,
+    "auto_completed_steps": 1,
+    "detection_method": "motion_proxy",
+    "confirmation_required": false,
+    "llm_calls": 0,
+    "vlm_calls": 0,
+    "raw_media_persistence_count": 0
+  },
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_auto_completed_writing",
+      "type": "gesture.detected",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.82,
+      "payload": {
+        "gesture_id": "gst_auto_001",
+        "gesture_type": "writing_motion",
+        "zone_id": "zone_notebook",
+        "actor_ref": "hand_right",
+        "evidence_window_ms": 900,
+        "detection_method": "motion_proxy",
+        "suggestion_only": true
+      },
+      "evidence": [
+        {
+          "id": "ev_auto_local",
+          "kind": "local_signal",
+          "contains_raw_media": false
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_experimental_state_event_v0",
+  "name": "Live adversarial experimental state event",
+  "description": "Fails Gate 1A when an experimental observation enters replay input_events.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_experimental_state_event",
+      "type": "experimental.state_event",
+      "timestamp_ms": 100,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "experimental": true,
+        "signal_name": "pen_tip_angle"
+      },
+      "evidence": []
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

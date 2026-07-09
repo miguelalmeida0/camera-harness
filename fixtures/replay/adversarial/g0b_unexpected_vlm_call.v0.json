@@ -1,0 +1,69 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_unexpected_vlm_call_v0",
+  "name": "Gate 0B unexpected VLM call",
+  "description": "Fails when a VLM escalation is requested in a no-cloud-call fixture.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_unexpected_vlm_call",
+      "type": "agent.escalation_requested",
+      "timestamp_ms": 100,
+      "producer": "model_router",
+      "confidence": 0.91,
+      "payload": {
+        "escalation_id": "esc_unexpected_vlm_call",
+        "requested_tier": 4,
+        "reason_code": "idle_visual_check",
+        "source_event_ids": [],
+        "privacy_scope": "object_crop_only",
+        "user_visible": true,
+        "max_cost_usd": 0
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_unexpected_vlm_call"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@darkquest/live-perception-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test:gate1a": "node --experimental-strip-types ./test/gate1a-live-adapter.test.ts",
+    "test:gate1b": "node --experimental-strip-types ./test/gate1b-live-adapter.test.ts",
+    "fixture:gate1a": "node --experimental-strip-types ./test/write-gate1a-live-fixture.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

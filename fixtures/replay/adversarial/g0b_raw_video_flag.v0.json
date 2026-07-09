@@ -1,0 +1,46 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_raw_video_flag_v0",
+  "name": "Gate 0B raw video flag rejection",
+  "description": "Fails when a fixture declares raw video content.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": true,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

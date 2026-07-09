@@ -1,0 +1,93 @@
+{
+  "schema": "darkquest.gate_manifest.v0",
+  "gate": "1A",
+  "repeat": 3,
+  "required_fixtures": [
+    {
+      "fixture": "fixtures/replay/live/live_focus_ritual_001.v0.json",
+      "expected_result": "PASS"
+    }
+  ],
+  "recommended_fixtures": [
+    {
+      "fixture": "fixtures/replay/live/live_phone_moved_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_notebook_opened_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_pen_picked_up_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_writing_motion_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_typing_motion_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_occlusion_recovery_001.v0.json",
+      "expected_result": "PASS"
+    },
+    {
+      "fixture": "fixtures/replay/live/live_camera_bump_reset_001.v0.json",
+      "expected_result": "PASS"
+    }
+  ],
+  "adversarial_fixtures": [
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_raw_media_violation.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["raw_media_persistence_violation"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_unexpected_vlm_call.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["unexpected_model_call"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_unknown_event_type.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["unknown_event_type"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_experimental_state_event.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["experimental_state_event"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_hidden_uncertainty.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["uncertainty_hidden_from_hud"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_memory_write_without_evidence.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["memory_write_without_evidence"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_quest_complete_without_support.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["quest_complete_without_support"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_broad_matcher_assertion.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["stable_event_assertion_too_broad"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_duplicate_event_id.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["duplicate_event_id"]
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_non_monotonic_timestamps.v0.json",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["non_monotonic_timestamps"]
+    }
+  ]
+}

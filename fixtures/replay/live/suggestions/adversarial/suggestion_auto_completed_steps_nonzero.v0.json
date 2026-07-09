@@ -1,0 +1,50 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "suggestion_auto_completed_steps_nonzero",
+  "name": "Adversarial auto completed steps nonzero",
+  "description": "Suggestion summary reports auto-completed steps.",
+  "created_by": "GAUNTLET Gate 3B-Live",
+  "trace_origin": {
+    "source": "browser.local_camera",
+    "raw_media_persisted": false,
+    "cloud_calls_enabled": false,
+    "physical_capture": true,
+    "operator_confirmed_physical_session": true
+  },
+  "suggestion_summary": {
+    "suggestions_generated": 1,
+    "suggestions_accepted": 0,
+    "suggestions_rejected": 0,
+    "auto_completed_steps": 1,
+    "detection_method": "motion_proxy",
+    "confirmation_required": true,
+    "llm_calls": 0,
+    "vlm_calls": 0,
+    "raw_media_persistence_count": 0
+  },
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

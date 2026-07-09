@@ -1,0 +1,3387 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DarkQuest Local Capture HUD</title>
+    <link rel="stylesheet" href="./darkquest-elite.css">
+    <style id="dqPremiumCompression">
+      :root {
+        --dq-bg: #fbfaf7;
+        --dq-surface: #ffffff;
+        --dq-surface-soft: #f6f4ef;
+        --dq-border: #e8e4dc;
+        --dq-border-strong: #d7d1c7;
+        --dq-text: #171717;
+        --dq-text-muted: #6f6a63;
+        --dq-text-soft: #9a948c;
+        --dq-black: #050505;
+        --dq-green: #2fbf71;
+        --dq-green-soft: #e8f7ef;
+        --dq-blue: #4c8df6;
+        --dq-blue-soft: #eaf2ff;
+        --dq-orange: #ff9f43;
+        --dq-orange-soft: #fff0dc;
+        --dq-red: #ff5a64;
+        --dq-red-soft: #ffe8ea;
+        --dq-purple: #9b7cf6;
+        --dq-purple-soft: #f0eaff;
+        --dq-yellow: #e5b93f;
+        --dq-yellow-soft: #fff7da;
+        --dq-radius-sm: 8px;
+        --dq-radius-md: 12px;
+        --dq-radius-lg: 16px;
+        --dq-radius-xl: 20px;
+        --dq-shadow-soft: 0 10px 30px rgba(20,20,20,0.06);
+        --dq-shadow-card: 0 1px 2px rgba(20,20,20,0.04), 0 16px 40px rgba(20,20,20,0.05);
+      }
+
+      body {
+        background: var(--dq-bg);
+        color: var(--dq-text);
+        overflow-x: hidden;
+      }
+
+      .dq-app {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 8px clamp(10px, 1.4vw, 18px) 18px;
+      }
+
+      .dq-pill {
+        border-radius: 999px;
+        white-space: nowrap;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .dq-disclosure-bar {
+        margin: 0 0 8px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 6px 8px;
+      }
+
+      .dq-disclosure-bar p,
+      .dq-disclosure {
+        margin: 0;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .dq-disclosure-bar .dq-disclosure {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .dq-disclosure-chip {
+        display: inline-flex;
+        min-width: 0;
+        max-width: 100%;
+        align-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        background: var(--dq-surface);
+        padding: 4px 8px;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-status-strip {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(112px, 1fr));
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .dq-status-privacy {
+        display: none;
+      }
+
+      .dq-status-card {
+        min-height: 42px;
+        display: grid;
+        grid-template-columns: 10px minmax(0, 1fr);
+        gap: 7px;
+        align-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface);
+        box-shadow: var(--dq-shadow-soft);
+        padding: 6px 8px;
+      }
+
+      .dq-status-card p,
+      .dq-status-card strong,
+      .dq-status-card small {
+        margin: 0;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-status-card p {
+        color: var(--dq-text-soft);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .dq-status-card strong {
+        display: block;
+        color: var(--dq-text);
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .dq-status-card small {
+        display: none;
+      }
+
+      .dq-status-icon {
+        width: 8px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--dq-border-strong);
+      }
+
+      .tone-success { background: var(--dq-green); }
+      .tone-warning { background: var(--dq-orange); }
+      .tone-danger { background: var(--dq-red); }
+      .tone-info { background: var(--dq-blue); }
+      .tone-privacy { background: var(--dq-purple); }
+      .tone-neutral { background: var(--dq-yellow); }
+
+      .dq-dashboard-grid {
+        display: grid;
+        grid-template-columns:
+          minmax(0, 1.2fr)
+          minmax(0, 1.2fr)
+          minmax(0, 1.2fr)
+          minmax(0, 0.8fr)
+          minmax(0, 0.8fr);
+        grid-template-areas:
+          "camera camera camera operator operator"
+          "camera camera camera operator operator"
+          "export export privacy events sequence";
+        grid-auto-rows: min-content;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .dq-main-column,
+      .dq-side-column,
+      .dq-lower-grid {
+        display: contents;
+      }
+
+      .dq-flow-column {
+        grid-area: operator;
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .dq-camera-card { grid-area: camera; }
+      .dq-events-card { grid-area: events; }
+      .dq-sequence-card { grid-area: sequence; }
+      #exportCard { grid-area: export; }
+      .dq-privacy-card { grid-area: privacy; }
+
+      .dq-card {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-lg);
+        background: var(--dq-surface);
+        box-shadow: var(--dq-shadow-card);
+        padding: 12px;
+      }
+
+      .dq-card h1,
+      .dq-card h2,
+      .dq-card h3,
+      .dq-card p,
+      .dq-card label,
+      .dq-card span,
+      .dq-card strong,
+      .dq-card small {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .dq-card h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .dq-operator-panel,
+      .dq-bottom-card {
+        min-width: 0;
+      }
+
+      .text-contained,
+      .card-contained,
+      .wrap-safe,
+      .truncate-safe,
+      .no-vertical-text,
+      .path-field,
+      .code-contained,
+      .scroll-contained {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .text-contained,
+      .wrap-safe,
+      .card-contained,
+      .note,
+      .dq-inline-note,
+      .dq-disclosure,
+      .dq-disclosure-chip {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .truncate-safe,
+      .path-field {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .no-vertical-text {
+        overflow: hidden;
+        overflow-wrap: normal;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        word-break: normal;
+      }
+
+      .code-contained,
+      .scroll-contained {
+        overflow: auto;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .scroll-contained {
+        max-height: 260px;
+      }
+
+      .dq-objective-card h1 {
+        margin: 2px 0 4px;
+        font-size: 20px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      .dq-camera-card {
+        padding: 12px;
+      }
+
+      .dq-camera-frame {
+        min-height: clamp(220px, 24vw, 340px);
+        border-radius: var(--dq-radius-lg);
+        overflow: hidden;
+        background: #111;
+      }
+
+      .dq-camera-reference,
+      #preview {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .dq-card-head,
+      .dq-card-head.compact,
+      .dq-calibration-ribbon,
+      .dq-readiness-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .dq-card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      .dq-calibration-ribbon,
+      .dq-readiness-summary {
+        margin-top: 8px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 7px 9px;
+      }
+
+      .dq-calibration-ribbon span,
+      .dq-readiness-summary span {
+        color: var(--dq-text-soft);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .dq-calibration-ribbon strong,
+      .dq-readiness-summary strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 14px;
+      }
+
+      .dq-path-pill {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 6px 7px;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .dq-path-pill code,
+      .path-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .dq-two-col,
+      .dq-metric-list,
+      .dq-mini-metrics,
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .dq-metric-list {
+        grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+      }
+
+      .dq-metric-list div,
+      .dq-mini-metrics div,
+      .status-grid .metric,
+      .dq-two-col div {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-sm);
+        background: var(--dq-surface-soft);
+        padding: 6px 8px;
+        overflow: hidden;
+      }
+
+      .dq-metric-list dt,
+      .dq-mini-metrics dt,
+      .dq-two-col span,
+      .status-grid strong {
+        color: var(--dq-text-soft);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .dq-metric-list dd,
+      .dq-mini-metrics dd,
+      .dq-two-col strong,
+      .status-grid span {
+        display: block;
+        margin: 2px 0 0;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--dq-text);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .metric span {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-button,
+      button {
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        line-height: 1.15;
+        max-width: 100%;
+        overflow: hidden;
+        overflow-wrap: normal;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        word-break: normal;
+      }
+
+      .dq-button.primary {
+        background: var(--dq-black);
+        color: #fff;
+      }
+
+      .dq-button.secondary,
+      .manual-action button,
+      .dq-path-pill button {
+        border: 1px solid var(--dq-border-strong);
+        background: var(--dq-surface);
+        color: var(--dq-text);
+      }
+
+      button:disabled {
+        color: var(--dq-text-soft);
+        opacity: 0.58;
+      }
+
+      .dq-flow-card {
+        padding: 14px;
+      }
+
+      .wizard-current {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 10px;
+      }
+
+      .wizard-current strong {
+        font-size: 17px;
+        line-height: 1.15;
+      }
+
+      .wizard-current span {
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      .wizard-list {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 5px;
+        margin: 0 0 8px;
+      }
+
+      .wizard-list .dq-step {
+        min-height: 0;
+        padding: 6px;
+      }
+
+      .wizard-list .dq-step-body p,
+      .wizard-list .dq-mini-button,
+      .wizard-list .dq-step-state {
+        display: none;
+      }
+
+      .dq-current-action-button {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .dq-inline-manuals {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+      }
+
+      .dq-operator-commands {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        background: var(--dq-surface);
+        padding: 12px;
+      }
+
+      .dq-current-manual {
+        display: grid;
+        gap: 6px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-green-soft);
+        padding: 8px;
+      }
+
+      .dq-current-manual button {
+        width: 100%;
+      }
+
+      .dq-inline-section-title h3,
+      .dq-inline-section-title p {
+        margin: 0;
+      }
+
+      .dq-inline-section-title {
+        display: grid;
+        gap: 4px;
+      }
+
+      .manual-action {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(132px, 1.1fr);
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface);
+        padding: 6px 7px;
+      }
+
+      .manual-action span {
+        min-width: 0;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      .manual-action small {
+        display: block;
+        color: var(--dq-text-soft);
+        font-size: 11px;
+        margin-top: 2px;
+      }
+
+      .manual-action button {
+        min-width: 0;
+        width: 100%;
+        padding: 7px 9px;
+        white-space: nowrap;
+        line-height: 1.15;
+      }
+
+      .dq-suggestion-panel {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-blue-soft);
+        padding: 7px;
+      }
+
+      .dq-suggestion-panel h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .dq-suggestion-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(64px, auto) minmax(64px, auto);
+        gap: 8px;
+        align-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-sm);
+        background: var(--dq-surface);
+        padding: 8px;
+      }
+
+      .dq-suggestion-row strong,
+      .dq-suggestion-row span,
+      .dq-suggestion-row small {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-suggestion-row small {
+        color: var(--dq-text-muted);
+        font-size: 12px;
+      }
+
+      .dq-events-card,
+      .dq-sequence-card {
+        padding: 12px;
+      }
+
+      .dq-event-list,
+      .dq-sequence-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .dq-event-row,
+      .dq-sequence-row,
+      .dq-check-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 7px 8px;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      .dq-event-row {
+        grid-template-columns: 48px 18px minmax(0, 1fr);
+        gap: 6px;
+      }
+
+      .dq-event-row time {
+        grid-column: 1;
+      }
+
+      .dq-event-row .dq-event-icon {
+        grid-column: 2;
+      }
+
+      .dq-event-row div {
+        grid-column: 3;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .dq-event-row time,
+      .dq-event-row p,
+      .dq-sequence-row em,
+      .dq-check-row em {
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-style: normal;
+        line-height: 1.3;
+      }
+
+      .dq-event-row strong,
+      .dq-sequence-row strong,
+      .dq-check-row strong {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+
+      .dq-sequence-row strong,
+      .dq-check-row strong,
+      .step span:last-child,
+      .step small {
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .dq-sequence-row strong,
+      .dq-sequence-row em,
+      .dq-check-row strong,
+      .dq-check-row em {
+        grid-column: 2;
+      }
+
+      .step small {
+        grid-column: 2;
+        display: block;
+      }
+
+      .dq-details-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 0;
+      }
+
+      .dq-dev-tools {
+        margin-top: 12px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-lg);
+        background: var(--dq-surface);
+        box-shadow: var(--dq-shadow-card);
+      }
+
+      .dq-dev-tools > summary {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 48px;
+        padding: 0 14px;
+        list-style: none;
+        font-weight: 800;
+      }
+
+      .dq-dev-tools > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .dq-dev-tools[open] {
+        padding-bottom: 12px;
+      }
+
+      .dq-dev-tools[open] > summary {
+        border-bottom: 1px solid var(--dq-border);
+        margin-bottom: 12px;
+      }
+
+      .dq-dev-tools .dq-dev-body {
+        display: grid;
+        gap: 10px;
+        padding: 0 12px;
+      }
+
+      .dq-details-grid .wide {
+        grid-column: auto;
+      }
+
+      details.dq-card {
+        padding: 0;
+      }
+
+      details.dq-card > summary {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 48px;
+        padding: 0 12px;
+        overflow: hidden;
+        list-style: none;
+      }
+
+      details.dq-card > summary::-webkit-details-marker,
+      details.dq-nested-details > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      details.dq-card > summary span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        font-weight: 800;
+      }
+
+      details.dq-card > summary small {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--dq-text-soft);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      details.dq-card[open] {
+        padding: 0 12px 12px;
+      }
+
+      details.dq-card[open] > summary {
+        margin: 0 -12px 10px;
+        border-bottom: 1px solid var(--dq-border);
+      }
+
+      .dq-export-card .dq-readiness-summary {
+        display: grid;
+        gap: 4px;
+      }
+
+      .dq-export-card .dq-readiness-summary p,
+      .dq-export-card .confirm {
+        margin: 0;
+      }
+
+      .dq-privacy-card .dq-disclosure {
+        margin-top: 6px;
+      }
+
+      .dq-command-tuning {
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-sm);
+        background: var(--dq-surface);
+        padding: 0 8px;
+      }
+
+      .dq-command-tuning > summary {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 44px;
+        list-style: none;
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--dq-text-muted);
+      }
+
+      .dq-command-tuning[open] {
+        padding-bottom: 8px;
+      }
+
+      .dq-command-tuning > summary span,
+      .dq-command-tuning > summary small {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-command-tuning > summary small {
+        color: var(--dq-text-soft);
+        font-weight: 700;
+      }
+
+      .campaign-shell {
+        display: grid;
+        grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+        gap: 12px;
+        min-width: 0;
+        align-items: start;
+      }
+
+      .campaign-trace-list,
+      .campaign-detail,
+      .campaign-detail-grid,
+      .campaign-counter-row,
+      .campaign-action-row,
+      .campaign-reason-list {
+        display: grid;
+        min-width: 0;
+      }
+
+      .campaign-trace-list {
+        gap: 6px;
+      }
+
+      .campaign-trace-row {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr);
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface);
+        padding: 8px;
+        cursor: pointer;
+      }
+
+      .campaign-trace-row.is-selected {
+        border-color: var(--dq-black);
+      }
+
+      .campaign-status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--dq-text-soft);
+      }
+
+      .campaign-status-dot.is-active,
+      .campaign-status-dot.is-ready_to_export {
+        background: var(--dq-green);
+      }
+
+      .campaign-status-dot.is-exported,
+      .campaign-status-dot.is-captured {
+        background: var(--dq-blue);
+      }
+
+      .campaign-trace-row strong,
+      .campaign-trace-row small,
+      .campaign-detail strong,
+      .campaign-detail span,
+      .campaign-detail p {
+        min-width: 0;
+      }
+
+      .campaign-trace-meta {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .campaign-status-pair {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .campaign-status-pill,
+      .campaign-chip {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .campaign-detail {
+        gap: 12px;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface);
+        padding: 12px;
+      }
+
+      .campaign-detail-grid {
+        gap: 8px;
+      }
+
+      .campaign-counter-row,
+      .campaign-action-row {
+        grid-template-columns: repeat(auto-fit, minmax(118px, max-content));
+        gap: 6px;
+      }
+
+      .campaign-action-row {
+        grid-template-columns: repeat(auto-fit, minmax(148px, max-content));
+      }
+
+      .campaign-action-row button {
+        min-width: max-content;
+        white-space: nowrap;
+      }
+
+      .campaign-path-field {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+        overflow: auto;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        padding: 8px;
+        background: var(--dq-bg);
+      }
+
+      .campaign-reason-list {
+        gap: 4px;
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .dq-pre {
+        max-height: 260px;
+        overflow: auto;
+        max-width: 100%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        border: 1px solid var(--dq-border);
+        border-radius: var(--dq-radius-md);
+        background: var(--dq-surface-soft);
+        padding: 10px;
+        font-size: 12px;
+      }
+
+      .zone-row,
+      .object-row {
+        display: grid;
+        grid-template-columns: 120px repeat(4, minmax(58px, 1fr));
+        gap: 8px;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--dq-border);
+      }
+
+      .object-row {
+        grid-template-columns: 120px minmax(0, 1fr);
+      }
+
+      .zone-row input,
+      .object-row select {
+        max-width: 100%;
+      }
+
+      @media (max-width: 1500px) {
+        .manual-action {
+          grid-template-columns: minmax(0, 0.9fr) minmax(132px, 1.1fr);
+        }
+      }
+
+      @media (max-width: 1280px) {
+        .dq-status-strip {
+          grid-template-columns: repeat(4, minmax(136px, 1fr));
+        }
+
+        .dq-dashboard-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-areas:
+            "camera camera"
+            "operator operator"
+            "export privacy"
+            "events sequence";
+        }
+
+        .dq-details-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 900px) {
+        .dq-status-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .dq-app {
+          padding: 10px;
+        }
+
+        .dq-lower-grid,
+        .dq-dashboard-grid,
+        .dq-details-grid,
+        .dq-two-col,
+        .dq-metric-list,
+        .dq-mini-metrics,
+        .status-grid,
+        .manual-action {
+          grid-template-columns: 1fr;
+        }
+
+        .dq-dashboard-grid {
+          grid-template-areas:
+            "camera"
+            "operator"
+            "export"
+            "privacy"
+            "events"
+            "sequence";
+        }
+
+        .dq-details-grid .wide {
+          grid-column: auto;
+        }
+
+        .dq-status-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .dq-card {
+          padding: 14px;
+        }
+
+        .dq-camera-frame {
+          min-height: 260px;
+        }
+
+        .manual-action button,
+        .dq-suggestion-row,
+        .dq-button-row .dq-button,
+        .dq-path-pill button {
+          width: 100%;
+        }
+
+        .dq-suggestion-row {
+          grid-template-columns: 1fr;
+        }
+
+        .zone-row {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 460px) {
+        .dq-status-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .dq-status-card small {
+          display: block;
+        }
+
+        details.dq-card > summary {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        details.dq-card > summary small {
+          display: none;
+          text-align: left;
+        }
+      }
+
+      /* Design Pass 6: operator-console handoff parity. */
+      .dq-app {
+        max-width: 1280px;
+        padding: 28px clamp(16px, 3vw, 36px) 28px;
+      }
+
+      .dq-page,
+      .dq-page * {
+        box-sizing: border-box;
+        min-width: 0;
+      }
+
+      .dq-brand-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .dq-brand-lockup {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .dq-logo {
+        display: grid;
+        flex: 0 0 auto;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 12px;
+        background: #11100f;
+        color: #fbfaf7;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .dq-brand-copy {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .dq-brand-copy strong {
+        overflow: hidden;
+        color: var(--dq-text);
+        font-size: 16px;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-brand-copy span {
+        overflow: hidden;
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        font-weight: 650;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-mode-pill {
+        flex: 0 0 auto;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        background: var(--dq-surface);
+        padding: 7px 14px;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+
+      .dq-disclosure-bar {
+        margin: 0 0 24px;
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .dq-disclosure-bar .dq-disclosure {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .dq-disclosure-chip {
+        border: 0;
+        background: #f5ecd9;
+        color: #5d513f;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+
+      #topStatusBar[hidden],
+      #objectiveCard[hidden],
+      #operatorCommandsCard[hidden] {
+        display: none !important;
+      }
+
+      .dq-dashboard-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+        grid-template-areas:
+          "camera step"
+          "camera manual"
+          "events progress"
+          "export validation"
+          "privacy validation"
+          "developer developer";
+        gap: 20px;
+        align-items: start;
+      }
+
+      .dq-main-column,
+      .dq-flow-column,
+      .dq-lower-grid,
+      .dq-side-column {
+        display: contents;
+      }
+
+      .dq-camera-card { grid-area: camera; }
+      #flowCard { grid-area: step; }
+      #operatorCommandsCard { grid-area: manual; }
+      .dq-events-card { grid-area: events; }
+      .dq-sequence-card { grid-area: progress; }
+      #exportCard { grid-area: export; }
+      .dq-privacy-card { grid-area: privacy; }
+      #validationCard { grid-area: validation; }
+      #developerTools { grid-area: developer; }
+
+      .dq-card,
+      .dq-dev-tools {
+        border-color: #e7e0d5;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 1px 2px rgba(30, 20, 10, 0.03), 0 16px 38px -28px rgba(30, 20, 10, 0.25);
+        padding: 20px;
+      }
+
+      .dq-card h2,
+      .dq-card h3 {
+        margin: 0;
+        color: var(--dq-text);
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .dq-card-head {
+        margin-bottom: 14px;
+        gap: 12px;
+      }
+
+      .dq-card-subtitle,
+      .dq-card .note,
+      .dq-disclosure {
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .dq-pill {
+        display: inline-flex;
+        align-items: center;
+        border: 0;
+        background: var(--dq-surface-soft);
+        padding: 7px 12px;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .dq-camera-card {
+        padding: 20px;
+      }
+
+      .dq-camera-frame {
+        position: relative;
+        display: grid;
+        width: 100%;
+        min-height: 0;
+        aspect-ratio: 16 / 10;
+        place-items: center;
+        border-radius: 14px;
+        background: #151515;
+      }
+
+      .dq-camera-frame::before {
+        content: "Camera is off. Start the camera to see the local preview.";
+        max-width: min(72%, 560px);
+        color: rgba(255, 255, 255, 0.42);
+        font-size: 14px;
+        line-height: 1.4;
+        text-align: center;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-camera-frame.is-live::before {
+        content: "";
+        display: none;
+      }
+
+      .dq-camera-reference {
+        display: none;
+      }
+
+      #preview {
+        display: none;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+        transform-origin: center;
+      }
+
+      .dq-camera-frame.is-live #preview {
+        display: block;
+      }
+
+      .dq-preview-chips {
+        position: absolute;
+        right: auto;
+        bottom: 10px;
+        left: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-width: calc(100% - 20px);
+        pointer-events: none;
+      }
+
+      .dq-preview-chips span {
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        padding: 7px 10px;
+        font-size: 11px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .dq-preview-tools {
+        top: 10px;
+        right: 10px;
+        bottom: auto;
+        left: auto;
+      }
+
+      .dq-fit-tools {
+        display: none !important;
+      }
+
+      .dq-calibration-ribbon {
+        display: none;
+      }
+
+      .dq-step-kicker {
+        margin: 0;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .wizard-current {
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .wizard-current h2 {
+        margin-top: 6px;
+        font-size: 22px;
+        line-height: 1.12;
+      }
+
+      .wizard-current p {
+        margin: 10px 0 0;
+        color: var(--dq-text-muted);
+        font-size: 14px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .wizard-list {
+        display: none;
+      }
+
+      .dq-button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .dq-button,
+      button {
+        min-height: 38px;
+        border: 0;
+        padding: 9px 18px;
+        font-size: 13px;
+        font-weight: 850;
+      }
+
+      .dq-button.primary,
+      .dq-current-action-button,
+      #exportTrace {
+        min-width: 160px;
+        background: #11100f;
+        color: #fff;
+      }
+
+      .dq-button.secondary,
+      .manual-action button,
+      .dq-path-pill button {
+        border: 1px solid var(--dq-border);
+        background: var(--dq-surface);
+      }
+
+      .dq-current-action-button {
+        width: auto;
+      }
+
+      .dq-progress-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 0 12px;
+      }
+
+      .dq-progress-head span,
+      .dq-progress-head b {
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .dq-progress-track {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #d9d7d2;
+      }
+
+      .dq-progress-track span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: #11100f;
+      }
+
+      .dq-progress-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .dq-progress-list .step {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .dq-progress-list .step > span:first-child {
+        display: grid;
+        width: 16px;
+        height: 16px;
+        place-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        color: transparent;
+        font-size: 10px;
+      }
+
+      .dq-progress-list .step.active > span:first-child {
+        border: 2px solid #11100f;
+      }
+
+      .dq-progress-list .step.done > span:first-child {
+        border-color: #11100f;
+        background: #11100f;
+        color: #fff;
+      }
+
+      .dq-progress-list .step span:last-child {
+        overflow: hidden;
+        color: var(--dq-text-muted);
+        font-size: 14px;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-progress-list .step.active span:last-child {
+        color: var(--dq-text);
+        font-weight: 800;
+      }
+
+      .dq-progress-list .step small {
+        display: none;
+      }
+
+      .dq-path-label {
+        display: block;
+        margin-top: 16px;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .dq-path-pill {
+        margin-top: 8px;
+        border-radius: 10px;
+        background: rgba(246, 244, 239, 0.72);
+        padding: 10px;
+      }
+
+      .confirm {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-top: 14px;
+        border-radius: 10px;
+        background: #fbf2e2;
+        padding: 12px;
+        color: #5d513f;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .confirm input {
+        flex: 0 0 auto;
+        width: 18px;
+        height: 18px;
+      }
+
+      .dq-privacy-card .dq-metric-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .dq-metric-list div,
+      .dq-mini-metrics div,
+      .status-grid .metric,
+      .dq-two-col div {
+        border: 0;
+        border-radius: 8px;
+        background: var(--dq-surface-soft);
+      }
+
+      .dq-validation-card {
+        min-height: 0;
+      }
+
+      .dq-validation-card .code-contained {
+        margin-top: 10px;
+        border: 1px solid var(--dq-border);
+        border-radius: 10px;
+        background: var(--dq-surface-soft);
+        padding: 10px;
+      }
+
+      .dq-dev-tools {
+        margin-top: 0;
+        padding: 0;
+      }
+
+      .dq-dev-tools > summary {
+        min-height: 0;
+        padding: 20px 24px;
+      }
+
+      .dq-dev-tools > summary span {
+        display: block;
+        overflow: hidden;
+        font-size: 15px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-dev-tools > summary small {
+        display: block;
+        margin-top: 4px;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 650;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dq-dev-tools[open] > summary {
+        margin-bottom: 0;
+      }
+
+      .dq-dev-tools .dq-dev-body {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        padding: 18px;
+      }
+
+      .dq-dev-body > .dq-card,
+      .dq-details-grid > .dq-card,
+      .dq-details-grid > details {
+        min-height: 0;
+        padding: 0;
+      }
+
+      .dq-details-grid {
+        display: contents;
+      }
+
+      details.dq-card > summary {
+        min-height: 40px;
+        padding: 10px 12px;
+      }
+
+      details.dq-card[open] {
+        padding: 0 12px 12px;
+      }
+
+      .dq-dev-body > details[open],
+      .dq-details-grid > details[open] {
+        grid-column: 1 / -1;
+      }
+
+      .dq-pre,
+      .code-contained,
+      .scroll-contained {
+        max-height: 220px;
+        white-space: pre-wrap;
+      }
+
+      @media (max-width: 980px) {
+        .dq-dashboard-grid {
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            "camera"
+            "step"
+            "manual"
+            "progress"
+            "privacy"
+            "events"
+            "export"
+            "validation"
+            "developer";
+        }
+
+        .dq-dev-tools .dq-dev-body {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        .dq-app {
+          padding: 18px 12px 22px;
+        }
+
+        .dq-brand-row {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .dq-mode-pill {
+          max-width: 100%;
+        }
+
+        .dq-card,
+        .dq-dev-tools > summary {
+          padding: 16px;
+        }
+
+        .dq-camera-frame {
+          aspect-ratio: 4 / 3;
+        }
+
+        .dq-privacy-card .dq-metric-list,
+        .dq-dev-tools .dq-dev-body,
+        .dq-campaign-actions,
+        .campaign-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .dq-button,
+        .dq-current-action-button,
+        #exportTrace {
+          width: 100%;
+        }
+      }
+
+      /* Handoff console port: Paper & Ink tokens, bounded streaming regions. */
+      :root {
+        --dq-bg: oklch(0.985 0.008 85);
+        --dq-surface: oklch(0.995 0.005 85);
+        --dq-surface-soft: oklch(0.965 0.012 85);
+        --dq-surface-strong: oklch(0.935 0.014 85);
+        --dq-border: oklch(0.9 0.012 85);
+        --dq-text: oklch(0.18 0.01 60);
+        --dq-text-muted: oklch(0.48 0.012 60);
+        --dq-black: oklch(0.22 0.015 60);
+        --dq-success-bg: oklch(0.92 0.05 155);
+        --dq-success-text: oklch(0.32 0.08 155);
+        --dq-info-bg: oklch(0.94 0.03 250);
+        --dq-info-text: oklch(0.38 0.12 250);
+        --dq-warning-bg: oklch(0.93 0.06 85);
+        --dq-warning-text: oklch(0.42 0.1 65);
+        --zone-notebook: oklch(0.75 0.18 145);
+        --zone-keyboard: oklch(0.8 0.16 75);
+        --zone-off-desk: oklch(0.7 0.18 285);
+        --zone-pen: oklch(0.75 0.15 200);
+        --zone-neutral: oklch(0.7 0.02 60);
+      }
+
+      body {
+        background: var(--dq-bg);
+        color: var(--dq-text);
+      }
+
+      .dq-app {
+        max-width: none;
+        min-height: 100vh;
+        padding: 0;
+      }
+
+      .dq-top-status,
+      .dq-brand-row,
+      #movementPrivacyDisclosure {
+        display: none !important;
+      }
+
+      .dq-top-status {
+        display: flex;
+        min-height: 24px;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        background: var(--dq-black);
+        color: var(--dq-bg);
+        padding: 0 16px;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .dq-live-led,
+      .dq-badge-dot,
+      .dq-preview-live-chip span {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: #73716b;
+      }
+
+      .dq-camera-live .dq-live-led,
+      .dq-camera-live .dq-badge-dot,
+      .dq-camera-frame.is-live .dq-preview-live-chip span {
+        background: #34d399;
+        animation: dqPulse 1.3s ease-in-out infinite;
+      }
+
+      @keyframes dqPulse {
+        0%, 100% { opacity: .55; }
+        50% { opacity: 1; }
+      }
+
+      .dq-page {
+        width: min(100% - 48px, 1400px);
+        margin: 0 auto;
+        padding: 24px 0;
+      }
+
+      .dq-page,
+      .dq-page * {
+        box-sizing: border-box;
+        min-width: 0;
+      }
+
+      .dq-brand-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 16px;
+        margin-bottom: 14px;
+      }
+
+      .dq-brand-lockup {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .dq-logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: var(--dq-black);
+        color: var(--dq-bg);
+        font-size: 16px;
+        font-weight: 900;
+      }
+
+      .dq-brand-copy strong {
+        color: var(--dq-text);
+        font-size: 20px;
+        font-weight: 900;
+        line-height: 1.05;
+      }
+
+      .dq-brand-copy span,
+      .dq-card-subtitle,
+      .note,
+      .dq-disclosure {
+        color: var(--dq-text-muted);
+      }
+
+      .dq-header-badges,
+      .dq-disclosure-bar .dq-disclosure {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-badge,
+      .dq-disclosure-chip,
+      .dq-pill {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        background: var(--dq-surface-soft);
+        color: var(--dq-text-muted);
+        padding: 6px 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .dq-badge-mono {
+        font-family: var(--dq-mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .dq-badge-info {
+        border-color: transparent;
+        background: var(--dq-info-bg);
+        color: var(--dq-info-text);
+      }
+
+      .dq-camera-live .dq-badge-live {
+        border-color: transparent;
+        background: var(--dq-success-bg);
+        color: var(--dq-success-text);
+      }
+
+      .dq-disclosure-bar {
+        margin: 0 0 24px;
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      #topStatusBar[hidden],
+      #objectiveCard[hidden] {
+        display: none !important;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .dq-dashboard-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 8fr) minmax(340px, 4fr) !important;
+        grid-template-areas: none !important;
+        gap: 24px;
+        align-items: start;
+      }
+
+      .dq-main-column,
+      .dq-flow-column {
+        grid-area: auto !important;
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 24px;
+      }
+
+      .dq-lower-grid {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+
+      .dq-camera-card,
+      #flowCard,
+      #operatorCommandsCard,
+      .dq-events-card,
+      .dq-sequence-card,
+      .dq-privacy-card,
+      #exportCard,
+      #validationCard,
+      #developerTools {
+        grid-area: auto !important;
+      }
+
+      #developerTools {
+        grid-column: 1 / -1;
+      }
+
+      .dq-card,
+      .dq-dev-tools {
+        border: 1px solid var(--dq-border);
+        border-radius: 16px;
+        background: var(--dq-surface);
+        box-shadow: 0 1px 0 rgba(0, 0, 0, .02);
+        padding: 20px !important;
+        overflow: hidden;
+      }
+
+      .dq-card h2,
+      .dq-card h3 {
+        color: var(--dq-text);
+        font-size: 15px !important;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+
+      .dq-card-head {
+        margin-bottom: 16px;
+      }
+
+      .dq-card-actions {
+        align-items: center;
+        gap: 8px;
+      }
+
+      .dq-button,
+      button {
+        min-height: 34px;
+        border-radius: 999px;
+        padding: 7px 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .dq-button.primary,
+      .dq-current-action-button,
+      #exportTrace {
+        border-color: var(--dq-black);
+        background: var(--dq-black);
+        color: var(--dq-bg);
+      }
+
+      .dq-button.secondary,
+      .manual-action button,
+      .dq-path-pill button,
+      #copyValidation,
+      #copySavePath {
+        border: 1px solid var(--dq-border);
+        background: var(--dq-surface);
+        color: var(--dq-text);
+      }
+
+      .dq-camera-live #startCamera,
+      body:not(.dq-camera-live) #stopCamera,
+      body:not(.dq-camera-live) #resetSession {
+        display: none;
+      }
+
+      .dq-camera-frame {
+        position: relative;
+        display: block;
+        aspect-ratio: 16 / 10;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        overflow: hidden;
+        border-radius: 16px;
+        background: #111;
+        box-shadow: none;
+      }
+
+      .dq-camera-frame::before {
+        display: none;
+      }
+
+      .dq-camera-reference,
+      #preview {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      #preview {
+        z-index: 2;
+        opacity: 0;
+      }
+
+      .dq-camera-frame.is-live .dq-camera-reference {
+        opacity: 0;
+      }
+
+      .dq-camera-frame.is-live #preview {
+        opacity: 1;
+      }
+
+      .zone-overlay {
+        z-index: 3;
+      }
+
+      .zone-box {
+        border-radius: 10px;
+        background: rgba(255, 255, 255, .06);
+      }
+
+      .zone-box span {
+        top: -10px;
+        left: 8px;
+        border-radius: 6px;
+        background: rgba(15, 15, 15, .82);
+        padding: 3px 6px;
+        font-family: var(--dq-mono);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .zone-notebook-zone { color: var(--zone-notebook); }
+      .zone-keyboard-zone { color: var(--zone-keyboard); }
+      .zone-off-desk-zone { color: var(--zone-off-desk); }
+      .zone-pen-zone { color: var(--zone-pen); }
+      .zone-neutral-zone { color: var(--zone-neutral); }
+      .zone-phone-zone { color: var(--zone-notebook); }
+
+      .dq-camera-status-chip,
+      .dq-preview-live-chip,
+      .dq-preview-chips span {
+        position: absolute;
+        z-index: 4;
+        display: inline-flex;
+        max-width: calc(100% - 24px);
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, .66);
+        color: #fff;
+        padding: 6px 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+        font-weight: 760;
+      }
+
+      .dq-camera-status-chip {
+        top: 12px;
+        left: 12px;
+        background: #ecfdf5;
+        color: #065f46;
+      }
+
+      .dq-camera-icon {
+        width: 10px;
+        height: 10px;
+        border: 2px solid currentColor;
+        border-radius: 3px;
+      }
+
+      .dq-preview-live-chip {
+        top: 12px;
+        right: 12px;
+        display: none;
+      }
+
+      .dq-camera-frame.is-live .dq-preview-live-chip {
+        display: inline-flex;
+      }
+
+      .dq-preview-chips {
+        position: absolute;
+        z-index: 4;
+        bottom: 12px;
+        left: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        max-width: calc(100% - 24px);
+      }
+
+      .dq-preview-chips span {
+        position: static;
+        border-radius: 8px;
+      }
+
+      .wizard-current,
+      .dq-current-manual,
+      .dq-suggestion-panel {
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .dq-manual-title,
+      .dq-current-manual:empty {
+        display: none;
+      }
+
+      .wizard-current h2 {
+        margin: 6px 0 0;
+        font-size: 18px !important;
+        line-height: 1.14;
+      }
+
+      .wizard-current p,
+      .dq-current-manual .note,
+      .dq-suggestion-panel .note {
+        margin: 8px 0 0;
+        font-size: 13px !important;
+        line-height: 1.45;
+      }
+
+      .dq-inline-note {
+        margin-top: 16px;
+        border-radius: 12px;
+        background: var(--dq-success-bg);
+        color: var(--dq-success-text);
+        padding: 10px 12px;
+        font-size: 13px !important;
+      }
+
+      .wizard-list {
+        display: none;
+      }
+
+      .dq-current-manual {
+        display: grid;
+        gap: 8px;
+        margin: 12px 0 16px;
+        border-radius: 12px;
+        background: var(--dq-warning-bg);
+        padding: 12px;
+        color: var(--dq-warning-text);
+      }
+
+      .dq-suggestion-title-row,
+      .dq-progress-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      [data-product-card="detected-action"] {
+        min-height: 0;
+      }
+
+      .dq-suggestion-list {
+        min-height: 136px;
+        margin-top: 12px;
+        overflow: visible;
+        padding-right: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--dq-border) transparent;
+      }
+
+      .dq-movement-result {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+        border: 1px solid var(--dq-border);
+        border-radius: 14px;
+        background: var(--dq-surface);
+        padding: 14px;
+      }
+
+      .result-card-stable {
+        min-height: 132px;
+      }
+
+      [data-product-card="detected-action"] > .dq-button-row {
+        min-height: 40px;
+        align-items: center;
+      }
+
+      .dq-movement-result.result-reveal {
+        animation: dq-result-ready 180ms ease-out;
+      }
+
+      .result-hero,
+      .result-reveal,
+      .reduced-motion-safe {
+        min-width: 0;
+      }
+
+      @keyframes dq-result-ready {
+        from { opacity: 0.82; transform: translateY(2px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .dq-movement-result,
+        .result-reveal.reduced-motion-safe {
+          animation: none;
+        }
+      }
+
+      .dq-movement-control-help,
+      .dq-live-narrator-note {
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-mode-control,
+      .dq-movement-summary-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-mode-control {
+        margin-top: 10px;
+      }
+
+      .dq-mode-control > span,
+      .dq-movement-summary-row {
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .dq-mode-control label {
+        min-width: 0;
+        color: var(--dq-text);
+        font-size: 13px;
+      }
+
+      .dq-movement-status {
+        color: var(--dq-text-muted);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .dq-movement-sentence {
+        min-width: 0;
+        color: var(--dq-text);
+        font-size: 20px;
+        font-weight: 760;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+        white-space: normal;
+      }
+
+      .movement-sentence {
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .dq-movement-hint {
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-readable-detail {
+        min-width: 0;
+      }
+
+      .dq-readable-detail > summary {
+        cursor: pointer;
+        font-weight: 760;
+      }
+
+      .dq-readable-copy,
+      .dq-evidence-list {
+        margin: 6px 0 0;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .dq-evidence-list {
+        padding-left: 18px;
+      }
+
+      .dq-result-details {
+        margin-top: 4px;
+      }
+
+      .dq-result-details .dq-metric-list {
+        margin-top: 10px;
+      }
+
+      .dq-correction-form,
+      .dq-history-list {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-correction-form[hidden] {
+        display: none;
+      }
+
+      .dq-correction-form label {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .dq-correction-form input {
+        min-width: 0;
+        border: 1px solid var(--dq-border);
+        border-radius: 10px;
+        background: var(--dq-surface);
+        color: var(--dq-text);
+        padding: 10px;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-history-list {
+        margin-top: 8px;
+      }
+
+      .dq-history-item {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+        border-radius: 8px;
+        background: var(--dq-surface-soft);
+        padding: 8px;
+      }
+
+      .dq-history-item strong,
+      .dq-history-item span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-history-item span {
+        color: var(--dq-text-muted);
+        font-size: 12px;
+      }
+
+      [data-product-card="detected-action"] .dq-metric-list dd {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+      }
+
+      .dq-primary-action-region {
+        contain: layout;
+      }
+
+      .dq-suggestion-list > .note,
+      .dq-event-list > .note {
+        min-height: 0;
+        border: 1px dashed var(--dq-border);
+        border-radius: 12px;
+        background: color-mix(in oklab, var(--dq-surface-soft) 68%, transparent);
+        padding: 18px;
+        text-align: center;
+      }
+
+      .dq-suggestion-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+        min-height: 116px;
+        margin-bottom: 8px;
+        border: 1px solid var(--dq-border);
+        border-radius: 14px;
+        background: var(--dq-surface);
+        padding: 12px;
+      }
+
+      .dq-suggestion-row > div {
+        min-width: 0;
+      }
+
+      .dq-suggestion-row strong,
+      .dq-suggestion-row span,
+      .dq-suggestion-row small {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-zone-chip {
+        display: inline-flex;
+        width: fit-content;
+        max-width: 100%;
+        border-radius: 6px;
+        background: color-mix(in oklab, currentColor 16%, transparent);
+        padding: 3px 6px;
+        font-family: var(--dq-mono);
+        font-size: 10px;
+        font-weight: 760;
+        line-height: 1.1;
+      }
+
+      .dq-suggestion-kind {
+        display: inline-block;
+        margin: 0 0 0 8px;
+        color: var(--dq-text-muted);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: .04em;
+        line-height: 1.1;
+        text-transform: uppercase;
+      }
+
+      .dq-suggestion-row strong {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        color: var(--dq-text);
+        font-size: 13px;
+        line-height: 1.25;
+      }
+
+      .dq-suggestion-row .dq-suggestion-meta {
+        margin-top: 8px;
+        color: var(--dq-text-muted);
+        font-family: var(--dq-mono);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .dq-suggestion-actions {
+        display: grid;
+        min-width: 104px;
+        gap: 6px;
+      }
+
+      .dq-suggestion-actions button {
+        white-space: nowrap;
+      }
+
+      .dq-suggestion-expiry {
+        grid-column: 1 / -1;
+        height: 3px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--dq-border);
+      }
+
+      .dq-suggestion-expiry span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: color-mix(in oklab, var(--dq-black) 72%, transparent);
+        transition: width 1s linear;
+      }
+
+      .dq-event-list {
+        display: grid;
+        max-height: 360px;
+        overflow-y: auto;
+        gap: 6px;
+        padding-right: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--dq-border) transparent;
+      }
+
+      .dq-event-row {
+        display: grid;
+        grid-template-columns: 52px 10px minmax(0, 1fr) 112px;
+        gap: 10px;
+        align-items: center;
+        border: 1px solid color-mix(in oklab, var(--dq-border) 70%, transparent);
+        border-radius: 10px;
+        background: color-mix(in oklab, var(--dq-surface-soft) 52%, transparent);
+        padding: 10px !important;
+      }
+
+      .dq-event-row time,
+      .dq-event-row .dq-event-confidence {
+        color: var(--dq-text-muted);
+        font-family: var(--dq-mono);
+        font-size: 11px !important;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .dq-event-icon {
+        width: 8px;
+        height: 8px;
+        color: transparent;
+      }
+
+      .dq-event-row strong {
+        overflow: hidden;
+        color: var(--dq-text);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px !important;
+      }
+
+      .dq-event-row p {
+        margin: 3px 0 0;
+        overflow: hidden;
+        color: var(--dq-text-muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px !important;
+      }
+
+      .dq-confidence-track {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .dq-confidence-track i {
+        display: block;
+        flex: 1 1 auto;
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--dq-border);
+      }
+
+      .dq-confidence-track i span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: color-mix(in oklab, var(--dq-black) 72%, transparent);
+      }
+
+      .dq-progress-track {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--dq-border);
+      }
+
+      .dq-progress-track span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--dq-black);
+        transition: width .5s ease;
+      }
+
+      .dq-progress-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .dq-progress-list .step {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .dq-progress-list .step > span:first-child {
+        display: grid;
+        width: 16px;
+        height: 16px;
+        place-items: center;
+        border: 1px solid var(--dq-border);
+        border-radius: 999px;
+        color: transparent;
+        font-size: 10px;
+      }
+
+      .dq-progress-list .step.active > span:first-child {
+        border: 2px solid var(--dq-black);
+      }
+
+      .dq-progress-list .step.done > span:first-child {
+        border-color: var(--dq-black);
+        background: var(--dq-black);
+        color: var(--dq-bg);
+      }
+
+      .dq-progress-list .step span:last-child {
+        overflow: hidden;
+        color: var(--dq-text-muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+
+      .dq-progress-list .step.active span:last-child {
+        color: var(--dq-text);
+        font-weight: 800;
+      }
+
+      .dq-progress-list .step small {
+        display: none;
+      }
+
+      .dq-path-pill {
+        grid-template-columns: minmax(0, 1fr) auto;
+        border-radius: 10px;
+        background: var(--dq-surface-soft);
+        padding: 10px;
+      }
+
+      .confirm {
+        border: 1px solid color-mix(in oklab, var(--dq-warning-bg) 80%, var(--dq-border));
+        border-radius: 12px;
+        background: var(--dq-warning-bg);
+        color: var(--dq-warning-text);
+      }
+
+      .dq-metric-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .dq-metric-list div,
+      .dq-mini-metrics div,
+      .status-grid .metric {
+        border: 0;
+        border-radius: 8px;
+        background: var(--dq-surface-soft);
+      }
+
+      .dq-dev-tools {
+        margin-top: 0;
+        padding: 0;
+      }
+
+      .dq-dev-tools > summary {
+        min-height: 0;
+        padding: 20px;
+      }
+
+      .dq-dev-tools .dq-dev-body {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding: 18px;
+      }
+
+      .dq-pre,
+      .code-contained,
+      .scroll-contained {
+        max-height: 220px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      @media (max-width: 980px) {
+        .dq-page {
+          width: min(100% - 24px, 1400px);
+          padding: 20px 0;
+        }
+
+        .dq-dashboard-grid {
+          grid-template-columns: 1fr !important;
+          grid-template-areas: none !important;
+        }
+
+        .dq-brand-row {
+          grid-template-columns: 1fr;
+        }
+
+        .dq-header-badges {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .dq-dashboard-grid {
+          gap: 16px;
+        }
+
+        .dq-card,
+        .dq-dev-tools > summary {
+          padding: 16px;
+        }
+
+        .dq-camera-frame {
+          aspect-ratio: 4 / 3;
+        }
+
+        .dq-card-actions,
+        .dq-header-badges,
+        .dq-disclosure-bar .dq-disclosure {
+          justify-content: flex-start;
+        }
+
+        .dq-button,
+        .dq-current-action-button,
+        #exportTrace {
+          width: 100%;
+        }
+
+        .dq-event-row {
+          grid-template-columns: 48px 8px minmax(0, 1fr);
+        }
+
+        .dq-event-row .dq-event-confidence {
+          display: none;
+        }
+
+        .dq-suggestion-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="dq-app">
+      <div class="dq-top-status" aria-label="Runtime status">
+        <span id="topLiveDot" class="dq-live-led" aria-hidden="true"></span>
+        <span class="dq-top-status-text">Local console</span>
+      </div>
+      <div id="dashboard" class="dq-page">
+        <header class="dq-brand-row" aria-label="DarkQuest local capture console">
+          <div class="dq-brand-lockup">
+            <div class="dq-logo" aria-hidden="true">DQ</div>
+            <div class="dq-brand-copy">
+              <strong>DarkQuest</strong>
+              <span>AI Movement Narrator</span>
+              <small>Show a movement. Let AI describe what happened.</small>
+            </div>
+          </div>
+          <div class="dq-header-badges" aria-label="Local capture status">
+            <span class="dq-badge">Manual confirmation</span>
+            <span class="dq-badge">No raw media stored</span>
+            <span id="headerModelStatus" class="dq-badge dq-badge-mono">LLM 0 · VLM 0 · $0</span>
+            <span id="headerLiveStatus" class="dq-badge dq-badge-live"><span class="dq-badge-dot" aria-hidden="true"></span> Idle</span>
+          </div>
+        </header>
+
+        <section id="movementPrivacyDisclosure" class="dq-disclosure-bar" aria-label="Movement privacy disclosure">
+          <p class="dq-disclosure">
+            <span class="dq-disclosure-chip">Manual local confirmation — not automatic vision.</span>
+            <span class="dq-disclosure-chip">Describe my next movement sends a short temporary frame window only after you click.</span>
+            <span class="dq-disclosure-chip">No continuous upload.</span>
+            <span class="dq-disclosure-chip">No raw media is saved by this app.</span>
+          </p>
+        </section>
+
+        <section id="topStatusBar" class="dq-status-strip" aria-label="Runtime status" hidden>
+          <span class="sr-only">Runtime status</span>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-success" aria-hidden="true"></span>
+            <div><p>Camera Ready</p><strong id="statusCamera">Off</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-success" aria-hidden="true"></span>
+            <div><p>Calibration</p><strong id="statusCalibration">Missing</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-warning" aria-hidden="true"></span>
+            <div><p>Quest</p><strong id="statusQuest">Idle</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-danger" aria-hidden="true"></span>
+            <div><p>Recording</p><strong id="statusRecording">Off</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-info" aria-hidden="true"></span>
+            <div><p>Export</p><strong id="statusExport">Not ready</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-success" aria-hidden="true"></span>
+            <div><p>Validation</p><strong id="statusValidation">Pending export</strong></div>
+          </article>
+          <article class="dq-status-card dq-status-privacy">
+            <span class="dq-status-icon tone-privacy" aria-hidden="true"></span>
+            <div><p>Privacy</p><strong id="statusPrivacy">Raw media off</strong></div>
+          </article>
+          <article class="dq-status-card">
+            <span class="dq-status-icon tone-neutral" aria-hidden="true"></span>
+            <div><p>Models</p><strong id="statusModels">LLM 0 · VLM 0 · $0</strong><small id="statusModelCost" hidden>cost=$0</small></div>
+          </article>
+        </section>
+
+        <div id="mainWorkspace" class="dq-dashboard-grid" aria-label="Main workspace">
+          <div class="dq-main-column">
+            <section class="dq-card dq-camera-card card-contained" aria-labelledby="cameraTitle">
+              <div class="dq-card-head">
+                <div class="text-contained">
+                  <h2 id="cameraTitle">Live camera preview</h2>
+                  <p class="dq-card-subtitle">Local preview · <span id="calibrationStatusHero">One movement at a time</span></p>
+                </div>
+                <div class="dq-card-actions">
+                  <span id="cameraCardStatus" class="dq-pill no-vertical-text">Camera off</span>
+                  <button id="startCamera" class="dq-button primary" type="button">Start Camera</button>
+                  <button id="stopCamera" class="dq-button secondary" type="button">Stop Camera</button>
+                  <button id="analyzeMovement" class="dq-button primary" type="button">Describe my next movement</button>
+                  <button id="resetSession" class="dq-button secondary" type="button" hidden>Reset Session</button>
+                </div>
+                <p id="movementControlHelp" class="dq-movement-control-help">Start the camera, then describe a movement.</p>
+                <span class="sr-only">Movement states: Start Camera. Get ready. Move now. Understanding movement. Try another movement.</span>
+              </div>
+              <p class="sr-only">Manual confirmation - not automatic vision. Describe my next movement sends a short temporary frame window only when clicked; nothing is saved by this app.</p>
+              <div class="dq-calibration-ribbon" aria-label="Calibration status" hidden>
+                <div>
+                  <span>Calibration status</span>
+                  <strong id="calibrationStatus">not saved</strong>
+                </div>
+                <button id="editZones" class="dq-button secondary" type="button" hidden>Edit Zones</button>
+              </div>
+              <div class="dq-camera-frame preview-wrap">
+                <img class="dq-camera-reference" src="./assets/desk-preview.jpg" alt="Desk preview for local camera framing; live video appears after camera permission">
+                <video id="preview" autoplay playsinline muted aria-label="Local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
+                <div id="zoneOverlay" class="zone-overlay" aria-hidden="true"></div>
+                <div class="dq-camera-status-chip" aria-label="Camera status">
+                  <span class="dq-camera-icon" aria-hidden="true"></span>
+                  <span id="cameraStatusChip">Camera off</span>
+                </div>
+                <div class="dq-preview-live-chip" aria-hidden="true">
+                  <span></span>
+                  LIVE
+                </div>
+                <div class="dq-preview-chips" aria-label="Preview privacy">
+                  <span>Local preview</span>
+                  <span>No raw media stored</span>
+                </div>
+              </div>
+              <label class="confirm dq-tracking-toggle">
+                <input id="showTrackingOverlay" type="checkbox">
+                Show tracking overlay
+              </label>
+              <div class="dq-mode-control" aria-label="Movement narrator mode">
+                <span>Mode</span>
+                <label><input id="oneMovementMode" name="movementNarratorMode" type="radio" value="one" checked> One movement</label>
+                <label><input id="liveNarratorMode" name="movementNarratorMode" type="radio" value="live" disabled> Live narrator coming next</label>
+              </div>
+              <p class="dq-live-narrator-note">Live narrator is disabled in this version. No background movement calls run.</p>
+              <div id="errorBanner" class="error-banner" hidden></div>
+            </section>
+
+            <div class="dq-lower-grid">
+              <section class="dq-card dq-privacy-card card-contained" aria-labelledby="privacyTitle">
+                <h2 id="privacyTitle">Privacy & models</h2>
+                <span class="sr-only">Privacy Status</span>
+                <span class="sr-only">Model-Call Status</span>
+                <dl class="dq-metric-list">
+                  <div><dt>Raw media</dt><dd id="privacy">Not saved</dd></div>
+                  <div><dt>LLM calls</dt><dd id="llm">0</dd></div>
+                  <div><dt>VLM calls</dt><dd id="vlm">0</dd></div>
+                  <div><dt>Cost</dt><dd id="cost">$0</dd></div>
+                  <div><dt>AI provider</dt><dd id="cloud">huggingface</dd><span hidden>on demand</span></div>
+                </dl>
+                <p class="dq-disclosure sr-only">No continuous stream upload. Short sampled frames may be sent to the selected AI provider when Describe my next movement is clicked.</p>
+                <p class="dq-disclosure">Describe my next movement sends a short temporary frame window only after you click.</p>
+                <p class="dq-disclosure">No continuous upload.</p>
+                <p class="dq-disclosure">No raw media is saved by this app.</p>
+                <p class="dq-disclosure">Requires HF_TOKEN for live Hugging Face/Cerebras recognition.</p>
+                <p id="staticWaiverDisclosure" class="dq-disclosure sr-only">Static compatibility disclosure: historical eval status is retained in Developer Tools; operator-confirmed symbolic event UI.</p>
+              </section>
+            </div>
+
+          </div>
+
+          <div class="dq-flow-column">
+            <section id="objectiveCard" class="dq-card dq-objective-card card-contained" aria-labelledby="objectiveTitle" hidden>
+              <span class="dq-eyebrow">Current Objective</span>
+              <h1 id="objectiveTitle">Click Start Camera.</h1>
+              <p id="objective">Click Start Camera.</p>
+              <div class="dq-button-row" hidden>
+                <button id="calibrateZones" class="dq-button secondary" type="button">Calibrate Zones</button>
+              </div>
+            </section>
+
+            <section id="flowCard" class="dq-card dq-flow-card card-contained" aria-labelledby="flowTitle" hidden>
+              <div class="dq-card-head compact">
+                <h2 id="flowTitle" class="sr-only">Current step</h2>
+                <span class="dq-pill no-vertical-text">Current</span>
+              </div>
+              <div id="currentWizard" class="wizard-current"></div>
+              <div id="nextStepCard" class="dq-inline-note next-step">Next: click Start Camera.</div>
+              <div id="currentActionControl" class="dq-button-row"></div>
+              <ol id="wizardStages" class="dq-step-list wizard-list"></ol>
+              <div class="dq-button-row" hidden>
+                <button id="startFocusRitual" class="dq-button gradient full" type="button">Start Session</button>
+                <button id="startRecording" class="dq-button secondary" type="button">Start Recording</button>
+                <button id="stopRecording" class="dq-button secondary" type="button">Stop Recording</button>
+              </div>
+            </section>
+
+            <section id="operatorCommandsCard" class="dq-card dq-operator-commands card-contained" data-product-card="detected-action" aria-labelledby="movementResultTitle">
+              <div id="cameraSuggestionsPanel" class="dq-suggestion-panel" aria-labelledby="movementResultTitle">
+                <div>
+                  <div class="dq-suggestion-title-row">
+                    <h2 id="movementResultTitle">Movement Result</h2>
+                    <template id="cameraSuggestionsTitle">Detected Action</template>
+                    <span id="cameraSuggestionCount" class="dq-badge dq-badge-info">Waiting</span>
+                  </div>
+                  <p class="note">One click captures one short movement window. Move when prompted.</p>
+                </div>
+                <div id="cameraSuggestions" class="dq-suggestion-list dq-primary-action-region">Start the camera, then describe a movement.</div>
+              </div>
+              <div id="movementSummaryRow" class="dq-movement-summary-row">Confidence --</div>
+              <div class="dq-button-row">
+                <button id="tryAgainMovement" class="dq-button primary no-vertical-text" type="button" hidden>Try another movement</button>
+                <button id="speakResult" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Speak result</button>
+                <button id="confirmMovement" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Confirm</button>
+                <button id="correctMovement" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Not this / Correct</button>
+                <label class="confirm" hidden>
+                  <input id="autoSpeak" type="checkbox">
+                  Auto-speak off
+                </label>
+              </div>
+              <form id="movementCorrectionForm" class="dq-correction-form" hidden>
+                <label>
+                  What did you actually do?
+                  <input id="movementCorrectionInput" type="text" maxlength="160" autocomplete="off" placeholder="I waved my hand.">
+                </label>
+                <div class="dq-button-row">
+                  <button id="saveMovementCorrection" class="dq-button primary no-vertical-text" type="submit">Save correction</button>
+                  <button id="cancelMovementCorrection" class="dq-button secondary no-vertical-text" type="button">Cancel</button>
+                </div>
+              </form>
+              <details id="movementWhy" class="dq-readable-detail dq-result-details" data-collapsed-default="true">
+                <summary>Why?</summary>
+                <dl class="dq-metric-list" aria-label="Movement result details">
+                  <div><dt>Reason</dt><dd id="movementReason">--</dd></div>
+                  <div><dt>Evidence</dt><dd id="movementEvidence">--</dd></div>
+                  <div><dt>Confidence</dt><dd id="movementConfidence">--</dd></div>
+                  <div><dt>Provider</dt><dd id="movementProvider">huggingface</dd></div>
+                  <div><dt>Model</dt><dd id="movementModel">configured server-side</dd></div>
+                  <div><dt>Latency</dt><dd id="movementLatency">--</dd></div>
+                  <div><dt>Voice</dt><dd id="voiceStatus">Voice ready</dd></div>
+                </dl>
+              </details>
+              <details id="movementHistoryPanel" class="dq-readable-detail dq-result-details" data-collapsed-default="true">
+                <summary>Movement History</summary>
+                <div id="movementHistoryList" class="dq-history-list">No movement history yet.</div>
+                <div class="dq-button-row">
+                  <button id="clearMovementHistory" class="dq-button secondary no-vertical-text" type="button">Clear history</button>
+                </div>
+              </details>
+              <div id="currentManualAction" class="dq-current-manual" hidden>No manual confirmation is needed yet.</div>
+            </section>
+
+            <section id="progressCard" class="dq-card dq-sequence-card card-contained" aria-labelledby="sequenceTitle" hidden>
+              <div class="dq-progress-head"><h2 id="sequenceTitle">Progress</h2><b id="eventCount">0 / 8 steps</b></div>
+              <div id="progress" class="progress"></div>
+              <div id="ritualChecklist" class="dq-progress-list" aria-label="Operator progress">No movement confirmation yet.</div>
+            </section>
+          </div>
+
+          <details id="developerTools" class="dq-dev-tools">
+            <summary><span>Advanced / Developer Tools</span><small>Trace campaign, diagnostics, calibration internals</small></summary>
+            <div class="dq-dev-body">
+            <p class="sr-only">Legacy Gate 4A disclosure superseded by AI Movement Recognition Mode: Camera suggestion — requires confirmation. Local motion proxy only.</p>
+            <p class="sr-only">Legacy Gate 2A label superseded by AI provider: Cloud fallback.</p>
+            <details id="liveAiSmokeCard" class="dq-card card-contained">
+              <summary><span>Live AI Smoke Test</span><small>Provider health and one real recognition call</small></summary>
+              <div class="dq-button-row">
+                <button id="runLiveAiSmoke" class="dq-button secondary" type="button">Run live provider check</button>
+              </div>
+              <pre id="liveAiSmokeResult" class="dq-pre code-contained scroll-contained">Not run.</pre>
+            </details>
+            <details id="researchLabPanel" class="dq-card dq-technical-card">
+              <summary><span>Research Lab</span><small>Safe provider metadata only</small></summary>
+              <dl class="dq-mini-metrics">
+                <div><dt>Provider</dt><dd id="researchProvider">huggingface</dd></div>
+                <div><dt>Requested model</dt><dd id="researchRequestedModel">configured server-side</dd></div>
+                <div><dt>Returned model</dt><dd id="researchReturnedModel">--</dd></div>
+                <div><dt>Latency</dt><dd id="researchLatency">--</dd></div>
+                <div><dt>Prompt version</dt><dd id="researchPromptVersion">movement-narration-prompt.v2</dd></div>
+                <div><dt>Image token usage</dt><dd id="researchImageTokens">0</dd></div>
+                <div><dt>Retries</dt><dd id="researchRetries">0</dd></div>
+                <div><dt>Candidate failures</dt><dd id="researchCandidateFailures">0</dd></div>
+                <div><dt>Last safe error</dt><dd id="researchLastSafeError">--</dd></div>
+                <div><dt>History count</dt><dd id="researchHistoryCount">0</dd></div>
+                <div><dt>Correction count</dt><dd id="researchCorrectionCount">0</dd></div>
+                <div><dt>One-shot guard</dt><dd id="researchOneShotGuard">ready</dd></div>
+              </dl>
+              <div class="dq-button-row">
+                <button id="clearCorrectionMemory" class="dq-button secondary no-vertical-text" type="button">Clear corrections</button>
+              </div>
+              <p class="note">Secondary research metadata only. Captured camera media, screen captures, audio, OCR, private text, and encoded media are not shown or stored.</p>
+            </details>
+            <details id="diagnosticsCard" class="dq-card dq-diagnostics-card card-contained" aria-labelledby="diagnosticsTitle">
+              <summary><span id="diagnosticsTitle">System Diagnostics</span><small>Confidence and latency internals</small></summary>
+              <span class="sr-only">Confidence Panel</span>
+              <span class="sr-only">Latency Panel</span>
+              <dl class="dq-mini-metrics">
+                <div><dt>Event Confidence</dt><dd id="confidence">0.00</dd></div>
+                <div><dt>Uncertainty State</dt><dd id="uncertainty">false</dd></div>
+                <div><dt>Active Zone</dt><dd id="activeZone">none</dd></div>
+                <div><dt>Latency (p50 / p95 / max)</dt><dd id="latencySummary">-- / -- / --</dd></div>
+                <div><dt>Dropped Frames</dt><dd id="droppedFrames">0</dd></div>
+                <div><dt>Scene Reset Count</dt><dd id="resetCount">0</dd></div>
+                <div><dt>LLM/VLM Calls</dt><dd id="diagnosticModelCalls">0 / 0</dd></div>
+                <div><dt>Raw Media Count</dt><dd id="diagnosticRawMedia">0</dd></div>
+                <div hidden><dt>Low Confidence</dt><dd id="lowConfidence">false</dd></div>
+                <div hidden><dt>Uncertainty Count</dt><dd id="uncertaintyCount">0</dd></div>
+                <div hidden><dt>Reset/Recalibration</dt><dd id="resetStatus">false</dd></div>
+              </dl>
+            </details>
+            <details id="recentEventsPanel" class="dq-card dq-technical-card" aria-labelledby="eventsTitle">
+              <summary><span id="eventsTitle">Recent events</span><small>Symbolic internals</small></summary>
+              <span class="sr-only">Last 10 Symbolic Events</span>
+              <div id="events" class="dq-event-list">No symbolic events yet.</div>
+            </details>
+
+            <details id="qaExportPanel" class="dq-card dq-technical-card">
+              <summary><span>QA export</span><small>Hidden replay artifact tools</small></summary>
+              <section id="exportCard" class="dq-export-card card-contained" aria-labelledby="exportTitle" hidden>
+                <div class="dq-card-head compact">
+                  <h2 id="exportTitle">Export & save</h2>
+                  <span id="exportStatus" class="dq-card-subtitle no-vertical-text">Not ready</span>
+                </div>
+                <label class="dq-path-label">QA file</label>
+                <div class="dq-path-pill">
+                  <code id="savePathValue" class="path-field" title="Hidden QA trace path">Hidden QA trace path</code>
+                  <button id="copySavePath" type="button" aria-label="Copy Save Path">Copy</button>
+                </div>
+                <span id="traceReady" class="sr-only">Not ready</span>
+                <div id="exportReadinessSummary" class="dq-readiness-summary" aria-label="Export readiness summary">
+                  <div>
+                    <span>Export readiness</span>
+                    <strong>Blocked</strong>
+                  </div>
+                  <p class="note">Start with camera and calibration.</p>
+                </div>
+                <label class="confirm">
+                  <input id="confirmPhysical" type="checkbox">
+                  I confirm this recording came from a real physical webcam session.
+                </label>
+                <div class="dq-button-row">
+                  <button id="exportTrace" class="dq-button secondary align-right" type="button">Export Physical Trace</button>
+                </div>
+              </section>
+
+              <section id="validationCard" class="dq-validation-card card-contained" aria-labelledby="validationTitle" hidden>
+                <div class="dq-card-head compact">
+                  <h2 id="validationTitle">Validation</h2>
+                  <span id="validationCardStatus" class="dq-card-subtitle no-vertical-text">Pending export</span>
+                </div>
+                <p id="validationLocked" class="note">Hidden QA validation unlocks after export.</p>
+                <pre id="validationCommands" class="code-contained scroll-contained" hidden></pre>
+                <div id="copyCommandButtons" class="command-grid" hidden>
+                  <button data-copy-command="physicalValidate" type="button">Copy physical:validate</button>
+                  <button data-copy-command="replay" type="button">Copy replay x3</button>
+                  <button data-copy-command="gate1c" type="button">Copy gate:1c</button>
+                  <button data-copy-command="gate1e" type="button">Copy gate:1e</button>
+                </div>
+                <button id="copyValidation" class="dq-button secondary" type="button">Copy Validation Commands</button>
+              </section>
+            </details>
+
+            <details id="allManualControls" class="dq-nested-details dq-command-tuning" hidden>
+              <summary><span>Show all manual controls</span><small>Fallback actions</small></summary>
+              <div id="manualConfirmationRail" class="manual-actions dq-inline-manuals">
+                <div class="dq-inline-section-title">
+                  <h3>Operator Commands</h3>
+                  <p class="note">Use each button only after physically performing that step.</p>
+                </div>
+                <div class="manual-action"><span>Phone away</span><button data-step="phone" type="button">Confirm Phone Moved</button></div>
+                <div class="manual-action"><span>Notebook open</span><button data-step="notebook" type="button">Confirm Notebook Opened</button></div>
+                <div class="manual-action"><span>Pen in hand</span><button data-step="pen" type="button">Confirm Pen Picked Up</button></div>
+                <div class="manual-action"><span>Writing motion</span><button data-step="writing" type="button">Confirm Writing Motion</button></div>
+                <div class="manual-action"><span>Typing motion</span><button data-step="typing" type="button">Confirm Typing Motion</button></div>
+                <div class="manual-action"><span>Uncertain scene</span><button data-step="uncertain" type="button">Mark Uncertain</button></div>
+                <div class="manual-action"><span>Camera reset</span><button data-step="reset" type="button">Mark Camera Reset</button></div>
+              </div>
+            </details>
+
+            <details id="suggestionTraceSetupPanel" class="dq-card dq-technical-card" aria-labelledby="suggestionTraceSetupTitle">
+              <summary><span id="suggestionTraceSetupTitle">Suggestion Trace Setup</span><small>Trace mode and counters</small></summary>
+              <label class="metric" for="suggestionTraceMode"><strong>Trace Mode:</strong>
+                <select id="suggestionTraceMode">
+                  <option value="standard">Standard Physical Trace</option>
+                  <option value="suggestion_phone_moved">Suggestion Trace: Phone Moved</option>
+                  <option value="suggestion_notebook_opened">Suggestion Trace: Notebook Opened</option>
+                  <option value="suggestion_pen_picked_up">Suggestion Trace: Pen Picked Up</option>
+                  <option value="suggestion_writing_motion">Suggestion Trace: Writing Motion</option>
+                  <option value="suggestion_typing_motion">Suggestion Trace: Typing Motion</option>
+                  <option value="suggestion_reject">Suggestion Trace: Reject Suggestion</option>
+                  <option value="suggestion_uncertain">Suggestion Trace: Uncertain Scene</option>
+                  <option value="suggestion_full_focus_ritual">Suggestion Trace: Full Focus Ritual</option>
+                </select>
+              </label>
+              <pre id="suggestionTraceInstructions" class="dq-pre code-contained scroll-contained">Selected trace mode: Standard Physical Trace
+Required physical action: complete the full Focus Ritual.
+Expected suggestion: optional.
+Accept/Reject: accept only matching suggestions.
+Required export filename: live_physical_focus_ritual_001.v0.json
+Required save path: fixtures/replay/live/live_physical_focus_ritual_001.v0.json
+Validation command: node packages/evals/bin/darkquest-eval.mjs replay --repeat 3 fixtures/replay/live/live_physical_focus_ritual_001.v0.json
+Current suggestion count: 0
+Accepted count: 0
+Rejected count: 0
+Auto-completed steps: 0
+Suggestion export preflight: PASS</pre>
+              <div id="suggestionCounters" class="status-grid" aria-label="Suggestion counters">
+                <div class="metric"><strong>generated</strong><span>0</span></div>
+                <div class="metric"><strong>accepted</strong><span>0</span></div>
+                <div class="metric"><strong>rejected</strong><span>0</span></div>
+                <div class="metric"><strong>auto-completed</strong><span>0</span></div>
+              </div>
+            </details>
+
+            <details id="suggestionCampaignPanel" class="dq-card dq-technical-card dq-campaign-details" aria-labelledby="suggestionCampaignTitle">
+              <summary><span id="suggestionCampaignTitle">Suggestion Trace Campaign</span><small>8 trace captures</small></summary>
+              <p class="note">Guided capture for all 8 required physical suggestion traces. Bundle export is for convenience. Gate 3B-Live requires individual files under fixtures/replay/live/suggestions/.</p>
+              <div>
+                <h4>Suggestion Trace Campaign Summary</h4>
+                <div id="suggestionCampaignSummary" class="status-grid" aria-label="Suggestion Trace Campaign Summary">
+                  <div class="metric"><strong>traces required</strong><span>8</span></div>
+                  <div class="metric"><strong>traces exported</strong><span>0</span></div>
+                  <div class="metric"><strong>missing traces</strong><span>8</span></div>
+                  <div class="metric"><strong>generated suggestions total</strong><span>0</span></div>
+                  <div class="metric"><strong>accepted suggestions total</strong><span>0</span></div>
+                  <div class="metric"><strong>rejected suggestions total</strong><span>0</span></div>
+                  <div class="metric"><strong>auto_completed_steps total</strong><span>0</span></div>
+                  <div class="metric"><strong>LLM calls</strong><span>0</span></div>
+                  <div class="metric"><strong>VLM calls</strong><span>0</span></div>
+                  <div class="metric"><strong>raw media persistence</strong><span>0</span></div>
+                  <div class="metric"><strong>ready for npm run gate:3b:live</strong><span>no</span></div>
+                </div>
+              </div>
+              <div id="suggestionCampaignSteps" class="campaign-shell" aria-label="Suggestion Trace Campaign Steps">
+                <div class="campaign-trace-list" aria-label="Trace list">
+                  <div class="campaign-trace-row is-selected text-contained">
+                    <span class="campaign-status-dot" aria-hidden="true"></span>
+                    <div class="campaign-trace-meta">
+                      <strong class="truncate-safe">1. Phone moved</strong>
+                      <span class="campaign-status-pair">
+                        <small class="campaign-status-pill">Capture: not_started</small>
+                        <small class="campaign-status-pill">Export: blocked</small>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div class="campaign-detail text-contained">
+                  <h4>Phone moved trace</h4>
+                  <p class="note">Perform the physical action and wait for a camera suggestion.</p>
+                  <code class="campaign-path-field">fixtures/replay/live/suggestions/live_suggestion_phone_moved_001.v0.json</code>
+                  <div class="campaign-action-row">
+                    <button class="dq-button secondary no-vertical-text" type="button">Start this trace</button>
+                    <button class="dq-button secondary no-vertical-text" type="button">Reset this trace</button>
+                    <button class="dq-button secondary no-vertical-text" type="button">Export this trace</button>
+                    <button class="dq-button secondary no-vertical-text" type="button">Copy save path</button>
+                    <button class="dq-button secondary no-vertical-text" type="button">Copy macOS move command</button>
+                    <button class="dq-button secondary no-vertical-text" type="button">Mark trace exported</button>
+                  </div>
+                </div>
+              </div>
+              <div class="dq-button-row">
+                <button id="exportCampaignBundle" class="dq-button secondary" type="button">Export Campaign Bundle</button>
+              </div>
+              <p class="note">Bundle export is for convenience. Gate 3B-Live requires individual files under fixtures/replay/live/suggestions/.</p>
+              <pre id="campaignValidationInstructions" class="dq-pre code-contained scroll-contained">After exporting all traces, run:
+npm run suggestions:validate
+npm run suggestions:report
+npm run gate:3b:live
+
+If gate:3b:live still says missing traces:
+- check that all 8 files are saved under fixtures/replay/live/suggestions/
+- check filenames exactly
+- send back runs/gate-3b-live-latest.json and darkquest_operator_bug_report.json</pre>
+            </details>
+
+          <div id="bottomDiagnostics" class="dq-details-grid" aria-label="Bottom diagnostics">
+          <details id="operatorModePanel" class="dq-card wide dq-technical-card" aria-labelledby="operatorTitle">
+            <summary><span id="operatorTitle">Operator Mode</span><small>Readiness, commands, and send-back checklist</small></summary>
+            <div class="status-grid">
+              <div class="metric"><strong>Current Readiness</strong><span id="operatorReadiness">NEEDS_CAMERA</span></div>
+              <div class="metric"><strong>Blocking Reason</strong><span id="operatorBlockingReason">Camera is not started.</span></div>
+              <div class="metric"><strong>Next Action</strong><span id="operatorNextAction">Start Camera</span></div>
+              <div class="metric"><strong>Required Output File Path</strong><span id="operatorOutputPath" class="path-value path-field" title="fixtures/replay/live/live_physical_focus_ritual_001.v0.json">fixtures/replay/live/live_physical_focus_ritual_001.v0.json</span></div>
+            </div>
+            <h3>Validation Commands</h3>
+            <pre id="operatorValidationCommands" class="dq-pre code-contained scroll-contained">Validation commands appear after Export Physical Trace downloads the fixture.</pre>
+            <button id="copyOperatorCommands" class="dq-button secondary" type="button">Copy All Commands</button>
+            <h3>Export Troubleshooting</h3>
+            <pre id="operatorExportTroubleshooting" class="dq-pre code-contained scroll-contained">Export is blocked until preflight passes.</pre>
+            <h3>What To Send Back To The Team</h3>
+            <pre id="operatorSendBack" class="dq-pre code-contained scroll-contained">If broken, export darkquest_operator_bug_report.json and send terminal outputs.</pre>
+          </details>
+
+          <details id="questStatePanel" class="dq-card dq-technical-card" aria-labelledby="questStateTitle">
+            <summary><span id="questStateTitle">Quest State Panel</span><small>Runtime state</small></summary>
+            <div class="status-grid">
+              <div class="metric"><strong>Current Quest State</strong><span id="questState">idle</span></div>
+              <div class="metric"><strong>Recording Status</strong><span id="recordingStatus">off</span></div>
+              <div class="metric"><strong>Camera Permission</strong><span id="cameraStatus">idle</span></div>
+              <div class="metric"><strong>Calibration Status</strong><span>not saved</span></div>
+            </div>
+          </details>
+
+          <details id="calibrationPanel" class="dq-card wide dq-technical-card" aria-labelledby="calibrationTitle">
+            <summary><span id="calibrationTitle">Advanced Calibration</span><small>Calibration Panel - edit zones and symbolic geometry</small></summary>
+            <p class="note">Normalized rectangles are symbolic geometry only. No screenshots, frames, or audio are saved.</p>
+            <button id="saveCalibration" class="dq-button secondary" type="button">Save Calibration</button>
+            <div id="zoneFields"></div>
+            <h3>Object Assignments</h3>
+            <div id="objectFields"></div>
+            <details class="dq-nested-details">
+              <summary>Calibration Summary</summary>
+              <pre id="calibrationSummary" class="dq-pre code-contained scroll-contained">Calibration has not been saved.</pre>
+            </details>
+          </details>
+
+          <details class="dq-card dq-technical-card" aria-labelledby="blockedTitle">
+            <summary><span id="blockedTitle">Blocked Button Reasons</span><small>View disabled-control details</small></summary>
+            <pre id="buttonReasons" class="dq-pre code-contained scroll-contained">Loading...</pre>
+          </details>
+
+          <details id="ritualChecklistPanel" class="dq-card dq-technical-card" aria-labelledby="checklistTitle">
+            <summary><span id="checklistTitle">Event Sequence Inspector</span><small>Symbolic event order</small></summary>
+            <div id="eventSequenceInspector" class="dq-sequence-list">Required ritual sequence has not been recorded.</div>
+          </details>
+
+          <details class="dq-card wide dq-technical-card" aria-labelledby="preflightTitle">
+            <summary><span id="preflightTitle">Export Preflight</span><small>Checklist rows with technical details hidden</small></summary>
+            <div id="preflightChecklist" class="dq-check-list" aria-label="Export preflight checklist"></div>
+            <details class="dq-nested-details">
+              <summary>View technical details</summary>
+              <pre id="preflightStatus" class="dq-pre code-contained scroll-contained">Export is not ready.</pre>
+            </details>
+          </details>
+
+          <details class="dq-card wide dq-technical-card" aria-labelledby="previewTitle">
+            <summary><span id="previewTitle">Preview Export JSON</span><small>Symbolic metadata only</small></summary>
+            <pre id="exportPreview" class="dq-pre code-contained scroll-contained">Complete the ritual to preview symbolic export metadata.</pre>
+          </details>
+
+          <details class="dq-card dq-technical-card" aria-labelledby="dryRunTitle">
+            <summary><span id="dryRunTitle">Dry-Run / Physical Separation</span><small>Provenance guardrails</small></summary>
+            <p class="note">DEV DRY RUN ONLY traces are harness artifacts and cannot satisfy Gate 1C.</p>
+            <pre id="dryRunSeparation" class="dq-pre code-contained scroll-contained">Physical export requires physical_capture=true and operator_confirmed_physical_session=true. Dev dry run has physical_capture=false and operator_confirmed_physical_session=false.</pre>
+          </details>
+
+          <details class="dq-card wide dq-technical-card" aria-labelledby="savePathAssistantTitle">
+            <summary><span id="savePathAssistantTitle">Export Save-Path Assistant</span><small>Copy commands after export</small></summary>
+            <p class="note">Optional source checks: npm run gate:1d, npm run gate:1e, npm run gate:2a.</p>
+            <h3>Export Save-Path Assistant</h3>
+            <button id="copyMacosCpCommand" class="dq-button secondary" type="button">Copy macOS Save Command</button>
+            <pre id="savePathAssistant" class="dq-pre code-contained scroll-contained">Required path: fixtures/replay/live/live_physical_focus_ritual_001.v0.json
+Downloaded filename: live_physical_focus_ritual_001.v0.json</pre>
+            <p class="note">Optional macOS command suggestion. Run it only after confirming the file is in Downloads.</p>
+            <pre id="macosCpCommand" class="dq-pre code-contained scroll-contained">macOS save command appears after export.</pre>
+            <p id="missingFixtureNote" class="note" hidden>If physical:validate says physical_fixture_missing, the downloaded JSON is not saved at the required path yet.</p>
+          </details>
+
+          <details class="dq-card dq-technical-card" aria-labelledby="bugTitle">
+            <summary><span id="bugTitle">Bug Report</span><small>Symbolic-only payload preview</small></summary>
+            <p class="note">Bug report excludes raw frames, screenshots, base64 media, audio, OCR, notebook text, API keys, model responses, and cloud evidence.</p>
+            <button id="exportBugReport" class="dq-button secondary" type="button">Export Bug Report</button>
+            <pre id="bugReportPreview" class="dq-pre code-contained scroll-contained">darkquest_operator_bug_report.json will contain stage, state, symbolic events, errors, latency, privacy, and model status only.</pre>
+          </details>
+
+          <details id="operatorArtifactPanel" class="dq-card dq-technical-card" aria-labelledby="artifactTitle">
+            <summary><span id="artifactTitle">Operator Run Artifact Checklist</span><small>Send-back readiness</small></summary>
+            <div id="operatorArtifactChecklist" class="progress"></div>
+          </details>
+
+          <details id="stuckCard" class="dq-card wide dq-technical-card" aria-labelledby="stuckTitle">
+            <summary><span id="stuckTitle">What To Do If Stuck</span><small>Operator help</small></summary>
+            <pre id="stuckGuide" class="dq-pre code-contained scroll-contained">Loading stuck-state guide...</pre>
+          </details>
+
+          <details class="dq-card wide dq-technical-card" aria-labelledby="troubleshootingTitle">
+            <summary><span id="troubleshootingTitle">Troubleshooting Panel</span><small>Long diagnostics</small></summary>
+            <pre id="troubleshooting" class="dq-pre code-contained scroll-contained">Loading...</pre>
+          </details>
+
+          <details class="dq-card dq-technical-card" aria-labelledby="latencyDetailTitle">
+            <summary><span id="latencyDetailTitle">Latency Panel</span><small>Detailed timing breakdown</small></summary>
+            <div class="status-grid">
+              <div class="metric"><strong>Frame Capture</strong><span id="frameCapture">--</span></div>
+              <div class="metric"><strong>Observation Extraction</strong><span id="observationExtraction">--</span></div>
+              <div class="metric"><strong>Adapter</strong><span id="adapterLatency">--</span></div>
+              <div class="metric"><strong>Event Emission</strong><span id="eventEmission">--</span></div>
+              <div class="metric"><strong>HUD Update</strong><span id="hudUpdate">--</span></div>
+              <div class="metric"><strong>Trace Recorder</strong><span id="traceRecorder">--</span></div>
+            </div>
+          </details>
+
+          <details id="localPerceptionTuning" class="dq-card dq-technical-card" aria-labelledby="localPerceptionTuningTitle">
+            <summary><span id="localPerceptionTuningTitle">Local Perception Tuning</span><small>Motion proxy thresholds</small></summary>
+            <div class="status-grid">
+              <label class="metric"><strong>Motion sensitivity</strong><input id="motionSensitivity" type="range" min="0.02" max="0.12" step="0.005" value="0.045"></label>
+              <label class="metric"><strong>Suggestion threshold</strong><input id="suggestionThreshold" type="range" min="0.55" max="0.9" step="0.01" value="0.68"></label>
+              <label class="metric"><strong>Suggestion cooldown</strong><input id="suggestionCooldown" type="number" min="1000" max="10000" step="500" value="3200"></label>
+              <label class="metric"><strong>Max active suggestions</strong><input id="maxActiveSuggestions" type="number" min="1" max="3" step="1" value="3"></label>
+              <label class="metric"><strong>Show symbolic motion scores</strong><input id="showRawMotionScores" type="checkbox"></label>
+            </div>
+            <p class="note">Local tuning changes symbolic motion thresholds only. No raw frames are shown or stored.</p>
+          </details>
+          </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+    </main>
+
+    <script type="module" src="./local-capture.js"></script>
+  </body>
+</html>

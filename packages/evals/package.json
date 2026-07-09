@@ -1,0 +1,16 @@
+{
+  "name": "@darkquest/evals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "darkquest-eval": "./bin/darkquest-eval.mjs"
+  },
+  "scripts": {
+    "replay:happy": "node ./bin/darkquest-eval.mjs replay --repeat 3 ../../fixtures/replay/focus_ritual_happy_path.v0.json",
+    "gate:0b": "node ./bin/darkquest-eval.mjs gate-0b ../../fixtures/replay/gate_0b_manifest.json",
+    "gate:1a": "node ./bin/darkquest-eval.mjs gate-1a ../../fixtures/replay/gate_1a_manifest.json",
+    "gate:1b": "node ./bin/darkquest-eval.mjs gate-1b ../../fixtures/replay/gate_1b_manifest.json",
+    "gate:1c": "node ./bin/darkquest-eval.mjs gate-1c ../../fixtures/replay/gate_1c_manifest.json"
+  }
+}

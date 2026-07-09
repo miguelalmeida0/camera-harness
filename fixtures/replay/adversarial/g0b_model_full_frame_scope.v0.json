@@ -1,0 +1,69 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_model_full_frame_scope_v0",
+  "name": "Gate 0B full-frame model scope rejection",
+  "description": "Fails when a model route requests full-frame visual scope.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_full_frame_model_scope",
+      "type": "agent.escalation_requested",
+      "timestamp_ms": 100,
+      "producer": "model_router",
+      "confidence": 0.91,
+      "payload": {
+        "escalation_id": "esc_full_frame_scope",
+        "requested_tier": 4,
+        "reason_code": "required_object_ambiguous",
+        "source_event_ids": [],
+        "privacy_scope": "full_frame",
+        "user_visible": true,
+        "max_cost_usd": 0
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_full_frame_model_scope"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

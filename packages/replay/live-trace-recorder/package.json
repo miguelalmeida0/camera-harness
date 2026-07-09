@@ -1,0 +1,27 @@
+{
+  "name": "@darkquest/live-trace-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "darkquest-trace": "./bin/darkquest-trace.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test:gate1a": "node --experimental-strip-types ./test/live-trace-recorder.test.ts",
+    "test:gate1b": "node --experimental-strip-types ./test/live-trace-recorder-gate1b.test.ts",
+    "export:physical": "node ./scripts/export-physical-trace.mjs --operator-confirmed",
+    "validate:physical": "node ./scripts/validate-physical-trace.mjs ../../../fixtures/replay/live/live_physical_focus_ritual_001.v0.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

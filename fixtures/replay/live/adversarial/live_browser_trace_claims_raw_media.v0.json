@@ -1,0 +1,58 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_browser_trace_claims_raw_media_v0",
+  "name": "Live browser adversarial claims raw media",
+  "description": "Fails Gate 1B when browser trace metadata claims raw media persistence.",
+  "created_by": "GAUNTLET",
+  "trace_origin": {
+    "source": "browser.local_camera",
+    "raw_media_persisted": true,
+    "cloud_calls_enabled": false,
+    "manual_fixture": false
+  },
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000,
+    "browser_latency": {
+      "frame_capture_ms": 8,
+      "observation_extraction_ms": 18,
+      "adapter_ms": 6,
+      "stabilizer_ms": 20,
+      "event_emission_ms": 2,
+      "hud_update_ms": 8,
+      "trace_recorder_ms": 3,
+      "p50_end_to_end_ms": 60,
+      "p95_end_to_end_ms": 120,
+      "max_end_to_end_ms": 180,
+      "sample_count": 1,
+      "dropped_frames": 0,
+      "event_count": 0,
+      "uncertainty_count": 0,
+      "scene_reset_count": 0,
+      "llm_calls": 0,
+      "vlm_calls": 0,
+      "raw_media_persistence_count": 0
+    }
+  }
+}

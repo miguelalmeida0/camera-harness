@@ -1,0 +1,40 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_physical_trace_missing_origin_v0",
+  "name": "Physical adversarial missing origin",
+  "description": "Fails Gate 1C when a physical trace lacks trace_origin metadata.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000,
+    "browser_latency_records": [
+      {
+        "frame_id": "physical_missing_origin_probe",
+        "timestamp_ms": 0,
+        "end_to_end_ms": 42,
+        "dropped_frames": 0
+      }
+    ]
+  }
+}

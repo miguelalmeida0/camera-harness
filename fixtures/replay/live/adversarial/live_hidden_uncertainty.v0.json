@@ -1,0 +1,97 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_hidden_uncertainty_v0",
+  "name": "Live adversarial hidden uncertainty",
+  "description": "Fails Gate 1A when scene uncertainty appears but HUD uncertainty is suppressed.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_hidden_uncertainty",
+        "zone_ids": ["zone_focus", "zone_notebook", "zone_pen_tool", "zone_keyboard", "zone_away"],
+        "calibration_id": "cal_live_hidden_uncertainty",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_live_scene_calibrated"
+        }
+      ]
+    },
+    {
+      "id": "evt_live_scene_uncertain",
+      "type": "scene.uncertain",
+      "timestamp_ms": 500,
+      "producer": "event_stabilizer",
+      "confidence": 0.91,
+      "payload": {
+        "uncertainty_kind": "occlusion",
+        "affected_refs": ["step_pen_pickup"],
+        "resolver_hint": "wait_for_clear_view",
+        "escalation_recommended": false
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_live_scene_uncertain"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_live_scene_calibrated",
+        "event_id": "evt_live_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8,
+        "payload_match": {
+          "calibration_id": "cal_live_hidden_uncertainty"
+        },
+        "evidence_includes": ["ev_live_scene_calibrated"]
+      },
+      {
+        "id": "expect_live_scene_uncertain",
+        "event_id": "evt_live_scene_uncertain",
+        "type": "scene.uncertain",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8,
+        "payload_match": {
+          "uncertainty_kind": "occlusion"
+        },
+        "evidence_includes": ["ev_live_scene_uncertain"]
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "simulate": {
+      "disable_uncertainty_hud": true
+    }
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}
