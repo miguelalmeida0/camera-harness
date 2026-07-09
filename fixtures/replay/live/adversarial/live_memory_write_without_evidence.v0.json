@@ -1,0 +1,50 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_memory_write_without_evidence_v0",
+  "name": "Live adversarial memory write without evidence",
+  "description": "Fails Gate 1A when a live memory write request lacks evidence_event_ids.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_memory_without_evidence",
+      "type": "memory.write_requested",
+      "timestamp_ms": 100,
+      "producer": "memory_gate",
+      "confidence": 0.9,
+      "payload": {
+        "memory_id": "mem_live_without_evidence",
+        "memory_scope": "episode_summary",
+        "memory_subject": "focus_ritual",
+        "memory_value": "Quest completed.",
+        "evidence_event_ids": [],
+        "ttl_days": 90,
+        "privacy_classification": "replay_safe"
+      },
+      "evidence": []
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

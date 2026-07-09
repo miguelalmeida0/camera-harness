@@ -1,0 +1,116 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_occlusion_progresses_quest_v0",
+  "name": "Live adversarial occlusion progresses quest",
+  "description": "Fails Gate 1B when quest progress occurs during active occlusion uncertainty.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_occ_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_occ_progress",
+        "zone_ids": ["zone_focus", "zone_notebook", "zone_pen_tool", "zone_keyboard", "zone_away"],
+        "calibration_id": "cal_occ_progress",
+        "scene_confidence": 0.94
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_occ_scene_calibrated"}]
+    },
+    {
+      "id": "evt_occ_scene_uncertain",
+      "type": "scene.uncertain",
+      "timestamp_ms": 500,
+      "producer": "event_stabilizer",
+      "confidence": 0.92,
+      "payload": {
+        "uncertainty_kind": "occlusion",
+        "affected_refs": ["step_phone_away", "obj_phone"],
+        "resolver_hint": "wait_for_clear_view",
+        "escalation_recommended": false
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_occ_scene_uncertain"}]
+    },
+    {
+      "id": "evt_occ_phone_moved_during_uncertainty",
+      "type": "object.moved",
+      "timestamp_ms": 700,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 200
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_occ_phone_moved"}]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_occ_scene_calibrated",
+        "event_id": "evt_occ_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8,
+        "payload_match": {"calibration_id": "cal_occ_progress"},
+        "evidence_includes": ["ev_occ_scene_calibrated"]
+      },
+      {
+        "id": "expect_occ_scene_uncertain",
+        "event_id": "evt_occ_scene_uncertain",
+        "type": "scene.uncertain",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8,
+        "payload_match": {"uncertainty_kind": "occlusion"},
+        "evidence_includes": ["ev_occ_scene_uncertain"]
+      },
+      {
+        "id": "expect_occ_phone_moved_during_uncertainty",
+        "event_id": "evt_occ_phone_moved_during_uncertainty",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away"
+        },
+        "evidence_includes": ["ev_occ_phone_moved"]
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [
+      {
+        "command_id": "hud_show_uncertain_state",
+        "command_type": "show_uncertain_state",
+        "target_surface": "recovery_banner",
+        "related_step_id": "active_step",
+        "evidence_includes": ["evt_occ_scene_uncertain"]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_broad_stable_matcher_v0",
+  "name": "Gate 0B broad stable matcher rejection",
+  "description": "Fails when expected stable event assertions use vague event-family matching instead of event ID, payload, and evidence.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_gate_0_happy",
+        "zone_ids": [
+          "zone_focus",
+          "zone_notebook",
+          "zone_pen_tool",
+          "zone_keyboard",
+          "zone_away"
+        ],
+        "calibration_id": "cal_gate_0_happy",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_scene_calibrated"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_some_calibration_family",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

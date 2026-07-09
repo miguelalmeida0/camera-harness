@@ -1,0 +1,118 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_camera_bump_stale_zone_truth_v0",
+  "name": "Live adversarial stale zone truth after camera bump",
+  "description": "Fails Gate 1B when quest progress continues after scene reset without recalibration.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_bump_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_bump_stale",
+        "zone_ids": ["zone_focus", "zone_notebook", "zone_pen_tool", "zone_keyboard", "zone_away"],
+        "calibration_id": "cal_bump_stale",
+        "scene_confidence": 0.94
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_bump_scene_calibrated"}]
+    },
+    {
+      "id": "evt_bump_scene_reset",
+      "type": "scene.reset",
+      "timestamp_ms": 500,
+      "producer": "event_stabilizer",
+      "confidence": 0.96,
+      "payload": {
+        "reset_reason": "camera_bump",
+        "reset_scope": "calibration",
+        "previous_state_id": "phone_removal_pending"
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_bump_scene_reset"}]
+    },
+    {
+      "id": "evt_bump_phone_moved_stale_zone",
+      "type": "object.moved",
+      "timestamp_ms": 700,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 200
+      },
+      "evidence": [{"kind": "fixture_assertion", "ref": "ev_bump_phone_moved_stale"}]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_bump_scene_calibrated",
+        "event_id": "evt_bump_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.8,
+        "payload_match": {"calibration_id": "cal_bump_stale"},
+        "evidence_includes": ["ev_bump_scene_calibrated"]
+      },
+      {
+        "id": "expect_bump_scene_reset",
+        "event_id": "evt_bump_scene_reset",
+        "type": "scene.reset",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.9,
+        "payload_match": {
+          "reset_reason": "camera_bump",
+          "reset_scope": "calibration"
+        },
+        "evidence_includes": ["ev_bump_scene_reset"]
+      },
+      {
+        "id": "expect_bump_phone_moved_stale_zone",
+        "event_id": "evt_bump_phone_moved_stale_zone",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away"
+        },
+        "evidence_includes": ["ev_bump_phone_moved_stale"]
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [
+      {
+        "command_id": "hud_show_reset_required",
+        "command_type": "show_recovery_state",
+        "target_surface": "recovery_banner",
+        "related_step_id": "calibration",
+        "evidence_includes": ["evt_bump_scene_reset"]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,264 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_occlusion_recovery_001",
+  "name": "Gate 1B live occlusion recovery",
+  "description": "Symbolic browser-local trace where occlusion emits uncertainty, HUD recovery is visible, and tracking resumes without model calls.",
+  "created_by": "PARALLAX live-perception-adapter",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_occ_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_focus_ritual_001",
+        "zone_ids": [
+          "zone_focus",
+          "zone_notebook",
+          "zone_pen_tool",
+          "zone_keyboard",
+          "zone_away"
+        ],
+        "calibration_id": "cal_live_focus_ritual_001",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_occ_scene_calibrated",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_occ_phone_moved_away",
+      "type": "object.moved",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.92,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 640
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_occ_phone_moved_away",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_occ_scene_uncertain",
+      "type": "scene.uncertain",
+      "timestamp_ms": 1600,
+      "producer": "perception.local",
+      "confidence": 0.82,
+      "payload": {
+        "uncertainty_kind": "occlusion",
+        "affected_refs": [
+          "obj_pen",
+          "step_pen_pickup"
+        ],
+        "resolver_hint": "hold_state_until_tracking_resumes",
+        "escalation_recommended": false
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_occ_scene_uncertain",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_occ_confidence_recovered",
+      "type": "confidence.changed",
+      "timestamp_ms": 2300,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "target_ref": "scene",
+        "previous_confidence": 0.54,
+        "current_confidence": 0.9,
+        "reason_code": "occlusion_cleared"
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_occ_confidence_recovered",
+          "contains_raw_media": false
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_evt_occ_scene_calibrated",
+        "event_id": "evt_occ_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 0,
+        "must_occur_before_ms": 1,
+        "min_confidence": 0.94,
+        "payload_match": {
+          "session_id": "ses_live_focus_ritual_001",
+          "zone_ids": [
+            "zone_focus",
+            "zone_notebook",
+            "zone_pen_tool",
+            "zone_keyboard",
+            "zone_away"
+          ],
+          "calibration_id": "cal_live_focus_ritual_001",
+          "scene_confidence": 0.94
+        },
+        "evidence_includes": [
+          "ev_occ_scene_calibrated"
+        ]
+      },
+      {
+        "id": "expect_evt_occ_phone_moved_away",
+        "event_id": "evt_occ_phone_moved_away",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 1001,
+        "min_confidence": 0.92,
+        "payload_match": {
+          "object_id": "obj_phone",
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away",
+          "duration_ms": 640
+        },
+        "evidence_includes": [
+          "ev_occ_phone_moved_away"
+        ]
+      },
+      {
+        "id": "expect_evt_occ_scene_uncertain",
+        "event_id": "evt_occ_scene_uncertain",
+        "type": "scene.uncertain",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1600,
+        "must_occur_before_ms": 1601,
+        "min_confidence": 0.82,
+        "payload_match": {
+          "uncertainty_kind": "occlusion",
+          "affected_refs": [
+            "obj_pen",
+            "step_pen_pickup"
+          ],
+          "resolver_hint": "hold_state_until_tracking_resumes",
+          "escalation_recommended": false
+        },
+        "evidence_includes": [
+          "ev_occ_scene_uncertain"
+        ]
+      },
+      {
+        "id": "expect_evt_occ_confidence_recovered",
+        "event_id": "evt_occ_confidence_recovered",
+        "type": "confidence.changed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 2300,
+        "must_occur_before_ms": 2301,
+        "min_confidence": 0.9,
+        "payload_match": {
+          "target_ref": "scene",
+          "previous_confidence": 0.54,
+          "current_confidence": 0.9,
+          "reason_code": "occlusion_cleared"
+        },
+        "evidence_includes": [
+          "ev_occ_confidence_recovered"
+        ]
+      }
+    ],
+    "quest_transitions": [
+      {
+        "from_state": "phone_removal_pending",
+        "to_state": "phone_removed",
+        "trigger_event_id": "evt_occ_phone_moved_away",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_phone_away"
+      }
+    ],
+    "hud_commands": [
+      {
+        "command_id": "hud_mark_phone_away",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_phone_away",
+        "evidence_includes": [
+          "evt_step_phone_away_completed"
+        ]
+      },
+      {
+        "command_id": "hud_show_uncertain_state",
+        "command_type": "show_uncertain_state",
+        "target_surface": "recovery_banner",
+        "related_step_id": "active_step",
+        "evidence_includes": [
+          "evt_occ_scene_uncertain"
+        ]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [
+      "agent.escalation_requested"
+    ],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 1
+      },
+      {
+        "approved_tier": 2
+      },
+      {
+        "approved_tier": 3
+      },
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      },
+      {
+        "input_class": "raw_video"
+      },
+      {
+        "input_class": "raw_frame"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

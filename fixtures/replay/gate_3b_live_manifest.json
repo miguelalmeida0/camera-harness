@@ -1,0 +1,65 @@
+{
+  "schema": "darkquest.gate_3b_live_manifest.v0",
+  "gate": "3B-Live",
+  "repeat": 3,
+  "required_traces": [
+    "fixtures/replay/live/suggestions/live_suggestion_phone_moved_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_notebook_opened_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_pen_picked_up_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_writing_motion_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_typing_motion_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_reject_does_not_progress_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_uncertain_scene_001.v0.json",
+    "fixtures/replay/live/suggestions/live_suggestion_full_focus_ritual_001.v0.json"
+  ],
+  "adversarial_traces": [
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_auto_completes_without_confirmation.v0.json",
+      "expected_failure_code": "suggestion_auto_completed_without_confirmation"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_reject_progresses_quest.v0.json",
+      "expected_failure_code": "rejected_suggestion_progressed_quest"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_accept_missing_human_correction.v0.json",
+      "expected_failure_code": "accepted_suggestion_missing_human_correction"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_accept_missing_local_signal.v0.json",
+      "expected_failure_code": "accepted_suggestion_missing_local_signal"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_accept_missing_suggestion_id.v0.json",
+      "expected_failure_code": "accepted_suggestion_missing_suggestion_id"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_raw_media_violation.v0.json",
+      "expected_failure_code": "raw_media_persistence_violation"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_model_call_violation.v0.json",
+      "expected_failure_code": "unexpected_model_call"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_autonomous_vision_claim.v0.json",
+      "expected_failure_code": "forbidden_autonomous_vision_claim"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_future_step_bypass.v0.json",
+      "expected_failure_code": "future_step_suggestion_bypassed_order"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_auto_completed_steps_nonzero.v0.json",
+      "expected_failure_code": "auto_completed_steps_nonzero"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_missing_summary.v0.json",
+      "expected_failure_code": "suggestion_summary_missing"
+    },
+    {
+      "path": "fixtures/replay/live/suggestions/adversarial/suggestion_missing_motion_proxy.v0.json",
+      "expected_failure_code": "accepted_suggestion_missing_motion_proxy"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_non_monotonic_timestamps_v0",
+  "name": "Live adversarial non-monotonic timestamps",
+  "description": "Fails Gate 1A when live event timestamps move backward.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 100,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_non_monotonic",
+        "zone_ids": ["zone_focus"],
+        "calibration_id": "cal_live_non_monotonic",
+        "scene_confidence": 0.94
+      },
+      "evidence": []
+    },
+    {
+      "id": "evt_live_phone_moved",
+      "type": "object.moved",
+      "timestamp_ms": 50,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 300
+      },
+      "evidence": []
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

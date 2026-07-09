@@ -1,0 +1,303 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_short_writing_repetition_v0",
+  "name": "Gate 0B short writing repetition rejection",
+  "description": "Fails when writing motion has fewer than three bullet repetitions.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_gate_0_happy",
+        "zone_ids": [
+          "zone_focus",
+          "zone_notebook",
+          "zone_pen_tool",
+          "zone_keyboard",
+          "zone_away"
+        ],
+        "calibration_id": "cal_gate_0_happy",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_scene_calibrated"
+        }
+      ]
+    },
+    {
+      "id": "evt_phone_moved_away",
+      "type": "object.moved",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.92,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 640
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_phone_moved_away"
+        }
+      ]
+    },
+    {
+      "id": "evt_notebook_placed",
+      "type": "object.placed",
+      "timestamp_ms": 2200,
+      "producer": "perception.local",
+      "confidence": 0.91,
+      "payload": {
+        "object_id": "obj_notebook",
+        "object_type": "notebook",
+        "zone_id": "zone_notebook",
+        "dwell_ms": 800
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_notebook_placed"
+        }
+      ]
+    },
+    {
+      "id": "evt_pen_moved_to_notebook",
+      "type": "object.moved",
+      "timestamp_ms": 3300,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_pen",
+        "object_type": "pen",
+        "from_zone_id": "zone_pen_tool",
+        "to_zone_id": "zone_notebook",
+        "duration_ms": 480
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_pen_moved_to_notebook"
+        }
+      ]
+    },
+    {
+      "id": "evt_writing_three_bullets",
+      "type": "gesture.detected",
+      "timestamp_ms": 4700,
+      "producer": "perception.local",
+      "confidence": 0.88,
+      "payload": {
+        "gesture_id": "gst_writing_001",
+        "gesture_type": "writing_motion",
+        "zone_id": "zone_notebook",
+        "actor_ref": "hand_right",
+        "evidence_window_ms": 1000,
+        "related_object_id": "obj_pen",
+        "gesture_repetition_count": 2
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_writing_three_bullets"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_scene_calibrated",
+        "event_id": "evt_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 0,
+        "must_occur_before_ms": 0,
+        "min_confidence": 0.8,
+        "payload_match": {
+          "calibration_id": "cal_gate_0_happy"
+        },
+        "evidence_includes": [
+          "ev_scene_calibrated"
+        ]
+      },
+      {
+        "id": "expect_phone_moved_away",
+        "event_id": "evt_phone_moved_away",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 2000,
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_id": "obj_phone",
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away",
+          "duration_ms": 640
+        },
+        "evidence_includes": [
+          "ev_phone_moved_away"
+        ]
+      },
+      {
+        "id": "expect_notebook_placed",
+        "event_id": "evt_notebook_placed",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 2200,
+        "must_occur_before_ms": 2600,
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_id": "obj_notebook",
+          "object_type": "notebook",
+          "zone_id": "zone_notebook",
+          "dwell_ms": 800
+        },
+        "evidence_includes": [
+          "ev_notebook_placed"
+        ]
+      },
+      {
+        "id": "expect_pen_moved_to_notebook",
+        "event_id": "evt_pen_moved_to_notebook",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 3300,
+        "must_occur_before_ms": 3900,
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_id": "obj_pen",
+          "object_type": "pen",
+          "from_zone_id": "zone_pen_tool",
+          "to_zone_id": "zone_notebook",
+          "duration_ms": 480
+        },
+        "evidence_includes": [
+          "ev_pen_moved_to_notebook"
+        ]
+      },
+      {
+        "id": "expect_writing_three_bullets",
+        "event_id": "evt_writing_three_bullets",
+        "type": "gesture.detected",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 4700,
+        "must_occur_before_ms": 5200,
+        "min_confidence": 0.82,
+        "payload_match": {
+          "gesture_id": "gst_writing_001",
+          "gesture_type": "writing_motion",
+          "zone_id": "zone_notebook",
+          "actor_ref": "hand_right",
+          "evidence_window_ms": 1000,
+          "related_object_id": "obj_pen",
+          "gesture_repetition_count": 2
+        },
+        "evidence_includes": [
+          "ev_writing_three_bullets"
+        ]
+      }
+    ],
+    "quest_transitions": [
+      {
+        "from_state": "phone_removal_pending",
+        "to_state": "phone_removed",
+        "trigger_event_id": "evt_phone_moved_away",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_phone_away"
+      },
+      {
+        "from_state": "notebook_pending",
+        "to_state": "notebook_opened",
+        "trigger_event_id": "evt_notebook_placed",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_notebook_open"
+      },
+      {
+        "from_state": "pen_pending",
+        "to_state": "pen_detected",
+        "trigger_event_id": "evt_pen_moved_to_notebook",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_pen_pickup"
+      },
+      {
+        "from_state": "writing_pending",
+        "to_state": "writing_detected",
+        "trigger_event_id": "evt_writing_three_bullets",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_write_three_bullets"
+      }
+    ],
+    "hud_commands": [
+      {
+        "command_id": "hud_mark_phone_away",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_phone_away",
+        "evidence_includes": [
+          "evt_step_phone_away_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_notebook_open",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_notebook_open",
+        "evidence_includes": [
+          "evt_step_notebook_open_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_pen_pickup",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_pen_pickup",
+        "evidence_includes": [
+          "evt_step_pen_pickup_completed"
+        ]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

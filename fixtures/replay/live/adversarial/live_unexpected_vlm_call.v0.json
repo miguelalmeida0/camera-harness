@@ -1,0 +1,55 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_unexpected_vlm_call_v0",
+  "name": "Live adversarial unexpected VLM call",
+  "description": "Fails Gate 1A when a live trace contains an unapproved VLM escalation.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_unexpected_vlm_call",
+      "type": "agent.escalation_requested",
+      "timestamp_ms": 100,
+      "producer": "model_router",
+      "confidence": 0.91,
+      "payload": {
+        "escalation_id": "esc_live_unexpected_vlm",
+        "requested_tier": 4,
+        "reason_code": "live_idle_visual_check",
+        "source_event_ids": [],
+        "privacy_scope": "object_crop_only",
+        "user_visible": true,
+        "max_cost_usd": 0
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_live_unexpected_vlm_call"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": ["agent.escalation_requested"],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

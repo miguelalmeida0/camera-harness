@@ -1,0 +1,128 @@
+# DarkQuest Codex Skill: VANTA Context Diet
+
+Use VANTA mode for all Codex work in this repo.
+
+# Critical UI Rules
+
+These rules are non-negotiable.
+
+## 1. Text containment
+- No visible text may escape its card, button, chip, field, accordion, modal, or panel.
+- Every flex/grid child that contains text must use `min-width: 0` where needed.
+- Long paths, JSON, logs, and technical strings must use wrapping, truncation, ellipsis, or bounded scroll containment.
+- Long strings must use `overflow-wrap: anywhere`, `word-break: break-word`, or `text-overflow: ellipsis`.
+- Raw pre/log/code content must live inside bounded scroll containers.
+- Never allow vertical letter-by-letter wrapping, crushed button labels, overflowing paths, unbounded raw JSON/logs, or single-letter words caused by layout pressure.
+
+## 2. No dead space
+- No default visible empty panel may reserve more than 160px height.
+- Collapsed sections must not reserve body height.
+- Empty states must be compact.
+- Developer/debug panels must be hidden by default.
+- The primary screen must not contain large blank layout regions.
+
+## 3. Camera + steps first
+- The main UI must prioritize camera, current step, next action, suggestions, confirmation, and progress.
+- Export, diagnostics, trace campaigns, raw preflight, JSON preview, and developer tools are secondary.
+- Suggestion Trace Campaign must never appear in the default operator view.
+
+## 4. Developer tools separation
+- Suggestion Trace Campaign, campaign cards, calibration internals, raw preflight logs, blocked reasons, preview JSON, operator internals, campaign bundle tools, and local perception tuning must never be visible by default.
+- Developer-only features must live inside Advanced / Developer Tools, closed by default.
+
+## 5. No misleading claims
+- Do not claim autonomous vision.
+- Do not claim object detection or gesture recognition is proven.
+- Do not claim production/demo/portfolio readiness.
+- Manual confirmation must remain visible.
+
+# Design Freeze v1
+
+The current UI is approved and frozen.
+
+Do not change:
+- layout
+- spacing
+- colors
+- typography
+- card structure
+- visual hierarchy
+- responsive design
+- visible UI structure
+
+Only functionality, validation, trace export, safety, and hidden developer-tool logic may change unless the user explicitly requests a design change.
+
+If a task requires visual changes, stop and ask for approval.
+
+Goal:
+Save tokens and keep changes focused.
+
+Rules:
+- Do not broadly inspect the repo.
+- Read only the exact files needed for the current task.
+- Prefer targeted search over full-file reads.
+- Do not paste large file contents.
+- Make the smallest safe diff.
+- Do not add new gates unless explicitly requested.
+- Do not add broad docs unless explicitly requested.
+- Keep output short and implementation-focused.
+- Preserve harness, physical trace, export, validation, privacy, and manual confirmation behavior.
+- Preserve manual confirmation disclosure.
+- Preserve zero LLM/VLM calls.
+- Preserve zero raw media persistence.
+- Do not make autonomous vision, cinematic, portfolio, demo, or production-quality claims unless explicitly approved by a gate.
+
+Current status:
+- Gate 1C: PASS_WITH_DISCLOSURE.
+- Gate 2A: PASS_WITH_DISCLOSURE.
+- Physical trace passes.
+- Minimal state-backed HUD polish is approved with disclosure.
+- Cinematic HUD remains blocked.
+- Portfolio/demo/autonomous-vision/production claims remain blocked.
+
+Default response format:
+1. Files changed
+2. What changed
+3. Commands run
+4. Results
+5. Remaining blockers
+
+# DarkQuest Critical UI Rules
+
+## Text containment
+No visible text may escape its card, button, chip, field, row, accordion, modal, drawer, or panel.
+
+Required:
+- `min-width: 0` on flex/grid children containing text.
+- `overflow-wrap: anywhere` for long paths/logs.
+- `text-overflow: ellipsis` for single-line fields.
+- Bounded scroll containers for code/logs/JSON.
+- Never allow vertical letter-by-letter wrapping.
+
+Forbidden:
+- text outside containers
+- crushed buttons
+- vertical word fragments
+- raw paths breaking layout
+- unbounded JSON/logs
+
+## No dead space
+No default visible empty panel may reserve more than 160px height, except the camera preview.
+
+Collapsed tools must not reserve body height.
+
+## Camera + Steps first
+Default UI must prioritize:
+- camera
+- current step
+- next action
+- manual confirmation if needed
+- camera suggestion if available
+- progress
+- export readiness
+
+## Developer tools separation
+Suggestion Trace Campaign, advanced calibration internals, raw preflight, preview JSON, blocked reasons, logs, diagnostics internals, and campaign bundle tools must be hidden by default inside Advanced / Developer Tools.
+
+## No misleading claims
+Do not claim autonomous vision, object detection proof, gesture recognition proof, production readiness, portfolio readiness, or cinematic demo readiness.

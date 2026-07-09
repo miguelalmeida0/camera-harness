@@ -1,0 +1,38 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_browser_latency_missing_v0",
+  "name": "Live browser adversarial latency missing",
+  "description": "Fails Gate 1B when browser trace origin exists but browser latency records are missing.",
+  "created_by": "GAUNTLET",
+  "trace_origin": {
+    "source": "browser.local_camera",
+    "raw_media_persisted": false,
+    "cloud_calls_enabled": false,
+    "manual_fixture": false
+  },
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

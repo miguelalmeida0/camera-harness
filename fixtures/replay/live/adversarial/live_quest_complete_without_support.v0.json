@@ -1,0 +1,48 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_quest_complete_without_support_v0",
+  "name": "Live adversarial quest complete without support",
+  "description": "Fails Gate 1A when quest complete appears without required preceding events.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_quest_complete_without_support",
+      "type": "quest.step_completed",
+      "timestamp_ms": 100,
+      "producer": "quest_engine",
+      "confidence": 1,
+      "payload": {
+        "quest_id": "focus_ritual",
+        "step_id": "step_quest_complete",
+        "completion_reason": "all_required_steps_complete",
+        "accepted_evidence_event_ids": [],
+        "elapsed_ms": 100
+      },
+      "evidence": []
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_broad_matcher_assertion_v0",
+  "name": "Live adversarial broad matcher assertion",
+  "description": "Fails Gate 1A when expected stable event assertions are too broad.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_live_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_broad_matcher",
+        "zone_ids": ["zone_focus", "zone_notebook", "zone_pen_tool", "zone_keyboard", "zone_away"],
+        "calibration_id": "cal_live_broad_matcher",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_live_scene_calibrated"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_any_scene_calibrated",
+        "type": "scene.calibrated"
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [],
+    "model_calls": [],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

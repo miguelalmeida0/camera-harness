@@ -1,0 +1,337 @@
+{
+  "schema": "darkquest.gate_manifest.v0",
+  "gate": "1C",
+  "repeat": 3,
+  "required_fixtures": [
+    {
+      "fixture": "fixtures/replay/live/live_physical_focus_ritual_001.v0.json",
+      "category": "required",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/live_occlusion_recovery_001.v0.json",
+      "category": "required",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_camera_bump_reset_001.v0.json",
+      "category": "required",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    }
+  ],
+  "regression_fixtures": [
+    {
+      "fixture": "fixtures/replay/focus_ritual_happy_path.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_browser_focus_ritual_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/live_focus_ritual_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_phone_moved_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_notebook_opened_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_pen_picked_up_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_writing_motion_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/live_typing_motion_001.v0.json",
+      "category": "regression",
+      "expected_result": "PASS",
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    }
+  ],
+  "adversarial_fixtures": [
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_raw_media_violation.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["raw_media_persistence_violation"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_unexpected_vlm_call.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["unexpected_model_call"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_unknown_event_type.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["unknown_event_type"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_experimental_state_event.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["experimental_state_event"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_hidden_uncertainty.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["uncertainty_hidden_from_hud"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_memory_write_without_evidence.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["memory_write_without_evidence"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_quest_complete_without_support.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["quest_complete_without_support"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_broad_matcher_assertion.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["stable_event_assertion_too_broad"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_duplicate_event_id.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["duplicate_event_id"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_non_monotonic_timestamps.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["non_monotonic_timestamps"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_browser_trace_missing_origin.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["browser_trace_origin_missing"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_browser_latency_missing.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["browser_latency_missing"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_browser_trace_claims_raw_media.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["raw_media_persistence_violation"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_occlusion_progresses_quest.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["quest_progress_during_uncertainty"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_camera_bump_stale_zone_truth.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["stale_zone_truth_after_reset"],
+      "repeat": 3,
+      "physical_capture_required": false,
+      "browser_generated_required": false
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_missing_origin.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_trace_origin_missing"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_not_confirmed.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_capture_not_confirmed"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_marked_manual.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_trace_marked_manual"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_wrong_generator.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_trace_wrong_generator"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_wrong_capture_mode.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_trace_wrong_capture_mode"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_synthetic_substitution.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": [
+        "physical_trace_synthetic_substitution",
+        "physical_trace_wrong_generator",
+        "physical_trace_wrong_capture_mode"
+      ],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_latency_missing.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["physical_trace_latency_missing"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_raw_media.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["raw_media_persistence_violation"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_unexpected_model_call.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["unexpected_model_call"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_quest_complete_without_support.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["quest_complete_without_support"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    },
+    {
+      "fixture": "fixtures/replay/live/adversarial/live_physical_trace_hidden_low_confidence.v0.json",
+      "category": "adversarial",
+      "expected_result": "FAIL",
+      "expected_failure_codes": ["low_confidence_hidden"],
+      "repeat": 3,
+      "physical_capture_required": true,
+      "browser_generated_required": true
+    }
+  ]
+}

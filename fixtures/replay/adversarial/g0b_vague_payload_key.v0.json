@@ -1,0 +1,68 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_vague_payload_key_v0",
+  "name": "Gate 0B vague payload key rejection",
+  "description": "Fails when an event payload contains vague keys such as data.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_phone_moved_away",
+      "type": "object.moved",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.92,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 640,
+        "data": "ambiguous freeform field"
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_phone_moved_away"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

@@ -1,0 +1,580 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "live_physical_focus_ritual_001",
+  "name": "Gate 1D physical browser Focus Ritual",
+  "description": "Operator-confirmed physical browser webcam session exported by the hardened local app as symbolic replay events only.",
+  "created_by": "PARALLAX Gate 1E operator-grade browser-local app",
+  "trace_origin": {
+    "source": "browser.local_camera",
+    "raw_media_persisted": false,
+    "cloud_calls_enabled": false,
+    "manual_fixture": false,
+    "dev_dry_run": false,
+    "generated_by": "browser-local-capture",
+    "capture_mode": "physical_webcam_manual_calibration",
+    "browser_latency_recorded": true,
+    "physical_capture": true,
+    "operator_confirmed_physical_session": true,
+    "manual_local_confirmation_used": true,
+    "manual_local_confirmation_scope": [
+      "zone_calibration",
+      "focus_ritual_step_confirmation"
+    ],
+    "manual_local_confirmation_event_ids": [
+      "evt_scene_calibrated",
+      "evt_phone_moved_to_off_desk",
+      "evt_notebook_opened",
+      "evt_pen_moved_to_hand",
+      "evt_writing_like_motion",
+      "evt_typing_like_motion"
+    ]
+  },
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_live_physical_focus_ritual_001",
+        "zone_ids": [
+          "phone_zone",
+          "notebook_zone",
+          "pen_zone",
+          "keyboard_zone",
+          "neutral_zone",
+          "off_desk_zone"
+        ],
+        "calibration_id": "cal_live_physical_focus_ritual_001",
+        "scene_confidence": 0.94,
+        "object_assignments": {
+          "phone": "phone_zone",
+          "notebook": "notebook_zone",
+          "pen": "pen_zone",
+          "keyboard": "keyboard_zone"
+        }
+      },
+      "evidence": [
+        {
+          "id": "ev_scene_calibrated",
+          "ref": "ev_scene_calibrated",
+          "kind": "human_correction",
+          "description": "Manual local calibration saved by operator.",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_phone_moved_to_off_desk",
+      "type": "object.moved",
+      "timestamp_ms": 1000,
+      "producer": "perception.local",
+      "confidence": 0.92,
+      "payload": {
+        "object_id": "obj_phone",
+        "object_type": "phone",
+        "from_zone_id": "zone_focus",
+        "to_zone_id": "zone_away",
+        "duration_ms": 640
+      },
+      "evidence": [
+        {
+          "id": "ev_phone_moved_to_off_desk",
+          "ref": "ev_phone_moved_to_off_desk",
+          "kind": "human_correction",
+          "description": "Manual local confirmation: phone moved away physically.",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_notebook_opened",
+      "type": "object.placed",
+      "timestamp_ms": 2200,
+      "producer": "perception.local",
+      "confidence": 0.91,
+      "payload": {
+        "object_id": "obj_notebook",
+        "object_type": "notebook",
+        "zone_id": "zone_notebook",
+        "dwell_ms": 800
+      },
+      "evidence": [
+        {
+          "id": "ev_notebook_opened",
+          "ref": "ev_notebook_opened",
+          "kind": "human_correction",
+          "description": "Manual local confirmation: notebook opened physically.",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_pen_moved_to_hand",
+      "type": "object.moved",
+      "timestamp_ms": 3300,
+      "producer": "perception.local",
+      "confidence": 0.9,
+      "payload": {
+        "object_id": "obj_pen",
+        "object_type": "pen",
+        "from_zone_id": "zone_pen_tool",
+        "to_zone_id": "zone_notebook",
+        "duration_ms": 480
+      },
+      "evidence": [
+        {
+          "id": "ev_pen_moved_to_hand",
+          "ref": "ev_pen_moved_to_hand",
+          "kind": "human_correction",
+          "description": "Manual local confirmation: pen picked up by hand.",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_writing_like_motion",
+      "type": "gesture.detected",
+      "timestamp_ms": 4700,
+      "producer": "perception.local",
+      "confidence": 0.88,
+      "payload": {
+        "gesture_id": "gst_writing_like_001",
+        "gesture_type": "writing_motion",
+        "zone_id": "zone_notebook",
+        "actor_ref": "hand_right",
+        "evidence_window_ms": 1000,
+        "related_object_id": "obj_pen",
+        "gesture_repetition_count": 3
+      },
+      "evidence": [
+        {
+          "id": "ev_writing_like_motion",
+          "ref": "ev_writing_like_motion",
+          "kind": "human_correction",
+          "description": "Manual local confirmation: writing-like motion occurred.",
+          "contains_raw_media": false
+        }
+      ]
+    },
+    {
+      "id": "evt_typing_like_motion",
+      "type": "gesture.detected",
+      "timestamp_ms": 6200,
+      "producer": "perception.local",
+      "confidence": 0.89,
+      "payload": {
+        "gesture_id": "gst_typing_like_001",
+        "gesture_type": "typing_motion",
+        "zone_id": "zone_keyboard",
+        "actor_ref": "hand_both",
+        "evidence_window_ms": 950,
+        "gesture_repetition_count": 4
+      },
+      "evidence": [
+        {
+          "id": "ev_typing_like_motion",
+          "ref": "ev_typing_like_motion",
+          "kind": "human_correction",
+          "description": "Manual local confirmation: typing-like motion occurred.",
+          "contains_raw_media": false
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_evt_scene_calibrated",
+        "event_id": "evt_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 0,
+        "must_occur_before_ms": 0,
+        "min_confidence": 0.93,
+        "payload_match": {
+          "session_id": "ses_live_physical_focus_ritual_001",
+          "zone_ids": [
+            "phone_zone",
+            "notebook_zone",
+            "pen_zone",
+            "keyboard_zone",
+            "neutral_zone",
+            "off_desk_zone"
+          ],
+          "calibration_id": "cal_live_physical_focus_ritual_001",
+          "scene_confidence": 0.94,
+          "object_assignments": {
+            "phone": "phone_zone",
+            "notebook": "notebook_zone",
+            "pen": "pen_zone",
+            "keyboard": "keyboard_zone"
+          }
+        },
+        "evidence_includes": [
+          "ev_scene_calibrated"
+        ]
+      },
+      {
+        "id": "expect_evt_phone_moved_to_off_desk",
+        "event_id": "evt_phone_moved_to_off_desk",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 1000,
+        "must_occur_before_ms": 1000,
+        "min_confidence": 0.91,
+        "payload_match": {
+          "object_id": "obj_phone",
+          "object_type": "phone",
+          "from_zone_id": "zone_focus",
+          "to_zone_id": "zone_away",
+          "duration_ms": 640
+        },
+        "evidence_includes": [
+          "ev_phone_moved_to_off_desk"
+        ]
+      },
+      {
+        "id": "expect_evt_notebook_opened",
+        "event_id": "evt_notebook_opened",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 2200,
+        "must_occur_before_ms": 2200,
+        "min_confidence": 0.9,
+        "payload_match": {
+          "object_id": "obj_notebook",
+          "object_type": "notebook",
+          "zone_id": "zone_notebook",
+          "dwell_ms": 800
+        },
+        "evidence_includes": [
+          "ev_notebook_opened"
+        ]
+      },
+      {
+        "id": "expect_evt_pen_moved_to_hand",
+        "event_id": "evt_pen_moved_to_hand",
+        "type": "object.moved",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 3300,
+        "must_occur_before_ms": 3300,
+        "min_confidence": 0.89,
+        "payload_match": {
+          "object_id": "obj_pen",
+          "object_type": "pen",
+          "from_zone_id": "zone_pen_tool",
+          "to_zone_id": "zone_notebook",
+          "duration_ms": 480
+        },
+        "evidence_includes": [
+          "ev_pen_moved_to_hand"
+        ]
+      },
+      {
+        "id": "expect_evt_writing_like_motion",
+        "event_id": "evt_writing_like_motion",
+        "type": "gesture.detected",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 4700,
+        "must_occur_before_ms": 4700,
+        "min_confidence": 0.87,
+        "payload_match": {
+          "gesture_id": "gst_writing_like_001",
+          "gesture_type": "writing_motion",
+          "zone_id": "zone_notebook",
+          "actor_ref": "hand_right",
+          "evidence_window_ms": 1000,
+          "related_object_id": "obj_pen",
+          "gesture_repetition_count": 3
+        },
+        "evidence_includes": [
+          "ev_writing_like_motion"
+        ]
+      },
+      {
+        "id": "expect_evt_typing_like_motion",
+        "event_id": "evt_typing_like_motion",
+        "type": "gesture.detected",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 6200,
+        "must_occur_before_ms": 6200,
+        "min_confidence": 0.88,
+        "payload_match": {
+          "gesture_id": "gst_typing_like_001",
+          "gesture_type": "typing_motion",
+          "zone_id": "zone_keyboard",
+          "actor_ref": "hand_both",
+          "evidence_window_ms": 950,
+          "gesture_repetition_count": 4
+        },
+        "evidence_includes": [
+          "ev_typing_like_motion"
+        ]
+      }
+    ],
+    "quest_transitions": [
+      {
+        "from_state": "phone_removal_pending",
+        "to_state": "phone_removed",
+        "trigger_event_id": "evt_phone_moved_to_off_desk",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_phone_away"
+      },
+      {
+        "from_state": "notebook_pending",
+        "to_state": "notebook_opened",
+        "trigger_event_id": "evt_notebook_opened",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_notebook_open"
+      },
+      {
+        "from_state": "pen_pending",
+        "to_state": "pen_detected",
+        "trigger_event_id": "evt_pen_moved_to_hand",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_pen_pickup"
+      },
+      {
+        "from_state": "writing_pending",
+        "to_state": "writing_detected",
+        "trigger_event_id": "evt_writing_like_motion",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_write_three_bullets"
+      },
+      {
+        "from_state": "typing_pending",
+        "to_state": "typing_detected",
+        "trigger_event_id": "evt_typing_like_motion",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_start_typing"
+      },
+      {
+        "from_state": "typing_detected",
+        "to_state": "quest_complete",
+        "trigger_event_id": "evt_step_start_typing_completed",
+        "emitted_event_type": "quest.step_completed",
+        "step_id": "step_quest_complete"
+      }
+    ],
+    "hud_commands": [
+      {
+        "command_id": "hud_mark_phone_away",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_phone_away",
+        "evidence_includes": [
+          "evt_step_phone_away_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_notebook_open",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_notebook_open",
+        "evidence_includes": [
+          "evt_step_notebook_open_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_pen_pickup",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_pen_pickup",
+        "evidence_includes": [
+          "evt_step_pen_pickup_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_write_three_bullets",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_write_three_bullets",
+        "evidence_includes": [
+          "evt_step_write_three_bullets_completed"
+        ]
+      },
+      {
+        "command_id": "hud_mark_start_typing",
+        "command_type": "mark_step_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_start_typing",
+        "evidence_includes": [
+          "evt_step_start_typing_completed"
+        ]
+      },
+      {
+        "command_id": "hud_quest_complete",
+        "command_type": "quest_complete",
+        "target_surface": "quest_panel",
+        "related_step_id": "step_quest_complete",
+        "evidence_includes": [
+          "evt_step_quest_complete_completed"
+        ]
+      }
+    ],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [
+      "agent.escalation_requested"
+    ],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 1
+      },
+      {
+        "approved_tier": 2
+      },
+      {
+        "approved_tier": 3
+      },
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      },
+      {
+        "input_class": "raw_video"
+      },
+      {
+        "input_class": "raw_frame"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000,
+    "p50_latency_ms": 40,
+    "p95_latency_ms": 44,
+    "max_latency_ms": 44,
+    "dropped_frames": 0,
+    "event_count": 6,
+    "uncertainty_count": 0,
+    "scene_reset_count": 0,
+    "raw_media_persistence_count": 0,
+    "browser_latency_records": [
+      {
+        "event_id": "evt_scene_calibrated",
+        "frame_id": "recording_calibration_0",
+        "timestamp_ms": 0,
+        "frame_capture_ms": 4,
+        "observation_extraction_ms": 12,
+        "adapter_ms": 4,
+        "stabilizer_ms": 6,
+        "event_emission_ms": 2,
+        "hud_update_ms": 4,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 34,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      },
+      {
+        "event_id": "evt_phone_moved_to_off_desk",
+        "frame_id": "phone_1000",
+        "timestamp_ms": 1000,
+        "frame_capture_ms": 5,
+        "observation_extraction_ms": 13,
+        "adapter_ms": 5,
+        "stabilizer_ms": 7,
+        "event_emission_ms": 2,
+        "hud_update_ms": 5,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 39,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      },
+      {
+        "event_id": "evt_notebook_opened",
+        "frame_id": "notebook_2200",
+        "timestamp_ms": 2200,
+        "frame_capture_ms": 6,
+        "observation_extraction_ms": 14,
+        "adapter_ms": 6,
+        "stabilizer_ms": 8,
+        "event_emission_ms": 2,
+        "hud_update_ms": 6,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 44,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      },
+      {
+        "event_id": "evt_pen_moved_to_hand",
+        "frame_id": "pen_3300",
+        "timestamp_ms": 3300,
+        "frame_capture_ms": 4,
+        "observation_extraction_ms": 15,
+        "adapter_ms": 4,
+        "stabilizer_ms": 9,
+        "event_emission_ms": 2,
+        "hud_update_ms": 4,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 40,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      },
+      {
+        "event_id": "evt_writing_like_motion",
+        "frame_id": "writing_4700",
+        "timestamp_ms": 4700,
+        "frame_capture_ms": 5,
+        "observation_extraction_ms": 16,
+        "adapter_ms": 5,
+        "stabilizer_ms": 6,
+        "event_emission_ms": 2,
+        "hud_update_ms": 5,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 41,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      },
+      {
+        "event_id": "evt_typing_like_motion",
+        "frame_id": "typing_6200",
+        "timestamp_ms": 6200,
+        "frame_capture_ms": 6,
+        "observation_extraction_ms": 12,
+        "adapter_ms": 6,
+        "stabilizer_ms": 7,
+        "event_emission_ms": 2,
+        "hud_update_ms": 6,
+        "trace_recorder_ms": 2,
+        "end_to_end_ms": 41,
+        "dropped_frames": 0,
+        "llm_calls": 0,
+        "vlm_calls": 0,
+        "raw_media_persistence_count": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "schema": "darkquest.replay_fixture.v0",
+  "fixture_id": "g0b_notebook_out_of_order_v0",
+  "name": "Gate 0B notebook out of order",
+  "description": "Fails when notebook evidence appears before the phone-away step is complete.",
+  "created_by": "GAUNTLET",
+  "privacy": {
+    "contains_raw_video": false,
+    "contains_audio": false,
+    "cloud_calls_expected": false
+  },
+  "input_events": [
+    {
+      "id": "evt_scene_calibrated",
+      "type": "scene.calibrated",
+      "timestamp_ms": 0,
+      "producer": "perception.local",
+      "confidence": 0.94,
+      "payload": {
+        "session_id": "ses_gate_0_happy",
+        "zone_ids": [
+          "zone_focus",
+          "zone_notebook",
+          "zone_pen_tool",
+          "zone_keyboard",
+          "zone_away"
+        ],
+        "calibration_id": "cal_gate_0_happy",
+        "scene_confidence": 0.94
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_scene_calibrated"
+        }
+      ]
+    },
+    {
+      "id": "evt_notebook_placed",
+      "type": "object.placed",
+      "timestamp_ms": 2200,
+      "producer": "perception.local",
+      "confidence": 0.91,
+      "payload": {
+        "object_id": "obj_notebook",
+        "object_type": "notebook",
+        "zone_id": "zone_notebook",
+        "dwell_ms": 800
+      },
+      "evidence": [
+        {
+          "kind": "fixture_assertion",
+          "ref": "ev_notebook_placed"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "stable_events": [
+      {
+        "id": "expect_scene_calibrated",
+        "event_id": "evt_scene_calibrated",
+        "type": "scene.calibrated",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 0,
+        "must_occur_before_ms": 0,
+        "min_confidence": 0.8,
+        "payload_match": {
+          "calibration_id": "cal_gate_0_happy"
+        },
+        "evidence_includes": [
+          "ev_scene_calibrated"
+        ]
+      },
+      {
+        "id": "expect_notebook_placed",
+        "event_id": "evt_notebook_placed",
+        "type": "object.placed",
+        "producer": "event_stabilizer",
+        "must_occur_after_ms": 2200,
+        "must_occur_before_ms": 2600,
+        "min_confidence": 0.86,
+        "payload_match": {
+          "object_id": "obj_notebook",
+          "object_type": "notebook",
+          "zone_id": "zone_notebook",
+          "dwell_ms": 800
+        },
+        "evidence_includes": [
+          "ev_notebook_placed"
+        ]
+      }
+    ],
+    "quest_transitions": [],
+    "hud_commands": [],
+    "memory_writes": [],
+    "model_calls": []
+  },
+  "forbidden": {
+    "event_types": [],
+    "memory_writes": [
+      {
+        "memory_scope": "raw_frame_memory"
+      },
+      {
+        "privacy_classification": "forbidden_raw_media"
+      }
+    ],
+    "model_calls": [
+      {
+        "approved_tier": 4
+      },
+      {
+        "input_class": "continuous_video"
+      }
+    ],
+    "raw_video_persistence": true
+  },
+  "metrics": {
+    "max_llm_calls": 0,
+    "max_vlm_calls": 0,
+    "max_cost_usd": 0,
+    "max_replay_runtime_ms": 1000
+  }
+}

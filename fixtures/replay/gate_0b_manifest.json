@@ -1,0 +1,112 @@
+{
+  "schema": "darkquest.gate_0b_manifest.v0",
+  "repeat": 3,
+  "fixtures": [
+    {
+      "path": "focus_ritual_happy_path.v0.json",
+      "expected_verdict": "PASS",
+      "expected_failure_codes": []
+    },
+    {
+      "path": "adversarial/g0b_broad_stable_matcher.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "stable_event_assertion_too_broad"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_missing_phone_event.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_missing"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_notebook_out_of_order.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_out_of_order"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_pen_low_confidence.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_missing"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_writing_before_pen.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_out_of_order"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_typing_before_writing.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_out_of_order"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_short_writing_repetition.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "quest_transition_missing"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_unexpected_vlm_call.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "unexpected_model_call"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_model_full_frame_scope.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "model_call_without_permission",
+        "unexpected_model_call"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_memory_without_evidence.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "memory_write_without_evidence"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_raw_video_flag.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "raw_media_persistence"
+      ]
+    },
+    {
+      "path": "adversarial/g0b_vague_payload_key.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "payload_shape_mismatch"
+      ]
+    },
+    {
+      "path": "adversarial/uncertainty_hidden.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "hud_uncertainty_hidden",
+        "quest_progress_during_uncertainty",
+        "unexpected_stable_event"
+      ]
+    },
+    {
+      "path": "adversarial/nondeterministic_output.v0.json",
+      "expected_verdict": "FAIL",
+      "expected_failure_codes": [
+        "nondeterministic_replay"
+      ]
+    }
+  ]
+}
