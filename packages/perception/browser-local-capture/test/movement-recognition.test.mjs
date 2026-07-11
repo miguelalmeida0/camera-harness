@@ -123,11 +123,17 @@ const requiredCloudEnv = {
   HF_MAX_REQUEST_BODY_BYTES: "5000000",
   HF_USAGE_STATE_PATH: ".darkquest/hf-usage.json"
 };
+const requiredConfiguredEnv = {
+  ...requiredCloudEnv,
+  HF_MAX_REQUESTS_PER_SESSION: "200",
+  HF_MAX_REQUESTS_PER_DAY: "1000",
+  HF_MAX_REQUESTS_PER_MONTH: "5000"
+};
 const realEnvText = readFileSync(resolve(".env"), "utf8");
 assert.equal((realEnvText.match(/^HF_TOKEN=/gm) || []).length, 1, "real .env keeps exactly one HF_TOKEN key");
 for (const [key, value] of Object.entries(requiredCloudEnv)) {
   assert.equal((realEnvText.match(new RegExp(`^${key}=`, "gm")) || []).length, 1, `real .env has one ${key}`);
-  assert.equal(realEnvText.includes(`${key}=${value}`), true, `real .env configures ${key}`);
+  assert.equal(realEnvText.includes(`${key}=${requiredConfiguredEnv[key]}`), true, `real .env configures ${key}`);
   assert.equal(envExample.includes(`${key}=${value}`), true, `.env.example documents ${key}`);
 }
 assert.equal(envExample.includes("HF_TOKEN=\n"), true, ".env.example keeps HF_TOKEN empty");

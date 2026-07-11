@@ -15,6 +15,7 @@ const activeSessions = new Set();
 
 export function loadSpatialAwarenessConfig(env = process.env) {
   return {
+    cloudEnabled: String(env.HF_CLOUD_INFERENCE_ENABLED ?? "true").toLowerCase() === "true",
     serviceUrl: String(env.SPATIAL_SERVICE_URL || "http://127.0.0.1:8790/spatial-observations"),
     healthUrl: String(env.SPATIAL_HEALTH_URL || "http://127.0.0.1:8790/spatial-health"),
     timeoutMs: boundedInt(env.SPATIAL_TIMEOUT_MS, 500, 120000, 30000),
@@ -26,6 +27,8 @@ export function loadSpatialAwarenessConfig(env = process.env) {
     maxRequestsPerSession: boundedInt(env.HF_MAX_REQUESTS_PER_SESSION, 1, 10000, 20),
     maxRequestsPerDay: boundedInt(env.HF_MAX_REQUESTS_PER_DAY, 1, 100000, 50),
     maxRequestsPerMonth: boundedInt(env.HF_MAX_REQUESTS_PER_MONTH, 1, 1000000, 100),
+    maxConcurrentRequests: boundedInt(env.HF_MAX_CONCURRENT_REQUESTS, 1, 1, 1),
+    maxProviderRetries: boundedInt(env.HF_MAX_PROVIDER_RETRIES, 0, 1, 1),
     requestCooldownMs: boundedInt(env.HF_REQUEST_COOLDOWN_MS, 0, 60000, 5000),
     usageStatePath: String(env.HF_USAGE_STATE_PATH || ".darkquest/hf-usage.json")
   };
@@ -137,12 +140,12 @@ function usageLimiter(config, options) {
   if ((options.fetch || options.observationProvider) && options.enforceUsageLimits !== true) return noOpLimiter();
   const limiterConfig = {
     projectRoot: options.projectRoot || process.cwd(),
-    cloudEnabled: true,
+    cloudEnabled: config.cloudEnabled,
     maxRequestsPerSession: config.maxRequestsPerSession,
     maxRequestsPerDay: config.maxRequestsPerDay,
     maxRequestsPerMonth: config.maxRequestsPerMonth,
-    maxConcurrentRequests: 1,
-    maxProviderRetries: 0,
+    maxConcurrentRequests: config.maxConcurrentRequests,
+    maxProviderRetries: config.maxProviderRetries,
     requestCooldownMs: config.requestCooldownMs,
     maxFramesPerRequest: config.maxFrames,
     maxWindowMs: config.maxWindowMs,

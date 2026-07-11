@@ -10,7 +10,7 @@ import {
 import { createSpatialAwarenessClient } from "../../../../services/visual-companion/spatial-client.mjs";
 import { SPATIAL_DIRECTIONS, SPATIAL_INTERACTIONS, SPATIAL_RELATIONS, containsRawMedia } from "../../../../services/visual-companion/spatial-contract.mjs";
 import { clearSpatialScene, createSpatialScene, summarizeSpatialScene, updateSpatialScene } from "../../../../services/visual-companion/spatial-scene.mjs";
-import { resetSpatialProviderStateForTests, spatialAwarenessResponseForRequest } from "../server/spatial-awareness-provider.mjs";
+import { loadSpatialAwarenessConfig, resetSpatialProviderStateForTests, spatialAwarenessResponseForRequest } from "../server/spatial-awareness-provider.mjs";
 import { createMovementRecognitionServer } from "../server/movement-recognition-server.mjs";
 
 const relationCases = [
@@ -19,6 +19,22 @@ const relationCases = [
   [entity("a", [0.2, 0.2, 0.3, 0.3], 0.4), entity("b", [0.1, 0.1, 0.5, 0.5], 0.45), ["inside", "contains"]],
   [entity("a", [0.1, 0.1, 0.2, 0.2], 0.4), entity("b", [0.2, 0.1, 0.3, 0.2], 0.42), ["touching"]]
 ];
+const budgetConfig = loadSpatialAwarenessConfig({
+  HF_CLOUD_INFERENCE_ENABLED: "true",
+  HF_MAX_REQUESTS_PER_SESSION: "200",
+  HF_MAX_REQUESTS_PER_DAY: "1000",
+  HF_MAX_REQUESTS_PER_MONTH: "5000",
+  HF_MAX_CONCURRENT_REQUESTS: "1",
+  HF_MAX_PROVIDER_RETRIES: "1"
+});
+assert.deepEqual({
+  cloudEnabled: budgetConfig.cloudEnabled,
+  session: budgetConfig.maxRequestsPerSession,
+  day: budgetConfig.maxRequestsPerDay,
+  month: budgetConfig.maxRequestsPerMonth,
+  concurrent: budgetConfig.maxConcurrentRequests,
+  retries: budgetConfig.maxProviderRetries
+}, { cloudEnabled: true, session: 200, day: 1000, month: 5000, concurrent: 1, retries: 1 });
 const supportedRelations = new Set();
 for (const [first, second, expected] of relationCases) {
   const relations = inferRelations([first, second], 2, 0.55);

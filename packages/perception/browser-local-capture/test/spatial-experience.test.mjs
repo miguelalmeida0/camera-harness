@@ -14,7 +14,13 @@ import {
   validateSpatialPredicateDefinition,
   validateSpatialResult
 } from "../prototype/spatial/spatial-experience.js";
-import { analyzeSpatialExperienceForWindow, createInitialState, queueMovementRecognitionResult } from "../prototype/local-capture.js";
+import {
+  analyzeSpatialExperienceForWindow,
+  createInitialState,
+  maybeAutoSpeakVisualResult,
+  queueMovementRecognitionResult,
+  speakSensefieldResponse
+} from "../prototype/local-capture.js";
 import { createDeterministicSpatialAdapter, SPATIAL_TEST_SCENARIOS } from "./spatial-test-adapter.mjs";
 
 const root = new URL("../", import.meta.url);
@@ -147,6 +153,8 @@ assert.equal((html.match(/data-interaction-mode=/g) || []).length >= 2, true);
 assert.equal(html.includes('data-interaction-mode="spatial"'), false, "no third mode exists");
 assert.equal(html.includes("Spatial dashboard"), false);
 assert.equal(/SpeechSynthesisUtterance|speechSynthesis|speakVisualResponse/.test(spatialSource), false, "spatial layer adds no voice engine or speech owner");
+assert.equal(/new\s+Audio|\/api\/visual-companion\/speak/.test(spatialSource), false, "spatial production module cannot create a second neural voice path");
+assert.equal(typeof speakSensefieldResponse, "function", "spatial results use the canonical Sensefield neural voice entry point");
 assert.equal(/MediaRecorder|indexedDB|navigator\.sendBeacon|WebSocket/i.test(spatialSource), false, "spatial layer does not persist or stream raw media");
 
 const momentRuntime = createInitialState();
@@ -171,5 +179,29 @@ const movementResult = {
 queueMovementRecognitionResult(momentRuntime, movementResult, 2000, { recordMovementHistory: true, queueSuggestion: false });
 queueMovementRecognitionResult(momentRuntime, movementResult, 2000, { recordMovementHistory: true, queueSuggestion: false });
 assert.equal(momentRuntime.emergencyRuntimeController.snapshot().persistentMemory.observationMoments.length, 1, "duplicate scene does not duplicate Recent Moments");
+
+const unavailableNoticeRuntime = createInitialState();
+unavailableNoticeRuntime.emergencyRuntimeController.beginStart("observing");
+unavailableNoticeRuntime.emergencyRuntimeController.activate("observing", { cameraActive: true, microphoneActive: false });
+unavailableNoticeRuntime.interactionState.sessionActive = true;
+unavailableNoticeRuntime.interactionState.mode = "observing";
+queueMovementRecognitionResult(unavailableNoticeRuntime, {
+  observation_id: "visual_reasoning_paused_once",
+  movement: "This session reached its cloud request limit. Local features remain available.",
+  spoken_response: "This session reached its cloud request limit. Local features remain available.",
+  response_type: "uncertain",
+  movement_key: "visual_reasoning_unavailable",
+  confidence: 0,
+  uncertainty: true,
+  provider: "sensefield_runtime",
+  model: "none",
+  response_source: "unavailable"
+}, 3000, { recordMovementHistory: true, queueSuggestion: false });
+const unavailableNotice = unavailableNoticeRuntime.emergencyRuntimeController.snapshot();
+assert.equal(unavailableNotice.currentTurn.confidence, null, "infrastructure notice exposes no fake confidence");
+assert.equal(unavailableNotice.persistentMemory.observationMoments.length, 0, "infrastructure notice is not stored as a movement");
+assert.equal(unavailableNoticeRuntime.movementHistory.entries.length, 0, "infrastructure notice is excluded from movement history");
+assert.equal(maybeAutoSpeakVisualResult(unavailableNoticeRuntime), false, "infrastructure notice does not trigger automatic narration");
+assert.equal(source.includes("Visual reasoning paused"), true, "primary UI labels infrastructure notices truthfully");
 
 console.log("ok spatial experience");

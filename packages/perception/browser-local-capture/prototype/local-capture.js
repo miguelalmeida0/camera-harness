@@ -4322,10 +4322,10 @@ export async function speakMovementResult(target = state, options = {}) {
   const snapshot = target.movementResultSnapshot;
   const text = spokenResponseForSnapshot(snapshot) || target.movementRecognition.latestSpokenResponse || "";
   const observationId = observationIdForSnapshot(snapshot) || options.observationId || "";
-  return speakVisualResponse({ observationId, text }, { ...options, target });
+  return speakSensefieldResponse({ observationId, text }, { ...options, target });
 }
 
-export async function speakVisualResponse({ observationId = "", text = "" } = {}, options = {}) {
+export async function speakSensefieldResponse({ observationId = "", text = "" } = {}, options = {}) {
   const target = options.target || state;
   const cleanText = String(text || "").trim();
   if (!cleanText) {
@@ -4379,12 +4379,17 @@ export async function speakVisualResponse({ observationId = "", text = "" } = {}
   return localVoice;
 }
 
+export async function speakVisualResponse(input = {}, options = {}) {
+  return speakSensefieldResponse(input, options);
+}
+
 export function maybeAutoSpeakVisualResult(target = state, options = {}) {
   const snapshot = target.movementResultSnapshot;
   const observationId = observationIdForSnapshot(snapshot);
   const text = spokenResponseForSnapshot(snapshot);
   if (!snapshot || !observationId || !text) return false;
   if (snapshot.response_type === "silent") return false;
+  if (snapshot.movement_key === "visual_reasoning_unavailable") return false;
   if (target.movementRecognition.autoSpeak !== true) {
     target.movementRecognition.voiceStatus = "Muted";
     render();
@@ -4393,7 +4398,7 @@ export function maybeAutoSpeakVisualResult(target = state, options = {}) {
   target.movementRecognition.spokenObservationIds ??= new Set();
   if (target.movementRecognition.spokenObservationIds.has(observationId)) return false;
   target.movementRecognition.spokenObservationIds.add(observationId);
-  void speakVisualResponse({ observationId, text }, { ...options, target, auto: true })
+  void speakSensefieldResponse({ observationId, text }, { ...options, target, auto: true })
     .finally(() => {
       if (target.interactionState?.sessionActive) {
         target.movementRecognition.persistent.state = "active";
@@ -7426,6 +7431,11 @@ function safeVisualCompanionErrorMessage(error) {
 }
 
 function safeObservationErrorMessage(error) {
+  if (error?.movement_code === "hf_session_limit_reached") return "This session reached its cloud request limit. Local features remain available.";
+  if (error?.movement_code === "hf_daily_limit_reached") return "The daily cloud request limit was reached. Local features remain available.";
+  if (error?.movement_code === "hf_monthly_limit_reached") return "The monthly cloud request limit was reached. Local features remain available.";
+  if (error?.movement_code === "hf_concurrency_limit") return "Visual reasoning is already handling another request. Local features remain available.";
+  if (error?.movement_code === "hf_retry_limit_reached") return "The visual provider retry limit was reached. Local features remain available.";
   if (["model_not_installed", "endpoint_missing"].includes(error?.movement_code)) return safeVisualCompanionErrorMessage(error);
   return safeMovementRecognitionErrorMessage(error);
 }
@@ -7888,6 +7898,7 @@ export function normalizeMovementRecognitionResult(result = {}) {
 
 export function queueMovementRecognitionResult(target, result, timestampMs = Math.round(now()), options = {}) {
   const normalized = normalizeMovementRecognitionResult(result);
+  const operationalUnavailable = normalized.response_source === "unavailable" && normalized.movement_key === "visual_reasoning_unavailable";
   const snapshot = movementResultSnapshotFrom(normalized, timestampMs);
   const previousObservationId = observationIdForSnapshot(target.movementResultSnapshot);
   if (previousObservationId && previousObservationId !== snapshot.observation_id) void cancelVisualSpeech(target);
@@ -7926,10 +7937,10 @@ export function queueMovementRecognitionResult(target, result, timestampMs = Mat
   if (target.interactionState?.sessionActive) {
     target.emergencyRuntimeController.setCurrentResponse({
       text: snapshot.spoken_response || snapshot.movement_sentence,
-      confidence: snapshot.confidence,
+      confidence: operationalUnavailable ? undefined : snapshot.confidence,
       createdAt: timestampMs
     });
-    if (interactionModeIs(target, "observing")) {
+    if (interactionModeIs(target, "observing") && !operationalUnavailable) {
       target.emergencyRuntimeController.recordMoment("observing", {
         id: snapshot.observation_id,
         role: "MOVEMENT",
@@ -7939,9 +7950,11 @@ export function queueMovementRecognitionResult(target, result, timestampMs = Mat
     }
     target.appState = target.emergencyRuntimeController.snapshot();
   }
-  target.confidenceCalibration.results_count += 1;
-  if (normalized.uncertainty) target.confidenceCalibration.uncertain_count += 1;
-  if (options.recordMovementHistory !== false) appendMovementHistory(target, snapshot);
+  if (!operationalUnavailable) {
+    target.confidenceCalibration.results_count += 1;
+    if (normalized.uncertainty) target.confidenceCalibration.uncertain_count += 1;
+    if (options.recordMovementHistory !== false) appendMovementHistory(target, snapshot);
+  }
   return suggestion;
 }
 
@@ -9108,6 +9121,7 @@ function primaryActionLabel(target) {
 
 function primaryResponseStateLabel(target) {
   const app = canonicalAppState(target);
+  if (visualReasoningPaused(target)) return "Visual reasoning paused";
   if (app.safeError) return app.selectedMode === "observing" ? "Visual model unavailable" : "Conversation unavailable";
   if (app.currentTurn.assistantText) return "Sensefield";
   if (app.currentTurn.observationText) return "Movement";
@@ -9129,9 +9143,14 @@ function primaryObservationStateLabel(target) {
 
 function primaryResponseMeta(target) {
   const app = canonicalAppState(target);
+  if (visualReasoningPaused(target)) return "";
   if (app.currentTurn.responseType && target.spatialExperience?.metadata) return target.spatialExperience.metadata;
   if (!app.currentTurn.responseType || app.currentTurn.confidence == null) return "";
   return `Confidence ${Number(app.currentTurn.confidence).toFixed(2)}`;
+}
+
+function visualReasoningPaused(target) {
+  return target.movementResultSnapshot?.movement_key === "visual_reasoning_unavailable";
 }
 
 function primarySpeechState(target) {
@@ -10161,7 +10180,7 @@ function suggestionsHtml(target) {
       question: app.currentTurn.userText
     };
     return movementResultHeroHtml(
-      app.selectedMode === "observing" ? "Movement" : "Sensefield",
+      visualReasoningPaused(target) ? "Visual reasoning paused" : app.selectedMode === "observing" ? "Movement" : "Sensefield",
       responseText,
       primarySpeechState(target),
       snapshot

@@ -22,7 +22,7 @@
     "test:core-lifecycle": "node packages/perception/browser-local-capture/test/core-lifecycle.test.mjs && node packages/perception/browser-local-capture/test/emergency-media.e2e.mjs",
     "test:single-voice": "node packages/perception/browser-local-capture/test/single-voice-lifecycle.test.mjs",
     "test:spatial-engine": "python3 -c \"import ast; ast.parse(open('services/visual-companion/spatial_runtime.py').read()); ast.parse(open('services/visual-companion/spatial_smoke.py').read())\" && node packages/perception/browser-local-capture/test/spatial-engine.test.mjs",
-    "test:spatial-experience": "node packages/perception/browser-local-capture/test/spatial-experience.test.mjs && node packages/perception/browser-local-capture/test/spatial-experience.e2e.mjs",
+    "test:spatial-experience": "node packages/perception/browser-local-capture/test/spatial-experience.test.mjs && node packages/perception/browser-local-capture/test/spatial-lifecycle-stress.test.mjs && node packages/perception/browser-local-capture/test/spatial-experience.e2e.mjs",
     "test:custom-skills": "node packages/perception/browser-local-capture/test/custom-movement-skills.test.mjs",
     "test:visual-companion": "node packages/perception/browser-local-capture/test/visual-companion.test.mjs",
     "test:p0-runtime": "node packages/perception/browser-local-capture/test/p0-runtime.test.mjs",
