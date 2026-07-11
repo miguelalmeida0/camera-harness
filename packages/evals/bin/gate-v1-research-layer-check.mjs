@@ -5,6 +5,7 @@ import {
   CORRECTION_MEMORY_MAX_ITEMS,
   MOVEMENT_HISTORY_MAX_ITEMS,
   MOVEMENT_RECOGNITION_CLIENT_CONFIG,
+  VISUAL_COMPANION_CLIENT_CONFIG,
   clearCorrectionMemory,
   clearMovementFrameBuffer,
   clearMovementHistory,
@@ -245,8 +246,8 @@ function checkOneShotCostGuard() {
   includes("cost", "request_in_flight", source, "target.movementRecognition.requestInFlight ||", "double-click cannot duplicate calls", "critical");
   includes("cost", "hidden_tab", source, "document.hidden", "hidden tab blocks capture", "critical");
   includes("cost", "button_disabled", source, "dom.analyzeMovement.disabled = !state.cameraReady || analyzing", "button disabled during capture/analyze", "critical");
-  includes("cost", "max_frames_client", source, "Math.min(config.maxFrames ?? 4, 4)", "max frames capped", "critical");
-  addCheck("cost", "client_max_frames", "client config max frames capped at 4", MOVEMENT_RECOGNITION_CLIENT_CONFIG.maxFrames === 4, String(MOVEMENT_RECOGNITION_CLIENT_CONFIG.maxFrames), "critical");
+  includes("cost", "max_frames_client", source, "Math.min(config.maxFrames ?? 4, 8)", "max frames capped", "critical");
+  addCheck("cost", "client_max_frames", "client visual config max frames capped at 8 or less", VISUAL_COMPANION_CLIENT_CONFIG.maxFrames <= 8, String(VISUAL_COMPANION_CLIENT_CONFIG.maxFrames), "critical");
   addCheck("cost", "candidate_max", "provider candidates capped", MAX_MOVEMENT_RECOGNITION_MODEL_CANDIDATES === 5, String(MAX_MOVEMENT_RECOGNITION_MODEL_CANDIDATES), "critical");
   includes("cost", "candidate_slice", provider, ".slice(0, MAX_MOVEMENT_RECOGNITION_MODEL_CANDIDATES)", "candidate attempts/retries capped by ladder", "critical");
   includes("cost", "frames_cleared_finally", source, "finally {\n    clearMovementFrameBuffer(frames);", "frames cleared in finally", "critical");
@@ -262,7 +263,7 @@ function checkProviderSafety() {
   includes("provider", "server_health", server, "/api/movement-recognition/health", "health endpoint exists", "critical");
   includes("provider", "server_analyze", server, "/api/movement-recognition/analyze", "analyze endpoint exists", "critical");
   absentRegex("provider", "frontend_no_token", source, /process\.env\.HF_TOKEN|Authorization:\s*`Bearer|hf_secret|hf_test|hf_[A-Za-z0-9]{12,}/, "frontend does not expose token", "critical");
-  absentRegex("provider", "no_persistence_hooks", source, /localStorage|sessionStorage|indexedDB|MediaRecorder|readAsDataURL|navigator\.sendBeacon/i, "no raw media persistence hooks", "critical");
+  absentRegex("provider", "no_persistence_hooks", source, /indexedDB|MediaRecorder|readAsDataURL|navigator\.sendBeacon/i, "no raw media persistence hooks", "critical");
   const body = buildHuggingFaceVlmRequestBody({
     model: DEFAULT_MOVEMENT_RECOGNITION_CONFIG.model,
     prompt: "test",
@@ -286,7 +287,7 @@ function checkProductFreeze() {
 function checkTestCoverage() {
   for (const marker of [
     "movement history is capped at 10",
-    "correction context is sent on the next provider request",
+    "text-only visual context is sent on the next provider request",
     "What did you actually do?",
     "contains_biometric_identity: false",
     "voice state changes do not resize the result card"

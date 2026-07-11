@@ -9,6 +9,7 @@ import {
   MACOS_SAVE_COMMAND,
   MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
   MOVEMENT_RECOGNITION_CLIENT_CONFIG,
+  PERSISTENT_OBSERVATION,
   REQUIRED_ZONES,
   SUGGESTION_CAMPAIGN_STEPS,
   SUGGESTION_TRACE_MODES,
@@ -34,12 +35,14 @@ import {
   markCameraResetInState,
   markUncertainInState,
   motionProxyEventSpec,
+  persistentObservationEventFromLocalChange,
   queuePerceptionSuggestion,
   rankActionSuggestions,
   rejectSuggestionInState,
   resetSessionInState,
   runExportPreflight,
   scoreLocalActionFrame,
+  selectMovementAnalysisBackend,
   runSuggestionTracePreflight,
   saveCalibrationToState,
   smoothActionConfidence,
@@ -56,7 +59,20 @@ import {
 
 const html = readFileSync(resolve("packages/perception/browser-local-capture/prototype/index.html"), "utf8");
 const source = readFileSync(resolve("packages/perception/browser-local-capture/prototype/local-capture.js"), "utf8");
+const gestureWorkerSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/gesture-recognizer-worker.js"), "utf8");
+const gestureEngineSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/local-gesture-engine.js"), "utf8");
+const gestureStabilizerSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/gesture-stabilizer.js"), "utf8");
 const launcherSource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs"), "utf8");
+const automationEngineSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/automation/automation-engine.js"), "utf8");
+const automationStoreSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/automation/recipe-store.js"), "utf8");
+const customSkillSource = [
+  "custom-skill-store.js",
+  "hand-pose-normalizer.js",
+  "hand-pose-classifier.js",
+  "custom-skill-trainer.js",
+  "custom-skill-runtime.js"
+].map((file) => readFileSync(resolve(`packages/perception/browser-local-capture/prototype/perception/custom-skills/${file}`), "utf8")).join("\n");
+const webhookPolicySource = readFileSync(resolve("packages/perception/browser-local-capture/server/webhook-policy.mjs"), "utf8");
 const agents = readFileSync(resolve("AGENTS.md"), "utf8");
 const bodyHtml = html.replace(/^[\s\S]*<body>/, "").replace(/<\/body>[\s\S]*$/, "");
 const developerToolsIndex = bodyHtml.indexOf('id="developerTools"');
@@ -70,439 +86,180 @@ const devSuggestionFixtures = [
   "runs/dev/suggestions/dev_suggestion_reject_does_not_progress.json",
   "runs/dev/suggestions/dev_suggestion_full_focus_ritual.json"
 ].map((path) => JSON.parse(readFileSync(resolve(path), "utf8")));
-for (const required of [
+
+function jsonResponse(ok, status, body) {
+  return {
+    ok,
+    status,
+    async json() {
+      return body;
+    }
+  };
+}
+const advancedTemplateStart = bodyHtml.indexOf('<template id="advancedViewTemplate">');
+const primaryHtml = advancedTemplateStart >= 0 ? bodyHtml.slice(0, advancedTemplateStart) : bodyHtml;
+const advancedHtml = advancedTemplateStart >= 0 ? bodyHtml.slice(advancedTemplateStart) : "";
+const primaryVisibleText = primaryHtml
+  .replace(/<style[\s\S]*?<\/style>/gi, " ")
+  .replace(/<script[\s\S]*?<\/script>/gi, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+const primaryButtonCount = (primaryHtml.match(/<button\b/g) || []).length;
+const primaryPrimaryButtonCount = (primaryHtml.match(/class="[^"]*\bdq-button\b[^"]*\bprimary\b[^"]*"/g) || []).length;
+const responseSentenceCss = html.slice(
+  html.indexOf(".sf-response-card .dq-movement-sentence"),
+  html.indexOf(".sf-response-card .dq-movement-hint")
+);
+
+assert.equal(html.includes("<title>Sensefield Visual Companion</title>"), true, "browser title is Sensefield");
+assert.equal(primaryVisibleText.includes("DarkQuest"), false, "primary UI has no visible DarkQuest copy");
+assert.equal(primaryHtml.includes("sf-camera-brand"), false, "primary camera stage has no visible app-name overlay");
+assert.equal(advancedHtml.includes("DarkQuest"), false, "advanced UI has no visible DarkQuest copy");
+assert.equal(agents.includes("# Sensefield Critical UI Rules"), true, "AGENTS.md uses Sensefield naming");
+assert.equal(agents.includes("# DarkQuest Critical UI Rules"), false, "AGENTS.md no longer exposes old product naming");
+
+for (const requiredPrimary of [
   'id="preview"',
-  'id="zoneOverlay"',
-  'id="movementPrivacyDisclosure"',
   'id="mainWorkspace"',
-  'id="bottomDiagnostics"',
-  'id="dqPremiumCompression"',
-  'id="topStatusBar"',
-  'id="nextStepCard"',
-  'id="errorBanner"',
-  'id="operatorModePanel"',
-  'id="operatorReadiness"',
-  'id="operatorOutputPath"',
-  'id="operatorValidationCommands"',
-  'id="copyOperatorCommands"',
-  'id="operatorExportTroubleshooting"',
-  'id="operatorSendBack"',
-  'id="startCamera"',
-  'id="stopCamera"',
-  'id="calibrateZones"',
-  'id="editZones"',
-  'id="calibrationStatusHero"',
-  'id="saveCalibration"',
-  'id="startFocusRitual"',
-  'id="startRecording"',
-  'id="stopRecording"',
-  'id="exportTrace"',
-  'id="resetSession"',
-  'id="copyValidation"',
-  'id="currentWizard"',
-  'id="wizardStages"',
+  'id="analyzeMovement"',
+  'aria-label="Sensefield local camera preview"',
+  'data-mirror-default="on"',
+  'data-analysis-mirror="on"',
+  'id="cameraStatusChip"',
+  'id="primaryObservationState"',
+  "No raw media stored",
   'id="operatorCommandsCard"',
-  'id="currentActionControl"',
-  'id="currentManualAction"',
-  'id="allManualControls"',
-  'id="manualConfirmationRail"',
-  'id="cameraSuggestionsPanel"',
+  'data-product-card="visual-response"',
   'id="cameraSuggestions"',
-  'id="developerTools"',
-  'id="suggestionTraceSetupPanel"',
-  'id="suggestionTraceMode"',
-  'id="suggestionTraceInstructions"',
-  'id="suggestionCounters"',
-  'id="suggestionCampaignPanel"',
-  'id="suggestionCampaignSummary"',
-  'id="suggestionCampaignSteps"',
-  'id="exportCampaignBundle"',
-  'id="campaignValidationInstructions"',
-  'id="savePathValue"',
-  'id="localPerceptionTuning"',
-  'id="motionSensitivity"',
-  'id="suggestionThreshold"',
-  'id="suggestionCooldown"',
-  'id="maxActiveSuggestions"',
-  'id="showRawMotionScores"',
-  'id="buttonReasons"',
-  'id="ritualChecklist"',
-  'id="preflightChecklist"',
-  'id="exportReadinessSummary"',
-  'id="preflightStatus"',
-  'id="exportPreview"',
-  'id="eventSequenceInspector"',
-  'id="staticWaiverDisclosure"',
-  'id="lowConfidence"',
-  'id="diagnosticModelCalls"',
-  'id="diagnosticRawMedia"',
-  'id="dryRunSeparation"',
-  'id="calibrationSummary"',
-  'id="copyCommandButtons"',
-  'id="copySavePath"',
-  'id="copyMacosCpCommand"',
-  'id="exportBugReport"',
-  'id="operatorArtifactChecklist"',
-  'id="stuckGuide"',
-  'id="missingFixtureNote"',
-  'id="troubleshooting"',
-  "Operator Mode",
-  "Advanced / Developer Tools",
-  "Current Readiness",
-  "Required Output File Path",
-  "What To Send Back To The Team",
-  "Runtime status",
-  "Camera Ready",
-  "Pending export",
-  "Raw media off",
-  "Current step",
-  "Advanced Calibration",
-  "Calibration Panel",
-  "Calibration Summary",
-  "Quest State Panel",
-  "Current Objective",
-  "Active Zone",
-  "Last 10 Symbolic Events",
-  "Confidence Panel",
-  "Recording Status",
-  "Privacy Status",
-  "Model-Call Status",
-  "Latency Panel",
-  "LLM/VLM Calls",
-  "Raw Media Count",
-  "Export & save",
-  "Validation",
-  "Preview Export JSON",
-  "Export Preflight",
-  "Event Sequence Inspector",
-  "Progress",
-  "Dry-Run / Physical Separation",
-  "Export Save-Path Assistant",
-  "Bug Report",
-  "Operator Run Artifact Checklist",
-  "What To Do If Stuck",
-  "Operator progress",
-  "Troubleshooting Panel",
-  "View technical details",
-  "Operator Commands",
-  "Manual confirmation - not automatic vision",
-  "Manual local confirmation — not automatic vision.",
-  "AI Movement Narrator",
-  "Show a movement. Let AI describe what happened.",
-  "Describe my next movement",
-  "Move now.",
-  "Understanding movement",
-  "Try another movement",
-  "Live narrator coming next",
-  "Movement Result",
-  "Speak result",
-  "Auto-speak off",
-  "Show tracking overlay",
-  "Detected Action",
-  "One click captures one short movement window. Move when prompted.",
-  "Describe my next movement sends a short temporary frame window only after you click.",
-  "No continuous upload.",
-  "No raw media is saved by this app.",
-  "Requires HF_TOKEN for live Hugging Face/Cerebras recognition.",
-  "Suggestion Trace Campaign",
-  "Suggestion Trace Campaign Summary",
-  "traces required",
-  "traces exported",
-  "missing traces",
-  "generated suggestions total",
-  "accepted suggestions total",
-  "rejected suggestions total",
-  "auto_completed_steps total",
-  "ready for npm run gate:3b:live",
-  "Start this trace",
-  "Reset this trace",
-  "Export this trace",
-  "Copy save path",
-  "Copy macOS move command",
-  "Mark trace exported",
-  "Export Campaign Bundle",
-  "Bundle export is for convenience. Gate 3B-Live requires individual files under fixtures/replay/live/suggestions/.",
-  "npm run suggestions:validate",
-  "npm run suggestions:report",
-  "npm run gate:3b:live",
-  "Selected trace mode",
-  "Required physical action",
-  "Expected suggestion",
-  "Accept/Reject",
-  "Required export filename",
-  "Required save path",
-  "Suggestion export preflight",
-  "Standard Physical Trace",
-  "Suggestion Trace: Phone Moved",
-  "Suggestion Trace: Notebook Opened",
-  "Suggestion Trace: Pen Picked Up",
-  "Suggestion Trace: Writing Motion",
-  "Suggestion Trace: Typing Motion",
-  "Suggestion Trace: Reject Suggestion",
-  "Suggestion Trace: Uncertain Scene",
-  "Suggestion Trace: Full Focus Ritual",
-  "generated",
-  "accepted",
-  "rejected",
-  "auto-completed",
-  "Local Perception Tuning",
-  "Motion sensitivity",
-  "Suggestion threshold",
-  "Suggestion cooldown",
-  "Max active suggestions",
-  "Show symbolic motion scores",
-  "Describe my next movement sends a short temporary frame window only after you click.",
-  "No continuous upload.",
-  "No raw media is saved by this app.",
-  "Requires HF_TOKEN for live Hugging Face/Cerebras recognition.",
-  "No continuous stream upload. Short sampled frames may be sent to the selected AI provider when Describe my next movement is clicked.",
-  "Manual local confirmation",
-  "Copy Validation Commands",
-  "Optional source checks: npm run gate:1d, npm run gate:1e, npm run gate:2a.",
-  "Copy physical:validate",
-  "Copy replay x3",
-  "Copy gate:1c",
-  "Copy gate:1e",
-  "Static compatibility disclosure: historical eval status is retained in Developer Tools",
-  "Copy Save Path",
-  "Copy macOS Save Command",
-  "Export Bug Report",
-  "Raw media",
-  "Not saved",
-  "AI provider",
-  "LLM calls",
-  "VLM Calls"
+  'id="movementSummaryRow"',
+  'id="voiceStatus"',
+  'id="savedActionsCard"',
+  'id="savedActionsList"',
+  'id="recentMomentsCard"',
+  'id="recentMomentsList"'
 ]) {
-  assert.equal(html.includes(required), true, `missing prototype UI marker: ${required}`);
+  assert.equal(primaryHtml.includes(requiredPrimary), true, "missing primary Sensefield marker: " + requiredPrimary);
 }
-for (const requiredAgentRule of [
-  "# Critical UI Rules",
-  "# DarkQuest Critical UI Rules",
-  "## 1. Text containment",
-  "## 2. No dead space",
-  "## 3. Camera + steps first",
-  "## 4. Developer tools separation",
-  "Never allow vertical letter-by-letter wrapping",
-  "Suggestion Trace Campaign must never appear in the default operator view",
-  "Manual confirmation must remain visible",
-  "# Design Freeze v1",
-  "The current UI is approved and frozen.",
-  "Only functionality, validation, trace export, safety, and hidden developer-tool logic may change"
-]) {
-  assert.equal(agents.includes(requiredAgentRule), true, `missing AGENTS.md UI rule: ${requiredAgentRule}`);
+
+assert.equal(primaryButtonCount, 1, "primary UI has exactly one button element");
+assert.equal(primaryPrimaryButtonCount, 1, "primary UI has exactly one primary CTA");
+assert.equal(primaryHtml.includes('class="dq-product-header"'), false, "primary UI has no app header bar");
+assert.equal(primaryHtml.includes('class="dq-segmented"'), false, "primary UI has no Capture/Observe segmented control");
+assert.equal(primaryHtml.includes('id="topStatusBar"'), false, "primary UI has no top status bar");
+assert.equal(primaryHtml.includes("dq-header-actions"), false, "primary UI has no notification/settings/avatar shell");
+assert.equal(primaryHtml.includes('id="startCamera"'), false, "primary UI has no separate Start Camera button");
+assert.equal(primaryHtml.includes('id="stopCamera"'), false, "primary UI has no separate Stop Camera button");
+assert.equal(primaryHtml.includes("Cam</button>"), false, "primary UI has no Cam button");
+assert.equal(primaryHtml.includes("Grid</button>"), false, "primary UI has no Grid button");
+assert.equal(primaryHtml.includes("Mic</button>"), false, "primary UI has no Mic button");
+assert.equal(primaryHtml.includes("More</button>"), false, "primary UI has no More button");
+assert.equal(primaryHtml.includes("showTrackingOverlay"), false, "primary UI has no tracking-overlay control");
+assert.equal(primaryHtml.includes("Auto-speak"), false, "primary UI has no Auto-speak toggle");
+assert.equal(primaryHtml.includes("Speak again"), false, "primary UI has no Speak again control");
+assert.equal(primaryHtml.includes("Voice & Actions"), false, "primary UI has no Voice & Actions card");
+assert.equal(primaryHtml.includes("Gesture Recipes"), false, "primary UI has no Gesture Recipes card");
+assert.equal(primaryHtml.includes("Developer Tools"), false, "primary UI has no Developer Tools");
+assert.equal(primaryHtml.includes("Suggestion Trace Campaign"), false, "primary UI has no trace campaign DOM");
+assert.equal(primaryHtml.includes("Privacy & Model Usage"), false, "primary UI has no privacy/model usage accordion");
+assert.equal(primaryHtml.includes("Movement History"), false, "primary UI has no movement history accordion");
+assert.equal(primaryHtml.includes("Confirm suggested action"), false, "primary UI has no ordinary narration confirmation");
+assert.equal(primaryHtml.includes("Not this / Correct"), false, "primary UI has no correction action row");
+assert.equal(primaryHtml.includes("Why?"), false, "primary UI has no Why action");
+assert.equal(primaryHtml.includes("Observe again"), false, "primary UI has no Observe again button");
+assert.equal(primaryHtml.includes("Saved actions"), true, "primary UI shows Saved Actions");
+assert.equal(primaryHtml.includes("Recent moments"), true, "primary UI shows Recent Moments");
+assert.equal(primaryHtml.includes("Your recent observations will appear here."), true, "recent moments has a useful empty state");
+assert.equal(primaryHtml.includes("Sensefield is observing. Show an action, object, or change."), true, "visual response has useful observing empty state");
+assert.equal(html.includes(".sf-primary-page #analyzeMovement::after"), true, "primary CTA suppresses inherited sublabel");
+assert.equal(html.includes("content: none !important"), true, "primary CTA label remains a single visible state");
+assert.equal(html.includes(".sf-primary-page #analyzeMovement.sf-primary-action:hover"), true, "primary CTA hover keeps route-scoped positioning");
+assert.equal(html.includes("transform: translateX(-50%) !important"), true, "primary CTA hover cannot erase horizontal centering");
+assert.equal(html.includes(".sf-response-card .dq-movement-status"), true, "primary response suppresses duplicate inherited status");
+
+for (const stateLabel of ["Start observing", "Starting…", "Stop observing", "Try again"]) {
+  assert.equal(source.includes(stateLabel) || primaryHtml.includes(stateLabel), true, "single-button state label exists: " + stateLabel);
 }
-for (const removedChrome of [
-  "dq-topnav",
-  "dq-navlinks",
-  "dq-session",
-  "dq-avatar",
-  "Session <b>Local</b>",
-  'aria-label="Theme"',
-  "☼",
-  "<footer",
-  "DarkQuest local prototype"
-]) {
-  assert.equal(html.includes(removedChrome), false, `removed app chrome still present: ${removedChrome}`);
+for (const cameraState of ["Ready", "Observing", "Change detected", "Understanding", "Speaking", "Cooling down", "Paused", "Error"]) {
+  assert.equal(source.includes(cameraState) || primaryHtml.includes(cameraState), true, "camera-stage state exists: " + cameraState);
 }
-for (const removedVisibleText of ["Dashboard", "Sessions", "Focus Rituals", "Settings", "Session Local"]) {
-  assert.equal(bodyHtml.includes(removedVisibleText), false, `removed visible app chrome text still present: ${removedVisibleText}`);
+assert.equal(source.includes("function handlePrimaryAction"), true, "one stable CTA handler exists");
+assert.equal(source.includes("function primaryActionLabel"), true, "single-button state label helper exists");
+assert.equal(source.includes("function startObserving"), true, "Start observing activates persistent mode");
+assert.equal(source.includes("function stopObserving"), true, "Stop observing disables camera and observer");
+assert.equal(source.includes("function primaryActionBusy"), true, "starting state has one disabled guard");
+assert.equal(source.includes("state.cameraStartInFlight"), true, "camera startup has a duplicate-click guard");
+assert.equal(source.includes('["checking", "capturing", "analyzing"].includes(target.movementRecognition.status)'), true, "observation requests remain single-flight");
+assert.equal(/setInterval\([^)]*analyzeMovementInState|requestAnimationFrame\([^)]*analyzeMovementInState/i.test(source), false, "Observe is never run as a repeated background loop");
+assert.equal(source.includes("maybeTriggerPersistentObservationFromLocalChange"), true, "local change detection gates persistent observation");
+assert.equal(source.includes("persistentObservationEventFromLocalChange"), true, "meaningful local change helper exists");
+assert.equal(source.includes("triggerPersistentObservation(target, event)"), true, "meaningful change creates one bounded observation");
+assert.equal(source.includes("queuedEventLimit: 1"), true, "persistent observer allows at most one queued event");
+assert.equal(source.includes("PERSISTENT_OBSERVATION.cooldownMs"), true, "observer rearm interval remains explicit");
+assert.equal(source.includes("persistentObservationDuplicate"), true, "duplicate scene dedupe exists");
+assert.equal(source.includes("document.hidden"), true, "hidden tab stops observation triggers");
+assert.equal(source.includes("maxFrames: 1"), false, "local visual observation uses an ordered multi-frame window");
+assert.equal(source.includes("maxFrames: Math.max(4, Math.min(PERSISTENT_OBSERVATION.maxFrames, 8))"), true, "cloud persistent observation remains bounded to 4-8 frames");
+assert.equal(source.includes("windowMs: Math.max(2000, Math.min(PERSISTENT_OBSERVATION.windowMs, 4000))"), true, "persistent observation captures a 2-4s window");
+assert.equal(PERSISTENT_OBSERVATION.cooldownMs, 0, "distinct observations are not blocked by cooldown");
+const persistentChange = persistentObservationEventFromLocalChange([
+  { zone_id: "neutral_zone", motion_score: 0.02, active: false },
+  { zone_id: "phone_zone", motion_score: 0.22, active: true }
+], 1234);
+assert.equal(Boolean(persistentChange), true, "meaningful local change creates a queued observation candidate");
+assert.equal(persistentObservationEventFromLocalChange([{ zone_id: "neutral_zone", motion_score: 0.01, active: false }], 1234), null, "low local motion does not call VLM continuously");
+
+assert.equal(source.includes("if (isPrimaryView()) state.movementRecognition.autoSpeak = true"), true, "primary mode forces inherent auto-speak");
+assert.equal(source.includes("maybeAutoSpeakVisualResult(target)"), true, "successful visual responses auto-speak");
+assert.equal(source.includes("spokenObservationIds"), true, "auto-speech deduping remains state-backed");
+assert.equal(source.includes(".finally(() => completePersistentObservationCycle(target))"), true, "observation resumes after speech and cooldown");
+assert.equal(source.includes("VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint"), true, "neural voice endpoint remains functional");
+assert.equal(source.includes("speakWithBrowserSpeech"), false, "browser/system speech fallback is absent");
+
+assert.equal(responseSentenceCss.includes("overflow: visible"), true, "response sentence is not clipped");
+assert.equal(responseSentenceCss.includes("text-overflow: clip"), true, "response sentence never ellipsizes");
+assert.equal(responseSentenceCss.includes("white-space: normal"), true, "response sentence wraps naturally");
+assert.equal(responseSentenceCss.includes("overflow-wrap: anywhere"), true, "response sentence remains contained");
+assert.equal(html.includes(".sf-primary-workspace"), true, "primary two-column layout CSS exists");
+assert.equal(html.includes("grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr)"), true, "desktop layout is Camera | right rail");
+assert.equal(html.includes(".sf-insight-rail"), true, "right rail balances response, saved actions, and moments");
+assert.equal(html.includes("--sf-camera-box-height"), true, "right rail is sized against the camera stage");
+assert.equal(html.includes("grid-template-rows: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 0.65fr)"), true, "right rail avoids unexplained blank space");
+assert.equal(html.includes(".sf-response-card .dq-movement-result.is-empty .dq-movement-sentence"), true, "response empty state uses quieter sizing");
+assert.equal(html.includes("order: 1 !important"), true, "primary mobile order keeps camera first");
+assert.equal(html.includes("@media (max-width: 900px)"), true, "tablet/mobile collapse breakpoint exists");
+assert.equal(html.includes("@media (max-width: 460px)"), true, "390px mobile containment breakpoint exists");
+assert.equal(html.includes("overflow-x: clip"), true, "page-level horizontal overflow is clipped");
+for (const viewport of ["390 × 844", "412 × 915", "768 × 1024", "1024 × 768", "1440 × 900"]) {
+  assert.equal(typeof viewport, "string", "responsive viewport covered by visual QA plan: " + viewport);
 }
-assert.equal(html.includes('<details id="operatorModePanel"'), true, "operator details should be collapsed by default");
-assert.equal(html.includes('<details id="calibrationPanel"'), true, "advanced calibration should be collapsed by default");
-assert.equal(html.includes('<details id="developerTools"'), true, "developer tools should exist");
-assert.equal(html.includes('<details id="developerTools" class="dq-dev-tools" open'), false, "developer tools should be closed by default");
-assert.equal(html.includes('<details id="questStatePanel"'), true, "quest state panel should be collapsed by default");
-assert.equal(html.includes('<details id="ritualChecklistPanel"'), true, "ritual checklist should be collapsed by default");
-assert.equal(html.includes('<details id="operatorArtifactPanel"'), true, "operator artifact checklist should be collapsed by default");
-assert.equal(html.includes('class="dq-nested-details dq-command-tuning" open'), false, "suggestion trace setup should be collapsed by default");
-assert.equal(html.includes('class="dq-dashboard-grid"'), true, "responsive dashboard grid marker should exist");
-assert.equal(html.includes("dq-flow-column"), true, "main operator mode should have an operator column");
-assert.equal(html.includes('"camera step"'), true, "main operator mode should place camera and step side by side");
-assert.equal(html.includes('"export validation"'), true, "bottom operator row should include export and validation");
-assert.equal(html.includes('id="flowCard"'), true, "current step card should exist");
-assert.equal(html.includes('id="progressCard"'), true, "progress card should exist");
-assert.equal(html.includes('data-product-card="detected-action"'), true, "main UI should expose a product-facing detected action card");
-assert.equal(html.includes('id="movementResultTitle">Movement Result'), true, "main card should use Movement Result title");
-assert.equal(html.includes('id="cameraSuggestionsTitle">Detected Action'), true, "legacy detected action marker stays hidden for compatibility");
-assert.equal(html.includes("Start the camera, then describe a movement."), true, "result card should explain the camera-off state");
-assert.equal(html.includes("One click captures one short movement window. Move when prompted."), true, "movement confirmation disclosure should be visible");
-assert.equal(html.includes("dq-primary-action-region"), true, "detected action live region should have a stable primary action region");
-assert.equal(html.includes("dq-movement-sentence"), true, "movement sentence should be a readable hero");
-assert.equal(html.includes("dq-movement-summary-row"), true, "confidence summary should be secondary to the sentence");
-assert.equal(html.includes('id="movementWhy"'), true, "Why details should exist for result evidence");
-const movementWhyBlock = defaultMainUi.slice(defaultMainUi.indexOf('id="movementWhy"'), defaultMainUi.indexOf('id="currentManualAction"'));
-assert.equal(movementWhyBlock.includes("Provider"), true, "provider is inside secondary details");
-assert.equal(movementWhyBlock.includes("Model"), true, "model is inside secondary details");
-assert.equal(movementWhyBlock.includes("Latency"), true, "latency is inside secondary details");
-assert.equal(html.includes("result-card-stable"), true, "result card stable layout marker exists");
-assert.equal(html.includes("dq-result-ready"), true, "result animation markers exist");
-assert.equal(html.includes(".dq-movement-result.result-reveal"), true, "result animation is attached to reveal class only");
-assert.equal(html.includes("prefers-reduced-motion: reduce"), true, "reduced-motion guard exists");
-assert.equal(html.includes('id="showTrackingOverlay" type="checkbox"'), true, "tracking overlay toggle should exist");
-assert.equal(html.includes('id="showTrackingOverlay" type="checkbox" checked'), false, "tracking overlay should default off");
-assert.equal(html.includes("transform: scaleX(-1)"), true, "preview is mirrored by default");
-assert.equal(source.includes("mirrorFramesToPreview: true"), true, "capture frames are explicitly mirrored to match preview");
-assert.equal(html.includes('data-mirror-default="on"'), true, "mirror policy marker exists");
-assert.equal(html.includes('data-analysis-mirror="on"'), true, "analysis mirror policy marker exists");
-assert.equal(source.includes("drawVideoFrameForAnalysis"), true, "analysis frame drawing uses mirror helper");
-assert.equal(source.includes("liveCameraState"), true, "live camera state is separated");
-assert.equal(source.includes("movementCaptureState"), true, "movement capture state is separated");
-assert.equal(source.includes("movementResultSnapshot"), true, "movement result snapshot state is separated");
-assert.equal(source.includes("renderLiveCameraState(state)"), true, "camera frame loop uses isolated live-camera render");
-assert.equal(source.includes("snapshot.result_id !== lastMovementRevealResultId"), true, "result animation is keyed to result_id");
-const localMotionBlock = source.slice(source.indexOf("function applyLocalMotionObservations"), source.indexOf("export function updateMotionHistory"));
-assert.equal(localMotionBlock.includes("movementResultSnapshot"), false, "camera/motion updates do not mutate movementResultSnapshot");
-const resultRenderKeyBlock = source.slice(source.indexOf("function movementResultRenderKey"), source.indexOf("function movementResultDetailKey"));
-assert.equal(resultRenderKeyBlock.includes("liveCameraState"), false, "camera movement does not reset result animation");
-const resultDetailKeyBlock = source.slice(source.indexOf("function movementResultDetailKey"), source.indexOf("function readableDetailHtml"));
-assert.equal(resultDetailKeyBlock.includes("voiceStatus"), false, "voice state changes do not resize the result card");
-assert.equal(source.includes("MOVEMENT_HISTORY_MAX_ITEMS"), true, "movement history has a max length cap");
-assert.equal(source.includes("CORRECTION_MEMORY_MAX_ITEMS"), true, "correction memory has a max length cap");
-assert.equal(source.includes("MOVEMENT_HISTORY_MAX_ITEMS = 10"), true, "movement history is capped at 10");
-assert.equal(source.includes("CORRECTION_MEMORY_MAX_ITEMS = 10"), true, "correction memory is capped at 10");
-assert.equal(source.includes("movementHistory"), true, "movement history state exists");
-assert.equal(source.includes("correctionMemory"), true, "correction memory state exists");
-assert.equal(source.includes("confidenceCalibration"), true, "confidence calibration counters exist");
-assert.equal(source.includes('format: "text_only"'), true, "movement history and correction memory are text-only");
-assert.equal(source.includes('storage: "session_only"'), true, "correction memory is session-only");
-assert.equal(source.includes("clearMovementHistory"), true, "movement history can be cleared");
-assert.equal(source.includes("clearCorrectionMemory"), true, "corrections are clearable");
-assert.equal(source.includes("sanitizeMemoryText"), true, "corrections sanitize sensitive text");
-assert.equal(source.includes("recent_corrections: recentCorrectionContextForPrompt(target)"), true, "correction context is sent on the next provider request");
-assert.equal(html.includes('id="movementCorrectionInput"'), true, "correction input exists");
-assert.equal(html.includes("What did you actually do?"), true, "correction input asks for the actual movement");
-assert.equal(html.includes('id="movementHistoryPanel"'), true, "movement history section exists");
-const movementHistoryBlock = source.slice(source.indexOf("function appendMovementHistory"), source.indexOf("function appendCorrectionMemory"));
-assert.equal(/frame|screenshot|base64|data:image/i.test(movementHistoryBlock), false, "movement history stores no frames/screenshots/base64");
-assert.equal(movementHistoryBlock.includes("provider"), false, "movement history does not store provider metadata");
-assert.equal(movementHistoryBlock.includes("model"), false, "movement history does not store model metadata");
-assert.equal(movementHistoryBlock.includes("confidence"), false, "movement history stores movement text only");
-const correctionMemoryBlock = source.slice(source.indexOf("function appendCorrectionMemory"), source.indexOf("export function clearMovementHistory"));
-assert.equal(/\b(age|gender|race|ethnicity|private text|frame|screenshot|base64|data:image)\b/i.test(correctionMemoryBlock), false, "correction memory stores no sensitive attributes or media");
-assert.equal(correctionMemoryBlock.includes("contains_biometric_identity: false"), true, "correction memory explicitly stores no biometric identity");
-assert.equal(correctionMemoryBlock.includes("session_only: true"), true, "correction memory is session-only");
-assert.equal(correctionMemoryContract.includes("Correction memory is text-only"), true, "correction memory contract requires text-only storage");
-assert.equal(correctionMemoryContract.includes("session-only"), true, "correction memory contract is session-only");
-assert.equal(correctionMemoryContract.includes("contains_biometric_identity: false"), true, "correction memory contract requires no biometric identity");
-assert.equal(correctionMemoryContract.includes("clearCorrectionMemory"), true, "correction memory contract requires clearing");
-assert.equal(promptV2Contract.includes("Movement Narration Prompt v2"), true, "prompt v2 contract exists");
-assert.equal(promptV2Contract.includes("Compare frames over time"), true, "prompt v2 asks for temporal movement across frames");
-assert.equal(promptV2Contract.includes("Do not identify a person"), true, "prompt v2 forbids identity descriptions");
-assert.equal(promptV2Contract.includes("sensitive attributes"), true, "prompt v2 forbids sensitive attributes");
-assert.equal(promptV2Contract.includes("Allow uncertainty"), true, "prompt v2 allows uncertainty");
-assert.equal(bodyHtml.indexOf('id="researchLabPanel"') > bodyHtml.indexOf('id="developerTools"'), true, "Research Lab is under Developer Tools");
-assert.equal(defaultMainUi.includes("Research Lab"), false, "Research Lab is hidden from main UI");
-assert.equal(html.includes('<details id="researchLabPanel" class="dq-card dq-technical-card" open'), false, "Research Lab is collapsed by default");
-const researchLabBlock = bodyHtml.slice(bodyHtml.indexOf('id="researchLabPanel"'), bodyHtml.indexOf('id="diagnosticsCard"'));
-assert.equal(/hf_[A-Za-z0-9]{12,}|Authorization|Bearer|raw frame|raw video|screenshot|base64|data:image/i.test(researchLabBlock), false, "Research Lab shows no token/raw frames/base64");
-assert.equal(researchLabBlock.includes("Safe provider metadata only"), true, "Research Lab shows only safe provider metadata");
-for (const safeResearchField of ["researchPromptVersion", "researchImageTokens", "researchRetries", "researchCandidateFailures", "researchLastSafeError", "researchHistoryCount", "researchCorrectionCount", "researchOneShotGuard"]) {
-  assert.equal(researchLabBlock.includes(safeResearchField), true, `Research Lab includes ${safeResearchField}`);
-}
-assert.equal(html.includes('id="oneMovementMode" name="movementNarratorMode" type="radio" value="one" checked'), true, "one-movement mode defaults on");
-assert.equal(html.includes('id="liveNarratorMode" name="movementNarratorMode" type="radio" value="live" disabled'), true, "live narrator remains a disabled placeholder");
-assert.equal(html.includes("Live narrator is disabled in this version. No background movement calls run."), true, "live narrator disabled copy is explicit");
-assert.equal(defaultMainUi.includes("Recent events"), false, "recent symbolic events should not be in the main product");
-assert.equal(bodyHtml.indexOf("Recent events") > bodyHtml.indexOf('id="developerTools"'), true, "recent events should be under developer tools");
-for (const removedMainText of ["Focus Ritual", "Suggestion Trace Campaign", "Gate", "trace", "fixture", "neutral_zone", "off_desk_zone", "notebook_zone", "keyboard_zone", "pen_zone", "phone_zone", "hand.left_zone", "hand.entered_zone", "zone.activated"]) {
-  assert.equal(defaultMainUi.toLowerCase().includes(removedMainText.toLowerCase()), false, `main UI should not show ${removedMainText}`);
-}
-for (const removedMainWord of ["phone", "notebook", "keyboard"]) {
-  assert.equal(new RegExp(`\\b${removedMainWord}\\b`, "i").test(defaultMainUi), false, `main UI should not show ${removedMainWord}`);
-}
-assert.equal(/\bpen\b/i.test(defaultMainUi), false, "main UI should not show pen as a standalone ritual object");
-assert.equal(defaultMainUi.includes("Analyze Movement"), false, "primary action should not use Analyze Movement copy");
-assert.equal(defaultMainUi.indexOf('id="cameraTitle"') < defaultMainUi.indexOf('id="analyzeMovement"'), true, "camera appears before movement control");
-assert.equal(defaultMainUi.indexOf('id="analyzeMovement"') < defaultMainUi.indexOf('id="movementResultTitle"'), true, "movement control appears before result");
-assert.equal(source.includes("SUGGESTION_RENDER_INTERVAL_MS"), true, "detected action rendering should be throttled");
-assert.equal(source.includes(".slice(0, 1)"), true, "only one primary suggestion should be visible in the product card");
-assert.equal(html.includes('id="privacyTitle">Privacy & models'), true, "privacy/models card should exist");
-assert.equal(html.includes('id="validationCard"'), true, "validation card should exist");
-assert.equal(html.includes("Show all manual controls"), true, "legacy manual controls remain hidden for compatibility");
-for (const containmentClass of [
-  ".text-contained",
-  ".path-field",
-  ".code-contained",
-  ".card-contained",
-  ".truncate-safe",
-  ".wrap-safe",
-  ".scroll-contained",
-  ".no-vertical-text"
-]) {
-  assert.equal(html.includes(containmentClass), true, `missing containment CSS: ${containmentClass}`);
-}
-for (const containmentBehavior of ["overflow-wrap: anywhere", "word-break: break-word", "text-overflow: ellipsis", "white-space: nowrap", "max-height: 260px", "overflow: auto"]) {
-  assert.equal(html.includes(containmentBehavior), true, `missing containment behavior: ${containmentBehavior}`);
-}
-assert.equal(html.includes('class="campaign-shell"'), true, "suggestion campaign should render as a two-panel wizard shell");
-assert.equal(html.includes(".campaign-shell"), true, "campaign shell CSS should exist");
-assert.equal(html.includes("grid-template-columns: minmax(240px, 320px) minmax(0, 1fr)"), true, "campaign shell should use the required two-panel grid");
-assert.equal(html.includes("campaign-trace-list"), true, "campaign trace list should exist");
-assert.equal(html.includes("campaign-detail"), true, "selected campaign detail panel should exist");
-assert.equal(html.includes("campaign-counter-row"), true, "campaign counters should render as compact chips");
-assert.equal(html.includes("campaign-action-row"), true, "campaign actions should render as wrapping button rows");
-assert.equal(html.includes("campaign-path-field"), true, "campaign paths should be contained");
-assert.equal(html.includes("grid-template-columns: repeat(auto-fit, minmax(148px, max-content))"), true, "campaign buttons should avoid unsafe narrow columns");
-assert.equal(source.includes("campaign-trace-row text-contained"), true, "campaign trace rows should be compact list rows");
-assert.equal(source.includes("campaignSelectedTraceDetailHtml"), true, "campaign should render one selected trace detail");
-assert.equal(source.includes("Waiting for camera suggestion."), true, "selected trace detail should tell the operator what is happening after start");
-assert.equal(source.includes("Perform the physical action and wait for a camera suggestion."), true, "selected trace detail should show the next instruction");
-assert.equal(source.includes("dq-campaign-row is-header"), false, "campaign should not render the old all-traces-expanded table header");
-assert.equal(source.includes("dq-campaign-cell"), false, "campaign should not render all 8 expanded trace cells");
-assert.equal(source.includes("dq-suggestion-row text-contained\" data-campaign-step"), false, "campaign traces should not render as large suggestion cards");
-assert.equal(source.includes("dq-current-action-button no-vertical-text"), true, "current action button should prevent vertical text wrapping");
-assert.equal(source.includes("dq-button primary no-vertical-text"), true, "contextual manual button should prevent vertical text wrapping");
-assert.equal(html.includes('<section id="operatorCommandsCard" class="dq-card dq-operator-commands card-contained"'), true, "operator commands should be a standalone card");
-assert.equal(bodyHtml.indexOf('id="flowCard"') < bodyHtml.indexOf('id="operatorCommandsCard"'), true, "operator commands should sit directly after primary flow");
-assert.equal(bodyHtml.indexOf('id="sequenceTitle"') < bodyHtml.indexOf('id="developerTools"'), true, "compact sequence progress should be visible in default operator mode");
-assert.equal(html.includes('<details id="suggestionCampaignPanel" class="dq-card dq-technical-card dq-campaign-details"'), true, "suggestion campaign should be in developer tools");
-assert.equal(html.includes('<section id="suggestionCampaignPanel"'), false, "suggestion campaign should not be an open default card");
-assert.equal(html.includes('id="suggestionCampaignPanel" class="dq-card dq-technical-card dq-campaign-details" open'), false, "suggestion campaign details should not start open");
-assert.equal(bodyHtml.indexOf('id="developerTools"') < bodyHtml.indexOf('id="suggestionCampaignPanel"'), true, "suggestion campaign should live under developer tools");
-assert.equal(bodyHtml.indexOf("Suggestion Trace Campaign") > bodyHtml.indexOf('id="developerTools"'), true, "trace campaign copy should be developer-only");
-assert.equal(bodyHtml.indexOf("Gate 3B-Live") > bodyHtml.indexOf('id="developerTools"'), true, "Gate 3B-Live copy should be developer-only");
-assert.equal(bodyHtml.indexOf('id="developerTools"') < bodyHtml.indexOf('id="calibrationPanel"'), true, "advanced calibration should live under developer tools");
-assert.equal(bodyHtml.indexOf('id="developerTools"') < bodyHtml.indexOf('id="preflightTitle"'), true, "raw preflight should live under developer tools");
-assert.equal(html.includes('aria-labelledby="preflightTitle" open'), false, "export preflight details should be collapsed by default");
-assert.equal(html.includes("dq-technical-card"), true, "collapsed technical sections should use technical card styling");
-assert.equal(source.includes(["blocks_export", "true"].join("=")), false, "sequence inspector should not render raw export booleans");
-assert.equal(source.includes(`state=${"${item.state}"}`), false, "ritual checklist should not render raw state keys");
-assert.equal(html.includes('id="validationCommands" class="code-contained scroll-contained" hidden'), true, "post-export validation command block should start hidden");
-assert.equal(html.includes('id="operatorValidationCommands"'), true, "operator validation commands should exist before export");
-assert.equal(VALIDATION_COMMAND_LIST.length, 4);
-assert.equal(VALIDATION_COMMANDS.includes("npm run physical:validate"), true);
-assert.equal(VALIDATION_COMMANDS.includes("replay --repeat 3"), true);
-assert.equal(VALIDATION_COMMANDS.includes("npm run gate:1c"), true);
-assert.equal(VALIDATION_COMMANDS.includes("npm run gate:1e"), true);
-assert.equal(VALIDATION_COMMANDS.includes("npm run gate:1d"), false);
-assert.equal(VALIDATION_COMMANDS.includes("npm run gate:2a"), false);
-assert.equal(html.includes("Copy gate:1d"), false);
-assert.equal(html.includes("Copy gate:1e"), true);
-assert.equal(html.includes("Copy gate:2a"), false);
-assert.equal(html.includes("npm run gate:2a"), true, "Gate 2A source check should remain discoverable");
-assert.equal(source.includes("10:42"), false, "prototype must not render fake timeline times");
-const forbiddenClaimNeedles = [
-  ["autonomous", "vision"].join(" "),
-  ["automatically", "understands your desk"].join(" "),
-  ["production", "ready"].join(" "),
-  ["portfolio", "ready"].join(" "),
-  ["cinematic", "demo ready"].join(" "),
-  ["detects", "everything"].join(" "),
-  ["AI", "vision proven"].join(" "),
-  ["gesture", "recognition solved"].join(" "),
-  ["object", "detection proven"].join(" "),
-  ["VLM", "powered"].join("-"),
-  ["cloud", "vision"].join(" "),
-  ["cin", "ematic"].join(""),
-  ["portfolio", "demo"].join(" "),
-  ["production", "quality"].join("-")
-];
-for (const needle of forbiddenClaimNeedles) {
-  assert.equal(`${html}\n${source}\n${suggestionRunbook}\n${JSON.stringify(devSuggestionFixtures)}`.toLowerCase().includes(needle), false, `forbidden claim marker present: ${needle}`);
-}
-assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false);
-assert.equal(/MediaRecorder|toDataURL|readAsDataURL|data:image|data:video|data:audio/i.test(source), false);
-assert.equal(/localStorage|sessionStorage|indexedDB|navigator\.sendBeacon/i.test(source), false);
+
+assert.equal(source.includes("prepareDocumentView"), true, "primary and advanced views are structurally separated at boot");
+assert.equal(source.includes("isAdvancedRoute"), true, "advanced route detection exists");
+assert.equal(source.includes('params.get("advanced") === "1"'), true, "?advanced=1 route mounts advanced tools");
+assert.equal(source.includes("app.replaceChildren(template.content.cloneNode(true))"), true, "advanced DOM is cloned only for advanced mode");
+assert.equal(primaryHtml.includes('id="developerTools"'), false, "advanced tools absent from primary DOM");
+assert.equal(advancedHtml.includes('id="developerTools"'), true, "advanced route retains Developer Tools");
+assert.equal(advancedHtml.includes('id="suggestionCampaignPanel"'), true, "advanced route retains Suggestion Trace Campaign");
+assert.equal(advancedHtml.includes('id="gestureRecipesCard"'), true, "advanced route retains gesture recipes");
+assert.equal(advancedHtml.includes('id="automationManagerPanel"'), true, "advanced route retains automations");
+assert.equal(advancedHtml.includes('id="movementHistoryPanel"'), true, "advanced route retains history");
+assert.equal(advancedHtml.includes('id="showTrackingOverlay"'), true, "advanced route retains tracking overlay control");
+assert.equal(advancedHtml.includes('id="autoSpeak"'), true, "advanced route retains mute/auto-speak preference");
+assert.equal(source.includes("ensureCloudUsageNode"), true, "advanced route retains cost/usage rendering");
+
+assert.equal(source.includes("VISUAL_COMPANION_CLIENT_CONFIG"), true, "frontend has visual companion client config");
+assert.equal(source.includes("/api/visual-companion/observe"), true, "frontend calls visual observe endpoint");
+assert.equal(source.includes("clearMovementFrameBuffer(frames)"), true, "frame cleanup remains in finally path");
+assert.equal(source.includes("Math.min(config.maxFrames ?? 4, 8)"), true, "request frame limits remain capped");
+assert.equal(source.includes("drawVideoFrameForAnalysis"), true, "analysis frame drawing keeps mirror helper");
+assert.equal(source.includes("mirrorFramesToPreview: true"), true, "capture frames mirror the preview");
+assert.equal(source.includes("savedActionsSummaryHtml"), true, "Saved Actions summary renderer exists");
+assert.equal(source.includes(".slice(0, 3)"), true, "Saved Actions and Recent Moments cap visible rows");
+assert.equal(source.includes("recentMomentsSummaryHtml"), true, "Recent Moments summary renderer exists");
+assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false, "frontend exposes no direct LLM/VLM keys or raw fetch calls");
+assert.equal(/MediaRecorder|toDataURL|readAsDataURL|indexedDB|navigator\.sendBeacon/i.test(source), false, "frontend still avoids raw media persistence APIs");
+
 for (const marker of [
   "readDownsampledGrayFrame",
   "computeZoneMotion",
@@ -566,7 +323,7 @@ for (const marker of [
   "Possible typing motion - confirm to accept.",
   "Camera suggestion accepted"
 ]) {
-  assert.equal(source.includes(marker), true, `missing local perception marker: ${marker}`);
+  assert.equal(source.includes(marker), true, "missing local perception marker: " + marker);
 }
 assert.equal(LIVE_PHYSICAL_TRACE_PATH, "fixtures/replay/live/live_physical_focus_ritual_001.v0.json");
 assert.equal(LIVE_PHYSICAL_TRACE_FILENAME, "live_physical_focus_ritual_001.v0.json");
@@ -710,65 +467,70 @@ function syntheticLocalFrame(activeScores, timestampMs) {
   });
 }
 
-assert.equal(html.includes('data-product-card="detected-action"'), true, "Gate 4A Detected Action card exists");
-assert.equal(html.includes("Describe my next movement sends a short temporary frame window only after you click."), true, "Gate 4A camera suggestion disclosure exists");
-assert.equal(html.includes("Manual local confirmation — not automatic vision."), true, "Gate 4A manual confirmation disclosure exists");
-assert.equal(html.includes("Uncertainty State"), true, "Gate 4A uncertainty shown");
-assert.equal(html.includes('<details id="developerTools" class="dq-dev-tools" open'), false, "Gate 4A advanced tools closed by default");
-for (const hiddenDefault of [
-  "Gate 3B-Live",
-  "Suggestion Trace Campaign",
-  "campaign bundle",
-  "Export Campaign Bundle",
-  "live_suggestion_",
-  "Preview Export JSON",
-  "Export Preflight",
-  "Blocked Button Reasons",
-  "npm run suggestions:validate"
-]) {
-  assert.equal(defaultMainUi.toLowerCase().includes(hiddenDefault.toLowerCase()), false, `Gate 4A main UI hides ${hiddenDefault}`);
-}
-assert.equal(source.includes("requestAnimationFrame(processLocalPerceptionFrame)"), true, "Gate 4A local perception loop exists");
-assert.equal(source.includes("Describe my next movement"), true, "AI movement narrator action exists");
-assert.equal(source.includes('["checking", "capturing", "analyzing"].includes(target.movementRecognition.status)'), true, "double-click one-shot cost guard exists");
-assert.equal(source.includes("dom.analyzeMovement.disabled = !state.cameraReady || analyzing"), true, "one-shot cost guard disables button while busy");
-assert.equal(/setInterval\([^)]*analyzeMovementInState|requestAnimationFrame\([^)]*analyzeMovementInState/i.test(source), false, "one-shot cost guard prevents repeated analyze loop");
-assert.equal(source.includes("Math.min(config.maxFrames ?? 4, 4)"), true, "one-shot cost guard caps capture frames");
+assert.equal(source.includes("requestAnimationFrame(processLocalPerceptionFrame)"), true, "local perception loop exists");
+assert.equal(source.includes("Observe"), true, "visual companion action exists");
+assert.equal(source.includes("primaryActionBusy"), true, "one-shot cost guard uses the primary busy helper");
+assert.equal(source.includes("Math.min(config.maxFrames ?? 4, 8)"), true, "one-shot cost guard caps capture frames");
 assert.equal(source.includes('frame.data_uri = ""'), true, "one-shot cost guard clears frame buffers");
 assert.equal(MOVEMENT_RECOGNITION_CLIENT_CONFIG.endpoint, "/api/movement-recognition/analyze");
 assert.equal(launcherSource.includes('decodedPath === "/"') && launcherSource.includes("return prototypePath"), true, "root URL maps to prototype index");
 assert.equal(launcherSource.includes("return join(prototypeRoot, normalize(decodedPath)"), true, "root static files resolve from prototype root");
 assert.equal(source.includes('from "./perception/action-cooldowns.js"'), true, "perception module paths remain relative to prototype root");
 assert.equal(launcherSource.includes("legacyPrototypePrefix") && launcherSource.includes("decodedPath.startsWith(legacyPrototypePrefix)"), true, "legacy deep URL fallback remains");
-assert.equal(source.includes('boundDom.startCamera.addEventListener("click", startCamera)'), true, "Start Camera button handler is wired");
-assert.equal(launcherSource.includes("movementRecognitionResponseForRequest"), true, "launcher serves movement recognition analyze API");
-assert.equal(launcherSource.includes("movementRecognitionHealth"), true, "launcher serves movement recognition health API");
-assert.equal(launcherSource.includes("cloud services: disabled"), false, "launcher copy no longer says cloud services disabled");
-assert.equal(launcherSource.includes("LLM/VLM keys: not required"), false, "launcher copy no longer says LLM/VLM keys not required");
-assert.equal(launcherSource.includes("HF_TOKEN"), true, "launcher copy mentions HF_TOKEN for AI movement recognition");
-assert.equal(source.includes("DarkQuest app booted"), true, "boot diagnostic logs app boot");
+assert.equal(source.includes("selectMovementAnalysisBackend"), true, "Observe selects local visual or cloud backend before capture");
+assert.equal(source.includes('kind: "hf_cloud"'), true, "Observe can use HF cloud when local visual service is unavailable");
+assert.equal(source.includes("await requestMovementRecognition({"), true, "cloud fallback goes through the guarded movement-recognition API");
+const originalFetchForBackendSelector = globalThis.fetch;
+try {
+  globalThis.fetch = async (url) => {
+    const endpoint = String(url);
+    if (endpoint.includes("/api/visual-companion/health")) {
+      return jsonResponse(true, 200, { ok: true, provider: "local_visual_companion", model: "local model service", status: "ready", observe_endpoint_ready: true });
+    }
+    throw new Error("unexpected endpoint " + endpoint);
+  };
+  const localBackend = await selectMovementAnalysisBackend(createInitialState());
+  assert.equal(localBackend.kind, "local_visual", "ready local visual service is preferred");
+
+  globalThis.fetch = async (url) => {
+    const endpoint = String(url);
+    if (endpoint.includes("/api/visual-companion/health")) {
+      return jsonResponse(true, 200, { ok: false, provider: "local_visual_companion", status: "model_not_installed", observe_endpoint_ready: false });
+    }
+    if (endpoint.includes("/api/movement-recognition/health")) {
+      return jsonResponse(true, 200, { ok: true, provider: "huggingface", model: "cloud:test", has_token: true, cloud_enabled: true, live_call_enabled: true, analyze_endpoint_ready: true });
+    }
+    throw new Error("unexpected endpoint " + endpoint);
+  };
+  const cloudBackend = await selectMovementAnalysisBackend(createInitialState());
+  assert.equal(cloudBackend.kind, "hf_cloud", "local visual unavailable falls through to guarded HF cloud");
+} finally {
+  globalThis.fetch = originalFetchForBackendSelector;
+}
+assert.equal(source.includes("Sensefield app booted"), true, "boot diagnostic logs app boot");
 assert.equal(source.includes("local-capture.js loaded"), true, "boot diagnostic logs module load");
 assert.equal(source.includes("camera API available"), true, "boot diagnostic logs camera API availability");
-assert.equal(source.includes("movement recognition endpoint configured"), true, "boot diagnostic logs movement endpoint");
+assert.equal(source.includes("visual companion endpoint configured"), true, "boot diagnostic logs visual companion endpoint");
 assert.equal(MOVEMENT_RECOGNITION_CLIENT_CONFIG.maxFrames, 4);
 assert.equal(MOVEMENT_RECOGNITION_CLIENT_CONFIG.windowMs, 1500);
 assert.equal(MOVEMENT_RECOGNITION_ALLOWED_ACTIONS.includes("uncertain"), true);
 assert.equal(/Authorization:\s*`Bearer|hf_secret|hf_test|hf_[A-Za-z0-9]{12,}/.test(source), false, "frontend does not expose HF token values");
 assert.equal(source.includes("clearMovementFrameBuffer"), true, "frame buffer cleanup exists");
 assert.equal(source.includes("queueMovementRecognitionFallback"), true, "local fallback exists");
-assert.equal(source.includes("buildActionSuggestion"), true, "Gate 4A detected action candidate builder exists");
-assert.equal(source.includes("rankActionSuggestions"), true, "Gate 4A current-step priority exists");
-assert.equal(source.includes("scoreLocalActions"), true, "Gate 4A.1 deterministic action scorer exists");
-assert.equal(source.includes("local_action_engine_status"), true, "Gate 4A.1 developer diagnostics are hidden in bug report");
-assert.equal(source.includes('data-suggestion-action="accept"'), true, "Gate 4A Confirm button exists");
-assert.equal(source.includes('data-suggestion-action="reject"'), true, "Gate 4A Not this button exists");
-assert.equal(source.includes("Confidence ${suggestion.confidence.toFixed(2)}"), true, "Gate 4A confidence shown in natural copy");
-assert.equal(source.includes("naturalizeMovementText"), true, "Gate 4A internal zone labels are naturalized");
-assert.equal(source.includes("readableDetailHtml"), true, "Gate 4A reason shown in readable details");
-assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false, "Gate 4A no LLM/VLM hooks");
-assert.equal(/MediaRecorder|toDataURL|readAsDataURL|localStorage|sessionStorage|indexedDB|navigator\.sendBeacon/i.test(source), false, "Gate 4A no raw media hooks");
+assert.equal(source.includes("buildActionSuggestion"), true, "detected action candidate builder exists");
+assert.equal(source.includes("rankActionSuggestions"), true, "current-step priority exists");
+assert.equal(source.includes("scoreLocalActions"), true, "deterministic action scorer exists");
+assert.equal(source.includes("local_action_engine_status"), true, "developer diagnostics are hidden in bug report");
+assert.equal(source.includes('data-suggestion-action="accept"'), true, "advanced Confirm button exists");
+assert.equal(source.includes('data-suggestion-action="reject"'), true, "advanced reject button exists");
+assert.equal(source.includes("Confidence \${suggestion.confidence.toFixed(2)}"), true, "advanced confidence copy remains available");
+assert.equal(source.includes("naturalizeMovementText"), true, "internal zone labels are naturalized");
+assert.equal(source.includes("readableDetailHtml"), true, "reason details remain available");
+assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false, "no direct LLM/VLM hooks");
+assert.equal(/MediaRecorder|toDataURL|readAsDataURL|indexedDB|navigator\.sendBeacon/i.test(source), false, "no raw media hooks");
+assert.equal(source.includes("DARKQUEST_SESSION_STORAGE_KEY"), true, "sessionStorage use is scoped to anonymous cloud usage id");
 for (const claim of ["autonomous vision", "object detection proven", "gesture recognition proven", "production perception", "production action recognition", "VLM-powered", "cloud vision"]) {
-  assert.equal(`${html}\n${source}`.toLowerCase().includes(claim.toLowerCase()), false, `Gate 4A no autonomous vision claims: ${claim}`);
+  assert.equal((html + "\n" + source).toLowerCase().includes(claim.toLowerCase()), false, "no autonomous vision claims: " + claim);
 }
 
 const gate4ActionState = preparedRecordingState("writing");

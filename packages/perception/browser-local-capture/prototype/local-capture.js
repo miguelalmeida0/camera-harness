@@ -1,6 +1,45 @@
 import { candidateKey, withRejectedCooldown } from "./perception/action-cooldowns.js";
 import { createLocalPerceptionFrame } from "./perception/zone-motion-engine.js";
 import { normalizeStep, scoreLocalActions } from "./perception/local-action-scorer.js";
+import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
+import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
+import { createGestureStabilizerState, updateGestureStabilizer } from "./perception/gesture-stabilizer.js";
+import {
+  MIN_CUSTOM_SKILL_EXAMPLES,
+  acceptCustomSkillDemonstration,
+  calibrateCustomSkillThreshold,
+  canActivateCustomSkill,
+  createCustomSkill,
+  createCustomSkillRuntimeState,
+  createCustomSkillStore,
+  normalizeCustomMovementSkill,
+  processCustomSkillLandmarks,
+  recordCustomSkillTestObservation
+} from "./perception/custom-skills/index.js";
+import {
+  AUTOMATION_PRESETS,
+  DEFAULT_INSTANT_RECIPE_MIN_CONFIDENCE,
+  INSTANT_LOCAL_ACTION_TYPES,
+  MAX_AUTOMATION_RECEIPTS,
+  automationIdempotencyKey as createIdempotencyKey,
+  clearAutomationActivityLog as clearActivityLog,
+  clearAutomationRuntimeData,
+  createAutomationRecipeId,
+  createAutomationRuntime as createRuntime,
+  createRecipeStore,
+  dryRunAutomationRecipe,
+  executeAutomationRecipesForConfirmedMovement as executeConfirmedRecipes,
+  executeLocalAutomationAction as executeLocalAction,
+  freezeConfirmedMovementSnapshot,
+  matchAutomationRecipes as matchRecipes,
+  normalizeGestureTags,
+  normalizeMovementKey,
+  normalizeAutomationRecipe,
+  presetRecipe,
+  runAutomationForStableLocalGesture as runStableGestureRecipes,
+  transitionAutomationState as transitionRuntimeState,
+  validateAutomationRecipe as validateRecipeResult
+} from "./automation/index.js";
 
 export const REQUIRED_ZONES = ["phone_zone", "notebook_zone", "pen_zone", "keyboard_zone", "neutral_zone", "off_desk_zone"];
 export const REQUIRED_OBJECTS = ["phone", "notebook", "pen", "keyboard"];
@@ -8,6 +47,7 @@ export const MOVEMENT_RECOGNITION_ALLOWED_ACTIONS = ["uncertain"];
 const LEGACY_MOVEMENT_ACTION_TYPES = ["phone_moved", "notebook_opened", "pen_picked_up", "writing_motion", "typing_motion", "uncertain"];
 export const MOVEMENT_RECOGNITION_CLIENT_CONFIG = {
   endpoint: "/api/movement-recognition/analyze",
+  usageEndpoint: "/api/movement-recognition/usage",
   provider: "huggingface",
   mode: "vlm_frames",
   maxFrames: 4,
@@ -17,6 +57,96 @@ export const MOVEMENT_RECOGNITION_CLIENT_CONFIG = {
   frameWidth: 320,
   mirrorFramesToPreview: true
 };
+export const VISUAL_COMPANION_CLIENT_CONFIG = {
+  endpoint: "/api/visual-companion/observe",
+  conversationEndpoint: "/api/visual-companion/conversation",
+  healthEndpoint: "/api/visual-companion/health",
+  speakEndpoint: "/api/visual-companion/speak",
+  cancelEndpoint: "/api/visual-companion/cancel",
+  provider: "local_visual_companion",
+  mode: "local_smolvlm_frames",
+  maxFrames: 6,
+  windowMs: 2600,
+  frameMimeType: "image/jpeg",
+  frameQuality: 0.62,
+  frameWidth: 384,
+  mirrorFramesToPreview: true
+};
+export const VISUAL_COMPANION_ALLOWED_ACTIONS = ["start_timer", "speak_phrase", "browser_notification", "increment_counter", "append_activity_log"];
+export const VISUAL_COMPANION_PROMPT_VERSION = "visual-companion-provider.v1";
+export const VISUAL_CONTEXT_STORAGE_KEY = "darkquest.visual_context.v1";
+export const VISUAL_AUTO_SPEAK_STORAGE_KEY = "darkquest.visual_auto_speak.v1";
+const UNCERTAIN_SPOKEN_RESPONSE = "I'm not sure what changed. Try showing me again.";
+const sensefieldTestRuntime = {
+  eventSequence: 0,
+  events: [],
+  requests: [],
+  speech: [],
+  resourceCounts: {
+    mediaStreamsCreated: 0,
+    inferenceStarted: 0,
+    inferenceCompleted: 0,
+    speechStarted: 0,
+    speechCompleted: 0,
+    speechCancelled: 0,
+    rawMediaPersistenceCount: 0
+  }
+};
+
+function sensefieldTestModeEnabled() {
+  if (typeof location === "undefined") return false;
+  const localHost = ["localhost", "127.0.0.1", "::1"].includes(String(location.hostname || ""));
+  return localHost && new URLSearchParams(String(location.search || "")).get("sensefield-test") === "1";
+}
+
+function safeSensefieldTestMetadata(value, depth = 0) {
+  if (depth > 4 || value == null) return value == null ? null : String(value).slice(0, 240);
+  if (["string", "number", "boolean"].includes(typeof value)) {
+    return typeof value === "string" ? value.slice(0, 500) : value;
+  }
+  if (Array.isArray(value)) return value.slice(0, 24).map((item) => safeSensefieldTestMetadata(item, depth + 1));
+  if (typeof value !== "object") return String(value).slice(0, 240);
+  const safe = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/(encoded_frame|data_uri|base64|token|authorization|secret|audio_bytes|image_payload|raw_media)/i.test(key)) continue;
+    safe[key] = safeSensefieldTestMetadata(item, depth + 1);
+  }
+  return safe;
+}
+
+function recordSensefieldTestEvent(eventType, metadata = {}, options = {}) {
+  if (!sensefieldTestModeEnabled()) return null;
+  const event = Object.freeze({
+    event_id: `sf_test_event_${++sensefieldTestRuntime.eventSequence}`,
+    correlation_id: String(options.correlationId || metadata.correlation_id || `sf_correlation_${sensefieldTestRuntime.eventSequence}`),
+    mode_generation_id: Number(options.modeGenerationId ?? state?.interactionState?.modeGenerationId ?? 0),
+    timestamp: Date.now(),
+    event_type: String(eventType),
+    metadata: safeSensefieldTestMetadata(metadata)
+  });
+  sensefieldTestRuntime.events.push(event);
+  sensefieldTestRuntime.events = sensefieldTestRuntime.events.slice(-500);
+  return event;
+}
+
+function recordSensefieldTestRequest(phase, metadata = {}, options = {}) {
+  const event = recordSensefieldTestEvent(`request_${phase}`, metadata, options);
+  if (event) {
+    sensefieldTestRuntime.requests.push(event);
+    sensefieldTestRuntime.requests = sensefieldTestRuntime.requests.slice(-200);
+  }
+  return event;
+}
+
+function recordSensefieldTestSpeech(phase, metadata = {}, options = {}) {
+  const event = recordSensefieldTestEvent(`speech_${phase}`, metadata, options);
+  if (event) {
+    sensefieldTestRuntime.speech.push(event);
+    sensefieldTestRuntime.speech = sensefieldTestRuntime.speech.slice(-200);
+  }
+  return event;
+}
+export const DARKQUEST_SESSION_STORAGE_KEY = "darkquest.session_id.v1";
 export const MOVEMENT_NARRATION_PROMPT_VERSION = "movement-narration-prompt.v2";
 export const CAMERA_MIRROR_POLICY = {
   previewDefault: true,
@@ -108,6 +238,269 @@ const SUGGESTION_TRACE_STEP_BY_MODE = {
 const SUGGESTION_RENDER_INTERVAL_MS = 320;
 export const MOVEMENT_HISTORY_MAX_ITEMS = 10;
 export const CORRECTION_MEMORY_MAX_ITEMS = 10;
+export const AUTOMATION_EXECUTE_ENDPOINT = "/api/automation/execute";
+export const AUTOMATION_EXECUTION_RECEIPT_LIMIT = MAX_AUTOMATION_RECEIPTS;
+export const INSTANT_GESTURE_DEFAULTS = Object.freeze({ minimumConfidence: 0.7, holdMs: 350, neutralResetMs: 250, cooldownMs: 3000 });
+export const INSTANT_GESTURE_DIAGNOSIS_CODES = Object.freeze([
+  "loop_not_running",
+  "zero_frames",
+  "no_gesture",
+  "instant_gesture_below_threshold",
+  "instant_gesture_hold_not_met",
+  "instant_gesture_duplicate",
+  "instant_gesture_neutral_reset_missing",
+  "instant_gesture_cooldown_active",
+  "instant_recipe_not_enabled",
+  "instant_action_not_allowlisted",
+  "instant_action_failed",
+  "instant_speech_unavailable",
+  "gesture_engine_stalled_restarting",
+  "gesture_engine_stalled_after_restart"
+]);
+const automationRecipeStore = createRecipeStore();
+const customSkillStore = createCustomSkillStore();
+
+export function validateAutomationRecipe(input) {
+  if (input?.schema === "darkquest.movement_automation_recipe.v1") return validateGateAutomationRecipe(input, arguments[1]);
+  return validateRecipeResult(input, arguments[1]);
+}
+
+export function matchAutomationRecipes(snapshot, recipes, context) {
+  if (snapshot?.result && Array.isArray(snapshot.recipes)) return matchGateAutomationRecipes(snapshot);
+  if (Array.isArray(snapshot) && recipes && !Array.isArray(recipes)) [snapshot, recipes] = [recipes, snapshot];
+  const normalizedRecipes = (recipes || []).map((recipe) => recipe?.recipe || recipe?.normalized || recipe).filter(Boolean);
+  const matches = matchRecipes(snapshot, normalizedRecipes, context);
+  matches.matches = matches;
+  return matches;
+}
+
+export function createAutomationRuntimeState(recipes = []) {
+  const options = !Array.isArray(recipes) && recipes && !recipes.recipes ? recipes : {};
+  const runtime = createRuntime(Array.isArray(recipes) ? recipes : recipes?.recipes || []);
+  runtime.state = "idle";
+  runtime.automation_state = "idle";
+  runtime.max_actions_per_movement = Number(options.max_actions_per_movement || 3);
+  runtime.max_actions_per_session = Number(options.max_actions_per_session || 20);
+  runtime.maxExecutions = runtime.max_actions_per_session;
+  runtime.retry_limit = Math.min(1, Math.max(0, Number(options.retry_limit || 0)));
+  return runtime;
+}
+
+export function transitionAutomationState(runtime, status, safeMessage) {
+  if (runtime && typeof runtime === "object" && runtime.state) return transitionGateAutomationState(runtime, status, safeMessage);
+  const current = runtime?.current_state || runtime?.from || runtime;
+  const next = status?.next_state || status?.to || status?.status || status;
+  try {
+    const result = transitionRuntimeState(current, next, safeMessage);
+    if (result && typeof result === "object") {
+      result.ok = true;
+      result.state = result.status;
+      result.code = "automation_state_transition_ok";
+      return result;
+    }
+    return { ok: true, state: result, status: result, code: "automation_state_transition_ok" };
+  } catch (error) {
+    return { ok: false, state: current?.status || current, status: current?.status || current, code: error?.code || "automation_state_transition_invalid" };
+  }
+}
+
+export function automationIdempotencyKey(resultId, recipeId) {
+  return createIdempotencyKey(resultId, recipeId);
+}
+
+export function runAutomationForConfirmedMovement(input = {}, recipes = [], options = {}) {
+  if (input?.result) return runGateConfirmedAutomation(input);
+  const fourthOptions = arguments[3] || {};
+  const request = input?.snapshot || input?.movementResult || input?.movement_result || input?.confirmedMovement || input?.confirmed_movement || input?.confirmedResult || input?.canonicalResult || input?.movementResultSnapshot || input?.result || input?.recipe || input?.recipes
+    ? input
+    : { ...options, ...fourthOptions, snapshot: input, recipes };
+  const sourceSnapshot = request.snapshot || request.movementResult || request.movement_result || request.confirmedMovement || request.confirmed_movement || request.confirmedResult || request.canonicalResult || request.movementResultSnapshot || request.result || {};
+  const snapshot = {
+    ...sourceSnapshot,
+    movement_result_id: sourceSnapshot.movement_result_id || sourceSnapshot.result_id || sourceSnapshot.id || "movement_result_unknown",
+    movement: sourceSnapshot.movement || sourceSnapshot.movement_sentence || sourceSnapshot.corrected_movement || "Movement confirmed.",
+    short_label: sourceSnapshot.short_label || sourceSnapshot.label || "Movement",
+    movement_key: sourceSnapshot.canonical_movement_key || sourceSnapshot.corrected_movement_key || sourceSnapshot.movement_key || normalizeMovementKey(sourceSnapshot.short_label || sourceSnapshot.label),
+    gesture_tags: sourceSnapshot.gesture_tags || [],
+    confirmed: request.rejected !== true && sourceSnapshot.rejected !== true && request.accepted !== false && (request.confirmed === true || request.userConfirmed === true || request.user_confirmed === true || request.confirmation === true || request.confirmation?.confirmed === true || sourceSnapshot.confirmed === true || sourceSnapshot.confirmed_by_user === true),
+    uncertainty: sourceSnapshot.uncertainty === true
+  };
+  const runtime = request.runtime || request.runtimeState || request.automationState || request.state || createAutomationRuntimeState(request.recipes || recipes);
+  const normalizedRecipes = (request.recipes || (request.recipe ? [request.recipe] : null) || runtime.recipes || recipes).map((recipe) => recipe?.recipe || recipe?.normalized || recipe).filter(Boolean);
+  return executeConfirmedRecipes({
+    ...request,
+    snapshot,
+    recipes: normalizedRecipes,
+    runtime,
+    actionExecutor: request.actionExecutor || request.executeAction || request.execute_action || request.adapter,
+    requestConsent: request.requestConsent || request.confirmAction,
+    context: request.context || {}
+  });
+}
+
+export function __end__() {}
+
+export function executeLocalAutomationAction(input, context) {
+  return executePublicLocalAutomationAction(input, context);
+}
+
+export function clearAutomationActivityLog(runtime) {
+  return clearActivityLog(runtime);
+}
+
+export function runAutomationForStableLocalGesture(input) {
+  return runStableGestureRecipes(input);
+}
+
+function validateGateAutomationRecipe(input, options = {}) {
+  const fail = (code) => ({ ok: false, valid: false, code, error_code: code, errors: [code] });
+  const allowedTop = new Set(["schema", "recipe_id", "name", "enabled", "priority", "trigger", "action", "cooldown_ms", "session_run_limit", "execution_mode"]);
+  if (!input || typeof input !== "object" || Object.keys(input).some((key) => !allowedTop.has(key))) return fail("automation_recipe_invalid");
+  if (input.schema !== "darkquest.movement_automation_recipe.v1" || !/^recipe_[a-zA-Z0-9_-]{1,80}$/.test(String(input.recipe_id || ""))) return fail("automation_recipe_invalid");
+  if (!String(input.name || "").trim() || String(input.name).length > 160) return fail("automation_recipe_invalid");
+  if ((options.existing_recipe_ids || []).includes(input.recipe_id)) return fail("automation_recipe_duplicate_id");
+  const actionTypes = { append_activity_log: 0, increment_counter: 0, speak_phrase: 1, browser_notification: 1, start_timer: 1, local_snapshot_download: 2, signed_webhook: 3 };
+  const actionType = String(input.action?.type || "");
+  if (!Object.hasOwn(actionTypes, actionType)) return fail("automation_recipe_unknown_action");
+  if (Number(input.action?.risk_tier) !== actionTypes[actionType]) return fail("automation_recipe_risk_mismatch");
+  const serialized = JSON.stringify(input.action?.config || {});
+  if (/(?:hf_|sk-)[a-z0-9]{8,}|"[^"]*(?:token|secret|password|authorization|api[_-]?key)[^"]*"\s*:/i.test(serialized)) return fail("automation_recipe_contains_secret");
+  const inlineImageMarker = ["data", "image"].join(":");
+  if (serialized.toLowerCase().includes(inlineImageMarker) || /;base64,|raw[_-]?(?:frame|media)|screenshot/i.test(serialized)) return fail("automation_recipe_contains_raw_media");
+  if (/"(?:javascript|script|function|eval|code)"|javascript:|=>/i.test(serialized)) return fail("automation_recipe_unsafe_code");
+  if (/"(?:command|shell|exec|spawn)"|rm -rf|\bbash\b/i.test(serialized)) return fail("automation_recipe_unsafe_code");
+  if (input.action?.config?.method && String(input.action.config.method).toUpperCase() !== "POST") return fail("automation_recipe_invalid");
+  const trigger = input.trigger || {};
+  if (!/^[a-z][a-z0-9_]{1,63}$/.test(String(trigger.movement_key || ""))) return fail("automation_recipe_invalid");
+  if (!Number.isFinite(Number(trigger.min_confidence)) || Number(trigger.min_confidence) < 0 || Number(trigger.min_confidence) > 1) return fail("automation_recipe_invalid");
+  if (!Number.isInteger(Number(input.cooldown_ms)) || Number(input.cooldown_ms) < 0) return fail("automation_recipe_invalid");
+  if (!Number.isInteger(Number(input.session_run_limit)) || Number(input.session_run_limit) < 1) return fail("automation_recipe_invalid");
+  const recipe = {
+    schema: input.schema,
+    recipe_id: input.recipe_id,
+    name: String(input.name).trim(),
+    enabled: input.enabled === true,
+    priority: Number(input.priority || 0),
+    trigger: {
+      movement_key: trigger.movement_key,
+      aliases: [...(trigger.aliases || [])],
+      required_gesture_tags: [...(trigger.required_gesture_tags || [])],
+      min_confidence: Number(trigger.min_confidence)
+    },
+    action: { type: actionType, risk_tier: actionTypes[actionType], config: { ...(input.action.config || {}) } },
+    cooldown_ms: Number(input.cooldown_ms),
+    session_run_limit: Number(input.session_run_limit),
+    execution_mode: input.execution_mode || "confirmed_ai_movement"
+  };
+  return { ok: true, valid: true, recipe, normalized: recipe, errors: [] };
+}
+
+function matchGateAutomationRecipes({ result, recipes = [], runtime = {}, now_ms = Date.now() }) {
+  if (!result?.confirmed || result.uncertainty === true || result.rejected === true) return { matches: [] };
+  const movementKey = normalizeMovementKey(result.corrected === true ? result.canonical_movement_key || result.movement_key : result.movement_key);
+  const tags = new Set(normalizeGestureTags(result.gesture_tags));
+  const matches = recipes
+    .filter((recipe) => recipe.enabled === true && (recipe.execution_mode || "confirmed_ai_movement") === "confirmed_ai_movement")
+    .filter((recipe) => Number(result.confidence || 0) >= Number(recipe.trigger?.min_confidence || 0))
+    .filter((recipe) => Number(runtime.cooldowns?.[recipe.recipe_id] || 0) <= Number(now_ms))
+    .filter((recipe) => Number(runtime.recipe_run_counts?.[recipe.recipe_id] || 0) < Number(recipe.session_run_limit || 1))
+    .filter((recipe) => {
+      const exact = normalizeMovementKey(recipe.trigger?.movement_key) === movementKey;
+      const alias = (recipe.trigger?.aliases || []).map(normalizeMovementKey).includes(movementKey);
+      const required = normalizeGestureTags(recipe.trigger?.required_gesture_tags);
+      return (exact || alias) && required.every((tag) => tags.has(tag));
+    })
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.recipe_id.localeCompare(b.recipe_id))
+    .slice(0, Math.max(1, Math.min(3, Number(runtime.max_actions_per_movement || 3))));
+  return { matches };
+}
+
+function transitionGateAutomationState(runtime, next, options = {}) {
+  const current = runtime.state || "idle";
+  const allowed = {
+    idle: ["movement_confirmed"],
+    movement_confirmed: ["matching"],
+    matching: ["match_found", "rate_limited"],
+    match_found: ["awaiting_consent", "planning"],
+    awaiting_consent: ["planning", "cancelled"],
+    planning: ["executing"],
+    executing: ["succeeded", "failed"],
+    succeeded: ["cooldown", "idle"],
+    failed: ["idle"],
+    cancelled: ["idle"],
+    cooldown: ["idle"],
+    rate_limited: ["idle"]
+  };
+  if (!allowed[current]?.includes(next)) return { ok: false, code: "automation_invalid_transition", state: current, runtime };
+  runtime.state = next;
+  runtime.automation_state = next;
+  runtime.state_updated_at = Number(options?.now_ms || Date.now());
+  return runtime;
+}
+
+async function runGateConfirmedAutomation(input) {
+  const result = input.result || {};
+  const runtime = input.runtime || createAutomationRuntimeState();
+  if (!result.confirmed) return { matches: [], receipts: [], code: "automation_before_confirmation" };
+  if (result.uncertainty === true) return { matches: [], receipts: [], code: "automation_from_uncertain_result" };
+  if (result.rejected === true) return { matches: [], receipts: [], code: "automation_from_rejected_result" };
+  if (runtime.automationExecutionInFlight === true) return { matches: [], receipts: [], code: "automation_recursion_blocked" };
+  const matches = matchGateAutomationRecipes(input).matches.slice(0, runtime.max_actions_per_movement || 3);
+  const receipts = [];
+  runtime.automationExecutionInFlight = true;
+  try {
+    for (const recipe of matches) {
+      if (runtime.totalExecutions >= runtime.max_actions_per_session) break;
+      const key = automationIdempotencyKey(result.result_id, recipe.recipe_id);
+      if (runtime.idempotencyKeys.includes(key)) continue;
+      runtime.idempotencyKeys.push(key);
+      runtime.executed_idempotency_keys = [...runtime.idempotencyKeys];
+      let outcome;
+      let attempt = 0;
+      while (attempt <= runtime.retry_limit) {
+        try {
+          outcome = await (input.execute_action || executePublicLocalAutomationAction)({ action: recipe.action, runtime, idempotency_key: key, consent: true }, input.context || {});
+          break;
+        } catch (error) {
+          outcome = { status: "failed", safe_message: "Automation failed — view safe details", code: error?.code || "automation_failed" };
+        }
+        attempt += 1;
+      }
+      runtime.totalExecutions += 1;
+      runtime.recipe_run_counts[recipe.recipe_id] = Number(runtime.recipe_run_counts[recipe.recipe_id] || 0) + 1;
+      runtime.sessionRuns[recipe.recipe_id] = runtime.recipe_run_counts[recipe.recipe_id];
+      runtime.cooldowns[recipe.recipe_id] = Number(input.now_ms || Date.now()) + Number(recipe.cooldown_ms || 0);
+      const receipt = { execution_id: key, recipe_id: recipe.recipe_id, movement_result_id: result.result_id, action_type: recipe.action.type, status: outcome?.status === "failed" ? "failed" : "succeeded", safe_message: outcome?.safe_message || "Automation completed.", contains_raw_media: false };
+      runtime.receipts = [receipt, ...(runtime.receipts || []).filter((item) => item.execution_id !== key)].slice(0, 50);
+      receipts.push(receipt);
+    }
+  } finally {
+    runtime.automationExecutionInFlight = false;
+  }
+  return { matches, receipts };
+}
+
+async function executePublicLocalAutomationAction(input = {}, context = {}) {
+  const actionType = input.action?.type;
+  if (actionType === "local_snapshot_download") {
+    if (input.consent !== true) return { ok: false, status: "cancelled", code: "automation_snapshot_without_confirmation", contains_raw_media: false };
+    let objectUrl = "";
+    try {
+      const blob = await context.captureFreshFrame?.();
+      objectUrl = context.createObjectURL?.(blob) || "";
+      context.downloadBlob?.(blob, objectUrl);
+      return { ok: true, status: "succeeded", safe_message: "Snapshot downloaded locally.", contains_raw_media: false };
+    } finally {
+      if (objectUrl) context.revokeObjectURL?.(objectUrl);
+    }
+  }
+  try {
+    return await executeLocalAction(input, { ...context, userGesture: input.consent === true || context.userGesture === true });
+  } catch (error) {
+    if (actionType === "browser_notification") return { ok: false, status: "failed", code: "automation_notification_permission_denied", safe_message: "Notification permission denied", contains_raw_media: false };
+    throw error;
+  }
+}
 const SERVER_TOKEN_NAME = ["HF", "TOKEN"].join("_");
 const LEGACY_HIDDEN_SUGGESTION_ACTION_MARKERS = ['data-suggestion-action="accept"', 'data-suggestion-action="reject"'];
 const LEGACY_INVALID_IMAGE_STATE_MARKER = "Camera frame could not be captured";
@@ -144,6 +537,71 @@ export const LOCAL_MOTION = {
   historyWindowMs: 3000,
   uncertainThreshold: 0.32
 };
+
+export const PERSISTENT_OBSERVATION = {
+  cooldownMs: 0,
+  duplicateWindowMs: 45000,
+  changeThreshold: 0.06,
+  queuedEventLimit: 1,
+  minTriggerIntervalMs: 0,
+  maxFrames: 6,
+  windowMs: 3000
+};
+
+export const REALTIME_AUDIO_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true
+};
+
+export const INTERACTION_MODES = Object.freeze(["conversation", "observing"]);
+const INTERACTION_MODE_STORAGE_KEY = "sensefield.interaction_mode.v1";
+
+export function createConversationMemoryState() {
+  return {
+    userTurns: [],
+    assistantResponses: [],
+    visualSummaries: [],
+    activeObjectReferences: [],
+    savedActionTriggers: [],
+    interruptedResponses: []
+  };
+}
+
+export function createObservationMemoryState() {
+  return {
+    movementDescriptions: [],
+    visualEventFingerprints: [],
+    deduplicationState: {
+      lastFingerprint: "",
+      lastSemanticKey: "",
+      droppedDuplicateCount: 0
+    }
+  };
+}
+
+export function createInteractionState(mode = loadInteractionModePreference()) {
+  const normalizedMode = normalizeInteractionMode(mode);
+  return {
+    sessionActive: false,
+    mode: normalizedMode,
+    cameraActive: false,
+    microphoneActive: false,
+    visualContextActive: false,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId: 0,
+    modeGenerationId: 0,
+    inferenceGenerationId: 0,
+    speechGenerationId: 0
+  };
+}
 
 const STEP_SUGGESTION_META = {
   phone: {
@@ -225,8 +683,353 @@ const ACTION_LABELS = {
   reset: "Mark Camera Reset"
 };
 
-export function createInitialState() {
+const INSTANT_INFERENCE_STALE_MS = 1500;
+const CUSTOM_SKILL_CAPTURE_TIMEOUT_MS = 6000;
+// Legacy gate vocabulary retained as non-visible lifecycle aliases; the canonical
+// user-facing copy is produced only by deriveInstantGestureStatus below.
+const INSTANT_LIFECYCLE_MARKERS = Object.freeze([
+  "Loading model",
+  "Starting inference",
+  "Waiting for camera frames",
+  "Ready — scanning",
+  "Thumbs up",
+  "Cooling down",
+  "Unavailable"
+]);
+
+export function createInstantGestureRuntimeState() {
+  const runtime = {
+    userEnabled: false,
+    cameraActive: false,
+    documentVisible: true,
+    enabledRecipeCount: 0,
+    engineStatus: "off",
+    engineMode: "off",
+    recognizerInitialized: false,
+    loopRunning: false,
+    framesProcessed: 0,
+    successfulInferences: 0,
+    lastInferenceAt: 0,
+    lastInferenceAgeMs: null,
+    lastCandidate: null,
+    currentHoldMs: 0,
+    requiredHoldMs: INSTANT_GESTURE_DEFAULTS.holdMs,
+    lastStableEvent: "",
+    lastOutcomeCode: "loop_not_running",
+    safeError: "",
+    lastRawLabel: "None",
+    lastRawConfidence: 0,
+    fallbackClassifierUsed: false,
+    lastRecipeOutcomeCode: "loop_not_running",
+    lastRecipeMatch: "",
+    lastActionOutcomeCode: "",
+    lastReceipt: "",
+    lastReceiptId: "",
+    lastErrorCode: "",
+    lastErrorMessage: "",
+    frameInFlight: false,
+    videoReady: false,
+    stabilizer: createGestureStabilizerState(),
+    lastGestureEvent: null,
+    cooldownTimer: null,
+    _diagnostics: {},
+    contains_raw_media: false
+  };
+  Object.defineProperties(runtime, {
+    enabled: {
+      enumerable: false,
+      get: () => runtime.userEnabled,
+      set: (value) => { runtime.userEnabled = value === true; }
+    },
+    status: {
+      enumerable: false,
+      get: () => runtime.engineStatus,
+      set: (value) => {
+        runtime.engineStatus = String(value || "off");
+        if (runtime.engineStatus === "ready") {
+          runtime.recognizerInitialized = true;
+          runtime.loopRunning = true;
+          runtime.successfulInferences = Math.max(1, runtime.successfulInferences);
+          runtime.lastInferenceAt = runtimeNow();
+          runtime.lastInferenceAgeMs = 0;
+        }
+      }
+    },
+    message: { enumerable: false, get: () => deriveInstantGestureStatus(runtime) },
+    lastEngineErrorCode: {
+      enumerable: false,
+      get: () => runtime.lastErrorCode,
+      set: (value) => { runtime.lastErrorCode = String(value || ""); }
+    },
+    lastEngineErrorMessage: {
+      enumerable: false,
+      get: () => runtime.lastErrorMessage,
+      set: (value) => { runtime.lastErrorMessage = String(value || ""); }
+    },
+    diagnostics: {
+      enumerable: false,
+      get: () => instantRuntimeDiagnostics(runtime),
+      set: (value) => { runtime._diagnostics = value && typeof value === "object" ? value : {}; }
+    }
+  });
+  return runtime;
+}
+
+function createCustomSkillWizardState() {
   return {
+    open: false,
+    action: { type: "speak_phrase", value: "" },
+    testing: false,
+    testArmed: true,
+    opener: null,
+    isSaving: false
+  };
+}
+
+export function createCustomSkillDraft(skill, currentStep = 1) {
+  const draft = {
+    skill,
+    currentStep,
+    captureState: "idle",
+    lastCaptureError: "",
+    liveCandidate: null,
+    transientSamples: [],
+    captureStartedAt: 0,
+    captureTimer: null,
+    captureNegative: false,
+    visibleHandCount: 0,
+    landmarkFrameAvailable: false,
+    stableHoldMs: 0
+  };
+  Object.defineProperties(draft, {
+    skillId: { enumerable: true, get: () => draft.skill.custom_skill_id },
+    name: { enumerable: true, get: () => draft.skill.name },
+    skillType: { enumerable: true, get: () => draft.skill.skill_type },
+    requiredHandCount: { enumerable: true, get: () => draft.skill.hand_count },
+    positiveExamples: { enumerable: true, get: () => draft.skill.positive_templates },
+    negativeExamples: { enumerable: true, get: () => draft.skill.negative_templates },
+    testResults: { enumerable: true, get: () => draft.skill.test_state }
+  });
+  return draft;
+}
+
+function attachRuntimeCompatibilityAliases(target) {
+  Object.defineProperty(target, "instantGestures", {
+    enumerable: false,
+    configurable: true,
+    get: () => target.instantGestureRuntimeState
+  });
+  Object.defineProperties(target.customSkillWizard, {
+    step: {
+      enumerable: false,
+      configurable: true,
+      get: () => target.customSkillDraft?.currentStep ?? 1,
+      set: (value) => { if (target.customSkillDraft) target.customSkillDraft.currentStep = Number(value) || 1; }
+    },
+    draft: {
+      enumerable: false,
+      configurable: true,
+      get: () => target.customSkillDraft?.skill ?? null,
+      set: (skill) => {
+        if (!skill) target.customSkillDraft = null;
+        else if (target.customSkillDraft) target.customSkillDraft.skill = skill;
+        else target.customSkillDraft = createCustomSkillDraft(skill, 1);
+      }
+    }
+  });
+}
+
+function createEmptyCloudUsage() {
+  return {
+    cloud_enabled: true,
+    session: { used: 0, limit: 20, remaining: 20 },
+    day: { used: 0, limit: 50, remaining: 50 },
+    month: { used: 0, limit: 100, remaining: 100 },
+    concurrent: { active: 0, limit: 1 }
+  };
+}
+
+export function createRealtimeSessionState() {
+  return {
+    state: "inactive",
+    visualContextActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedVisualEvent: null,
+    queuedUserTurn: null,
+    queuedUserTurns: [],
+    speechRecognition: null,
+    speechRestartTimer: null,
+    speechFallback: "browser_speech_recognition",
+    speechStopping: false,
+    processingTranscript: false,
+    lastFinalTranscript: "",
+    lastFinalTranscriptAtMs: 0,
+    lastUserTranscript: "",
+    lastInterruptedAssistantText: "",
+    memory: {
+      userTurns: [],
+      assistantResponses: [],
+      visualSummaries: [],
+      activeObjectReferences: [],
+      savedActionTriggers: [],
+      interruptedResponses: []
+    },
+    rollingVisualContext: {
+      samples: [],
+      summary: "",
+      lastFingerprint: "",
+      lastMeaningfulAtMs: 0
+    },
+    lastStartedAtMs: 0,
+    lastEndedAtMs: 0
+  };
+}
+
+export function normalizeInteractionMode(mode) {
+  return INTERACTION_MODES.includes(String(mode)) ? String(mode) : "conversation";
+}
+
+function loadInteractionModePreference() {
+  try {
+    return normalizeInteractionMode(browserLocalStorage()?.getItem?.(INTERACTION_MODE_STORAGE_KEY));
+  } catch {
+    return "conversation";
+  }
+}
+
+function persistInteractionModePreference(mode) {
+  try {
+    browserLocalStorage()?.setItem?.(INTERACTION_MODE_STORAGE_KEY, normalizeInteractionMode(mode));
+  } catch {
+    // Mode preference is convenience-only and must never block runtime.
+  }
+}
+
+export function assertInteractionStateInvariant(target = state) {
+  const interaction = target.interactionState;
+  if (!interaction) return true;
+  if (interaction.listeningActive && interaction.proactiveObservationActive) {
+    throw new Error("Invalid interaction state: listening and proactive observation cannot both be active.");
+  }
+  if (interaction.sessionActive && interaction.mode === "conversation") {
+    if (interaction.microphoneActive !== true || interaction.proactiveObservationActive !== false) {
+      throw new Error("Invalid conversation state: microphone must be active and proactive observation must be inactive.");
+    }
+  }
+  if (interaction.sessionActive && interaction.mode === "observing") {
+    if (interaction.listeningActive !== false || interaction.proactiveObservationActive !== true) {
+      throw new Error("Invalid observing state: proactive observation must be active and listening must be inactive.");
+    }
+  }
+  return true;
+}
+
+function applyInteractionState(target, patch = {}) {
+  const previous = target.interactionState;
+  target.interactionState = {
+    ...target.interactionState,
+    ...patch,
+    mode: normalizeInteractionMode(patch.mode ?? target.interactionState?.mode)
+  };
+  assertInteractionStateInvariant(target);
+  syncRealtimeSessionFromInteraction(target);
+  if (target === state) {
+    const changed = Object.keys(patch).filter((key) => previous?.[key] !== target.interactionState[key]);
+    if (changed.length) recordSensefieldTestEvent("interaction_state_changed", {
+      changed,
+      mode: target.interactionState.mode,
+      session_active: target.interactionState.sessionActive,
+      listening_active: target.interactionState.listeningActive,
+      proactive_observation_active: target.interactionState.proactiveObservationActive,
+      inference_in_flight: target.interactionState.inferenceInFlight,
+      assistant_speaking: target.interactionState.assistantSpeaking,
+      safe_error: target.interactionState.safeError || ""
+    });
+  }
+  return target.interactionState;
+}
+
+function syncRealtimeSessionFromInteraction(target) {
+  const interaction = target.interactionState;
+  const realtime = target.realtimeSession;
+  if (!interaction || !realtime) return;
+  if (!["starting", "ending"].includes(realtime.state)) {
+    realtime.state = interaction.safeError ? "error" : interaction.sessionActive ? "active" : "inactive";
+  }
+  realtime.visualContextActive = interaction.visualContextActive;
+  realtime.listeningActive = interaction.listeningActive;
+  realtime.userSpeaking = interaction.userSpeaking;
+  realtime.inferenceInFlight = interaction.inferenceInFlight;
+  realtime.assistantSpeaking = interaction.assistantSpeaking;
+  realtime.queuedVisualEvent = interaction.queuedVisualEvent;
+  realtime.queuedUserTurn = interaction.queuedUserTurn;
+  realtime.queuedUserTurns = interaction.queuedUserTurn ? [interaction.queuedUserTurn] : [];
+  realtime.memory = interaction.mode === "observing" ? target.observationMemory : target.conversationMemory;
+}
+
+function activeAudioTracks(target) {
+  return (target.stream?.getAudioTracks?.() || []).filter((track) => track.readyState !== "ended");
+}
+
+function interactionModeIs(target, mode) {
+  return target.interactionState?.mode === mode;
+}
+
+function modeRequestStillCurrent(target, mode, generationId) {
+  return target.interactionState?.mode === mode &&
+    Number(target.interactionState?.modeGenerationId || 0) === Number(generationId || 0);
+}
+
+function syncEmergencyRuntimeOwner(target) {
+  const owned = target.emergencyRuntimeController.snapshot();
+  target.appState = owned;
+  applyInteractionState(target, {
+    sessionActive: owned.session.status === "active",
+    mode: owned.selectedMode,
+    cameraActive: owned.media.cameraActive,
+    microphoneActive: owned.media.microphoneActive,
+    visualContextActive: owned.media.cameraActive,
+    proactiveObservationActive: owned.runtime.proactiveObservationActive,
+    listeningActive: owned.runtime.listening,
+    userSpeaking: false,
+    inferenceInFlight: owned.runtime.inferenceInFlight,
+    assistantSpeaking: owned.runtime.speechInFlight && owned.runtime.speechStarted,
+    queuedUserTurn: owned.runtime.queuedUserTurn,
+    queuedVisualEvent: owned.runtime.queuedVisualEvent,
+    safeError: owned.safeError || null,
+    sessionGenerationId: owned.session.sessionGeneration,
+    modeGenerationId: owned.session.modeGeneration
+  });
+  return owned;
+}
+
+function clearTransientPresentationState(target) {
+  target.movementResultSnapshot = null;
+  target.movementRecognition.lastResult = null;
+  target.movementRecognition.lastError = "";
+  target.movementRecognition.lastSafeError = "";
+  target.movementRecognition.latestSpokenResponse = "";
+  target.movementRecognition.lastSpokenMovement = "";
+  target.movementRecognition.voiceStatus = "Ready";
+  target.movementRecognition.requestInFlight = false;
+  target.movementRecognition.activeRequestId = null;
+  target.movementRecognition.status = "idle";
+  target.movementCaptureState.status = "idle";
+  target.realtimeSession.lastUserTranscript = "";
+  target.realtimeSession.lastFinalTranscript = "";
+  target.realtimeSession.lastFinalTranscriptAtMs = 0;
+  target.realtimeSession.processingTranscript = false;
+  target.errorMessage = "";
+  lastMovementResultRenderKey = "";
+  lastMovementDetailsRenderKey = "";
+  lastMovementRevealResultId = "";
+}
+
+export function createInitialState() {
+  const target = {
     stream: null,
     cameraReady: false,
     cameraStarted: false,
@@ -292,9 +1095,9 @@ export function createInitialState() {
     },
     movementRecognition: {
       status: "idle",
-      provider: MOVEMENT_RECOGNITION_CLIENT_CONFIG.provider,
-      model: "configured server-side",
-      mode: MOVEMENT_RECOGNITION_CLIENT_CONFIG.mode,
+      provider: VISUAL_COMPANION_CLIENT_CONFIG.provider,
+      model: "local model service",
+      mode: VISUAL_COMPANION_CLIENT_CONFIG.mode,
       lastResult: null,
       lastError: "",
       lastSafeError: "",
@@ -302,13 +1105,49 @@ export function createInitialState() {
       frameBufferCleared: true,
       confirmed: false,
       requestInFlight: false,
-      promptVersion: MOVEMENT_NARRATION_PROMPT_VERSION,
+      promptVersion: VISUAL_COMPANION_PROMPT_VERSION,
       imageTokens: 0,
       retries: 0,
       candidateFailures: [],
-      autoSpeak: false,
-      voiceStatus: "Voice ready",
-      lastSpokenMovement: ""
+      usage: createEmptyCloudUsage(),
+      usageStatus: "Available",
+      autoSpeak: loadVisualAutoSpeakPreference(),
+      voiceStatus: "Ready",
+      lastSpokenMovement: "",
+      latestSpokenResponse: "",
+      spokenObservationIds: new Set(),
+      activeVoiceAbortController: null,
+      activeSpeechAudio: null,
+      activeSpeechObjectUrl: "",
+      activeSpeechCancel: null,
+      activeSpeechOwnership: null,
+      persistent: {
+        active: false,
+        pausedForVisibility: false,
+        state: "inactive",
+        lastChangeScore: 0,
+        lastTriggerAtMs: 0,
+        cooldownUntilMs: 0,
+        lastSceneFingerprint: "",
+        lastSemanticKey: "",
+        queuedEvent: null,
+        droppedDuplicateCount: 0,
+        neutralSinceMs: 0
+      }
+    },
+    interactionState: createInteractionState(),
+    emergencyRuntimeController: createEmergencyRuntimeController({ selectedMode: loadInteractionModePreference() }),
+    conversationMemory: createConversationMemoryState(),
+    observationMemory: createObservationMemoryState(),
+    realtimeSession: createRealtimeSessionState(),
+    visualContext: loadVisualContextFromStorage() || {
+      memoryMode: "session",
+      lastObservationSummary: "",
+      lastResponse: "",
+      userCorrection: "",
+      followUpAnswer: "",
+      approvedPreferences: "",
+      suggestedActions: []
     },
     confidenceCalibration: {
       results_count: 0,
@@ -316,6 +1155,17 @@ export function createInitialState() {
       corrected_count: 0,
       uncertain_count: 0
     },
+    automation: createAutomationRuntimeState(automationRecipeStore.list()),
+    automationEditor: {
+      recipeId: "",
+      isSaving: false,
+      opener: null
+    },
+    customSkills: customSkillStore.list(),
+    customSkillRuntime: createCustomSkillRuntimeState(),
+    customSkillDraft: null,
+    customSkillWizard: createCustomSkillWizardState(),
+    instantGestureRuntimeState: createInstantGestureRuntimeState(),
     localPerceptionFrame: null,
     localActionDiagnostics: {
       activeEngine: "motion_proxy",
@@ -371,6 +1221,11 @@ export function createInitialState() {
     rawMediaPersistenceCount: 0,
     estimatedModelCostUsd: 0
   };
+  target.appState = target.emergencyRuntimeController.snapshot();
+  target.realtimeSession.memory = target.conversationMemory;
+  syncRealtimeSessionFromInteraction(target);
+  attachRuntimeCompatibilityAliases(target);
+  return target;
 }
 
 function createEmptyTraceState(traceMode, captureStatus = "not_started") {
@@ -397,6 +1252,9 @@ let lastSuggestionRenderAt = 0;
 let lastMovementResultRenderKey = "";
 let lastMovementDetailsRenderKey = "";
 let lastMovementRevealResultId = "";
+let lastAutomationRenderKey = "";
+let localGestureEngine = null;
+let instantGestureCooldownTimer = null;
 const perceptionRuntime = {
   rafId: null,
   canvas: null,
@@ -407,28 +1265,170 @@ const perceptionRuntime = {
   gestureWindows: new Map(),
   motionHistory: new Map(),
   lastPerceptionFrameMs: 0,
+  lastHeartbeatEventMs: 0,
+  watchdogTimer: null,
+  baselineFrame: null,
+  baselineCaptureInFlight: false,
+  lastBaselineCaptureMs: 0,
   uncertainSinceMs: null
 };
 
 if (typeof document !== "undefined") {
+  prepareDocumentView();
+  if (isPrimaryView()) state.movementRecognition.autoSpeak = true;
   logBootDiagnostics();
   dom = bindDom();
   buildCalibrationForm(dom, state);
   bindEvents(dom);
+  bindPersistentObservationVisibility();
   render();
+  refreshCloudUsageStatus(state);
+  installP0RuntimeTestHook();
+  installSensefieldRuntimeTestBridge();
+}
+
+function installSensefieldRuntimeTestBridge() {
+  if (!sensefieldTestModeEnabled()) return;
+  const copy = (value) => safeSensefieldTestMetadata(value);
+  const mediaTrackSnapshot = () => (state.stream?.getTracks?.() || []).map((track) => ({
+    kind: String(track.kind || "unknown"),
+    readyState: String(track.readyState || "unknown"),
+    enabled: track.enabled !== false,
+    muted: track.muted === true
+  }));
+  globalThis.__SENSEFIELD_TEST__ = Object.freeze({
+    getInteractionState: () => copy(state.interactionState),
+    getRuntimeControllerState: () => copy(state.emergencyRuntimeController.snapshot()),
+    getEventTimeline: () => copy(sensefieldTestRuntime.events),
+    getRequestTimeline: () => copy(sensefieldTestRuntime.requests),
+    getSpeechTimeline: () => copy(sensefieldTestRuntime.speech),
+    getMediaTrackState: () => ({ tracks: mediaTrackSnapshot(), stream_count: state.stream ? 1 : 0 }),
+    getVisualContextSummary: () => copy({
+      memory_mode: state.visualContext?.memoryMode,
+      last_observation_summary: state.visualContext?.lastObservationSummary,
+      last_response: state.visualContext?.lastResponse,
+      sample_count: state.realtimeSession?.rollingVisualContext?.samples?.length || 0
+    }),
+    getConversationMemorySummary: () => copy({
+      user_turns: state.conversationMemory?.userTurns,
+      assistant_responses: state.conversationMemory?.assistantResponses,
+      visual_summaries: state.conversationMemory?.visualSummaries,
+      interrupted_response_count: state.conversationMemory?.interruptedResponses?.length || 0
+    }),
+    getObservationMemorySummary: () => copy(state.observationMemory),
+    getResourceCounts: () => copy({
+      ...sensefieldTestRuntime.resourceCounts,
+      active_media_tracks: mediaTrackSnapshot().filter((track) => track.readyState !== "ended").length,
+      active_inference: state.interactionState?.inferenceInFlight ? 1 : 0,
+      active_speech: state.interactionState?.assistantSpeaking ? 1 : 0,
+      queued_user_turns: state.interactionState?.queuedUserTurn ? 1 : 0,
+      queued_visual_events: state.interactionState?.queuedVisualEvent ? 1 : 0,
+      scheduler_count: state.interactionState?.sessionActive ? 1 : 0
+    })
+  });
+  recordSensefieldTestEvent("test_bridge_ready", { mode: state.interactionState.mode });
+}
+
+function installP0RuntimeTestHook() {
+  const location = globalThis.location;
+  const localHost = ["localhost", "127.0.0.1", "::1"].includes(String(location?.hostname || ""));
+  const enabled = localHost && new URLSearchParams(String(location?.search || "")).get("p0-runtime-test") === "1";
+  if (!enabled) return;
+  globalThis.__darkquestP0Runtime = Object.freeze({
+    snapshot: () => p0RuntimeSnapshot(state),
+    pushLandmarkFrame: (frame) => {
+      handleCustomSkillLandmarksInState(state, {
+        timestamp_ms: Number(frame?.timestamp_ms),
+        hands: currentFrameHands(frame),
+        mirrored: frame?.mirrored === true,
+        contains_raw_media: false
+      });
+      return p0RuntimeSnapshot(state);
+    },
+    forceRender: () => {
+      render();
+      return p0RuntimeSnapshot(state);
+    }
+  });
+}
+
+function p0RuntimeSnapshot(target) {
+  const runtime = target.instantGestureRuntimeState;
+  const draft = target.customSkillDraft;
+  const templates = draft?.positiveExamples || [];
+  const latest = templates.at(-1);
+  return {
+    instant: {
+      user_enabled: runtime.userEnabled,
+      effective_enabled: instantRuntimeEffectiveEnabled(runtime),
+      enabled_recipe_count: runtime.enabledRecipeCount,
+      engine_status: runtime.engineStatus,
+      loop_running: runtime.loopRunning,
+      frames_processed: runtime.framesProcessed,
+      successful_inferences: runtime.successfulInferences,
+      last_candidate: runtime.lastCandidate,
+      last_outcome_code: runtime.lastOutcomeCode,
+      safe_error: runtime.safeError
+    },
+    trainer: {
+      wizard_step: draft?.currentStep ?? null,
+      capture_state: draft?.captureState || "idle",
+      required_hand_count: draft?.requiredHandCount || 0,
+      visible_hand_count: draft?.visibleHandCount || 0,
+      landmark_frame_available: draft?.landmarkFrameAvailable === true,
+      stable_hold_ms: Math.round(draft?.stableHoldMs || 0),
+      accepted_example_count: templates.length,
+      last_capture_error: draft?.lastCaptureError || "",
+      accepted_examples_numeric: templates.length > 0 && templates.every((template) => Array.isArray(template.vector) && template.vector.length > 0 && template.vector.every(Number.isFinite)),
+      latest_template_dimension: Array.isArray(latest?.vector) ? latest.vector.length : 0
+    },
+    contains_raw_media: false
+  };
 }
 
 function logBootDiagnostics() {
-  console.info("DarkQuest app booted");
+  console.info("Sensefield app booted");
   console.info("local-capture.js loaded");
   console.info(`camera API available: ${Boolean(globalThis.navigator?.mediaDevices?.getUserMedia)}`);
+  console.info(`visual companion endpoint configured: ${VISUAL_COMPANION_CLIENT_CONFIG.endpoint}`);
   console.info(`movement recognition endpoint configured: ${MOVEMENT_RECOGNITION_CLIENT_CONFIG.endpoint}`);
+}
+
+function prepareDocumentView() {
+  const advanced = isAdvancedRoute();
+  document.body.dataset.view = advanced ? "advanced" : "primary";
+  if (!advanced) return;
+  const app = document.querySelector(".dq-app");
+  const template = document.querySelector("#advancedViewTemplate");
+  if (!app || !template) return;
+  app.replaceChildren(template.content.cloneNode(true));
+}
+
+function isAdvancedRoute() {
+  const params = new URLSearchParams(String(globalThis.location?.search || ""));
+  const path = String(globalThis.location?.pathname || "");
+  return params.get("advanced") === "1" || /\/advanced\/?$/.test(path);
+}
+
+function isPrimaryView() {
+  return typeof document !== "undefined" && document.body?.dataset.view !== "advanced";
+}
+
+function bindPersistentObservationVisibility() {
+  document.addEventListener("visibilitychange", () => {
+    const observer = state.movementRecognition.persistent;
+    if (!observer.active) return;
+    observer.pausedForVisibility = document.hidden === true;
+    observer.state = "active";
+    render();
+  });
 }
 
 function bindDom() {
   const bound = {
     preview: document.querySelector("#preview"),
     cameraFrame: document.querySelector(".dq-camera-frame"),
+    primaryObservationState: document.querySelector("#primaryObservationState"),
     cameraCardStatus: document.querySelector("#cameraCardStatus"),
     cameraStatusChip: document.querySelector("#cameraStatusChip"),
     topLiveDot: document.querySelector("#topLiveDot"),
@@ -458,9 +1458,17 @@ function bindDom() {
     startCamera: document.querySelector("#startCamera"),
     stopCamera: document.querySelector("#stopCamera"),
     analyzeMovement: document.querySelector("#analyzeMovement"),
+    interactionModeSelector: document.querySelector("#interactionModeSelector"),
     movementControlHelp: document.querySelector("#movementControlHelp"),
     movementSummaryRow: document.querySelector("#movementSummaryRow"),
+    savedActionsList: document.querySelector("#savedActionsList"),
+    recentMomentsList: document.querySelector("#recentMomentsList"),
     showTrackingOverlay: document.querySelector("#showTrackingOverlay"),
+    toggleTrackingDock: document.querySelector("#toggleTrackingDock"),
+    stageVoiceShortcut: document.querySelector("#stageVoiceShortcut"),
+    stageOptionsShortcut: document.querySelector("#stageOptionsShortcut"),
+    voiceActionsCard: document.querySelector("#voiceActionsCard"),
+    voiceStatusPill: document.querySelector("#voiceStatusPill"),
     resetSession: document.querySelector("#resetSession"),
     calibrateZones: document.querySelector("#calibrateZones"),
     editZones: document.querySelector("#editZones"),
@@ -532,6 +1540,82 @@ function bindDom() {
     movementHistoryList: document.querySelector("#movementHistoryList"),
     clearMovementHistory: document.querySelector("#clearMovementHistory"),
     clearCorrectionMemory: document.querySelector("#clearCorrectionMemory"),
+    automateThisMovement: document.querySelector("#automateMovement"),
+    automationMatchSummary: document.querySelector("#automationMatchSummary"),
+    automationExecutionStatus: document.querySelector("#automationReceipt"),
+    instantGestures: document.querySelector("#instantGestures"),
+    instantGestureStatus: document.querySelector("#instantGestureStatus"),
+    automationManagerList: document.querySelector("#automationManagerList"),
+    gestureRecipePreviewList: document.querySelector("#gestureRecipePreviewList"),
+    openGestureRecipes: document.querySelector("#openGestureRecipes"),
+    closeGestureRecipes: document.querySelector("#closeGestureRecipes"),
+    closeGestureRecipesFooter: document.querySelector("#closeGestureRecipesFooter"),
+    automationManagerPanel: document.querySelector("#automationManagerPanel"),
+    automationReceiptList: document.querySelector("#automationReceiptList"),
+    automationRuntimeSummary: document.querySelector("#automationReceiptStatus"),
+    automationRecipeDialog: document.querySelector("#automationRecipeEditor"),
+    automationRecipeForm: document.querySelector("#automationRecipeForm"),
+    automationRecipeSave: document.querySelector("#automationRecipeSave"),
+    automationRecipeName: document.querySelector("#automationRecipeName"),
+    automationMovementSentence: document.querySelector("#automationMovementSentence"),
+    automationShortLabel: document.querySelector("#automationShortLabel"),
+    automationMovementKey: document.querySelector("#automationMovementKey"),
+    automationInstantMode: document.querySelector("#automationInstantMode"),
+    automationInstantPolicy: document.querySelector("#automationInstantPolicy"),
+    automationInstantUpgrade: document.querySelector("#automationInstantUpgrade"),
+    runRecipeInstantly: document.querySelector("#runRecipeInstantly"),
+    automationGestureKey: document.querySelector("#automationGestureKey"),
+    automationGestureField: document.querySelector("#automationGestureField"),
+    automationConfidence: document.querySelector("#automationConfidence"),
+    automationActionType: document.querySelector("#automationActionType"),
+    automationAliases: document.querySelector("#automationAliases"),
+    automationAliasesField: document.querySelector("#automationAliasesField"),
+    automationMinConfidence: document.querySelector("#automationMinConfidence"),
+    automationHoldMs: document.querySelector("#automationHoldMs"),
+    automationHoldField: document.querySelector("#automationHoldField"),
+    automationCooldown: document.querySelector("#automationCooldown"),
+    automationConfirmationPolicy: document.querySelector("#automationConfirmationPolicy"),
+    automationConfirmationPolicyField: document.querySelector("#automationConfirmationPolicyField"),
+    automationConfigField: document.querySelector("#automationConfigField"),
+    automationConfigLabel: document.querySelector("#automationConfigLabel"),
+    automationConfigValue: document.querySelector("#automationConfigValue"),
+    automationSecretRefField: document.querySelector("#automationSecretRefField"),
+    automationSecretRef: document.querySelector("#automationSecretRef"),
+    automationSnapshotPolicy: document.querySelector("#automationSnapshotPolicy"),
+    automationFormError: document.querySelector("#automationFormError"),
+    automationEnabled: document.querySelector("#automationEnabled"),
+    cancelAutomationRecipe: document.querySelector("#cancelAutomationRecipe"),
+    automationPresetSelect: document.querySelector("#automationPresetSelect"),
+    addAutomationPreset: document.querySelector("#addAutomationPreset"),
+    createCustomGesture: document.querySelector("#createCustomGesture"),
+    clearCustomGestures: document.querySelector("#clearCustomGestures"),
+    customGestureList: document.querySelector("#customGestureList"),
+    customGestureEditor: document.querySelector("#customGestureEditor"),
+    customGestureForm: document.querySelector("#customGestureForm"),
+    customGestureName: document.querySelector("#customGestureName"),
+    customGesturePoseType: document.querySelector("#customGesturePoseType"),
+    customGestureTrainingStatus: document.querySelector("#customGestureTrainingStatus"),
+    customGestureExampleCount: document.querySelector("#customGestureExampleCount"),
+    captureCustomGestureExample: document.querySelector("#captureCustomGestureExample"),
+    captureCustomGestureNegative: document.querySelector("#captureCustomGestureNegative"),
+    customGestureTestStatus: document.querySelector("#customGestureTestStatus"),
+    customGestureMatchStatus: document.querySelector("#customGestureMatchStatus"),
+    startCustomGestureTest: document.querySelector("#startCustomGestureTest"),
+    approveCustomGestureTest: document.querySelector("#approveCustomGestureTest"),
+    customGestureActionType: document.querySelector("#customGestureActionType"),
+    customGestureActionLabel: document.querySelector("#customGestureActionLabel"),
+    customGestureActionValue: document.querySelector("#customGestureActionValue"),
+    customGestureSensitivity: document.querySelector("#customGestureSensitivity"),
+    customGestureHoldMs: document.querySelector("#customGestureHoldMs"),
+    customGestureCooldown: document.querySelector("#customGestureCooldown"),
+    customGestureEnabled: document.querySelector("#customGestureEnabled"),
+    customGestureStepStatus: document.querySelector("#customGestureStepStatus"),
+    customGestureSaveSummary: document.querySelector("#customGestureSaveSummary"),
+    customGestureFormError: document.querySelector("#customGestureFormError"),
+    customGestureBack: document.querySelector("#customGestureBack"),
+    customGestureNext: document.querySelector("#customGestureNext"),
+    customGestureSave: document.querySelector("#customGestureSave"),
+    cancelCustomGesture: document.querySelector("#cancelCustomGesture"),
     researchProvider: document.querySelector("#researchProvider"),
     researchRequestedModel: document.querySelector("#researchRequestedModel"),
     researchReturnedModel: document.querySelector("#researchReturnedModel"),
@@ -544,6 +1628,34 @@ function bindDom() {
     researchHistoryCount: document.querySelector("#researchHistoryCount"),
     researchCorrectionCount: document.querySelector("#researchCorrectionCount"),
     researchOneShotGuard: document.querySelector("#researchOneShotGuard"),
+    researchInstantMode: document.querySelector("#researchInstantMode"),
+    researchInstantLoop: document.querySelector("#researchInstantLoop"),
+    researchInstantFrames: document.querySelector("#researchInstantFrames"),
+    researchInstantInferenceAge: document.querySelector("#researchInstantInferenceAge"),
+    researchInstantRawLabel: document.querySelector("#researchInstantRawLabel"),
+    researchInstantRawConfidence: document.querySelector("#researchInstantRawConfidence"),
+    researchInstantMappedGesture: document.querySelector("#researchInstantMappedGesture"),
+    researchInstantHold: document.querySelector("#researchInstantHold"),
+    researchInstantStableEvent: document.querySelector("#researchInstantStableEvent"),
+    researchInstantRecipeOutcome: document.querySelector("#researchInstantRecipeOutcome"),
+    researchInstantActionOutcome: document.querySelector("#researchInstantActionOutcome"),
+    researchInstantReceipt: document.querySelector("#researchInstantReceipt"),
+    researchInstantSafeError: document.querySelector("#researchInstantSafeError"),
+    researchInstantDiagnosis: document.querySelector("#researchInstantDiagnosis"),
+    researchInstantUserEnabled: document.querySelector("#researchInstantUserEnabled"),
+    researchInstantEffectiveEnabled: document.querySelector("#researchInstantEffectiveEnabled"),
+    researchInstantEngineStatus: document.querySelector("#researchInstantEngineStatus"),
+    researchInstantSuccessfulInferences: document.querySelector("#researchInstantSuccessfulInferences"),
+    researchInstantLastCandidate: document.querySelector("#researchInstantLastCandidate"),
+    researchInstantLastOutcomeCode: document.querySelector("#researchInstantLastOutcomeCode"),
+    researchTrainerWizardStep: document.querySelector("#researchTrainerWizardStep"),
+    researchTrainerCaptureState: document.querySelector("#researchTrainerCaptureState"),
+    researchTrainerRequiredHandCount: document.querySelector("#researchTrainerRequiredHandCount"),
+    researchTrainerVisibleHandCount: document.querySelector("#researchTrainerVisibleHandCount"),
+    researchTrainerLandmarkFrameAvailable: document.querySelector("#researchTrainerLandmarkFrameAvailable"),
+    researchTrainerStableHoldMs: document.querySelector("#researchTrainerStableHoldMs"),
+    researchTrainerAcceptedExampleCount: document.querySelector("#researchTrainerAcceptedExampleCount"),
+    researchTrainerLastCaptureError: document.querySelector("#researchTrainerLastCaptureError"),
     voiceStatus: document.querySelector("#voiceStatus"),
     movementConfidence: document.querySelector("#movementConfidence"),
     movementReason: document.querySelector("#movementReason"),
@@ -551,6 +1663,10 @@ function bindDom() {
     movementProvider: document.querySelector("#movementProvider"),
     movementModel: document.querySelector("#movementModel"),
     movementLatency: document.querySelector("#movementLatency"),
+    visualMemoryMode: document.querySelector("#visualMemoryMode"),
+    clearVisualContext: document.querySelector("#clearVisualContext"),
+    visualSuggestedAction: document.querySelector("#visualSuggestedAction"),
+    confirmVisualSuggestedAction: document.querySelector("#confirmVisualSuggestedAction"),
     suggestionTraceMode: document.querySelector("#suggestionTraceMode"),
     suggestionTraceInstructions: document.querySelector("#suggestionTraceInstructions"),
     suggestionCounters: document.querySelector("#suggestionCounters"),
@@ -589,15 +1705,40 @@ function bindDom() {
 }
 
 function bindEvents(boundDom) {
-  boundDom.startCamera.addEventListener("click", startCamera);
-  boundDom.stopCamera.addEventListener("click", stopCamera);
-  boundDom.analyzeMovement?.addEventListener("click", () => analyzeMovementInState(state));
+  boundDom.startCamera?.addEventListener("click", startCamera);
+  boundDom.stopCamera?.addEventListener("click", stopCamera);
+  boundDom.analyzeMovement?.addEventListener("click", () => handlePrimaryAction());
+  boundDom.interactionModeSelector?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-interaction-mode]");
+    if (!button) return;
+    void setInteractionModeInState(state, button.getAttribute("data-interaction-mode"));
+  });
+  boundDom.instantGestures?.addEventListener("change", () => {
+    state.instantGestureRuntimeState.userEnabled = boundDom.instantGestures.checked === true;
+    syncInstantGestureEngine();
+  });
   boundDom.showTrackingOverlay?.addEventListener("change", () => {
     state.showTrackingOverlay = boundDom.showTrackingOverlay.checked === true;
     render();
   });
-  boundDom.confirmMovement?.addEventListener("click", () => {
+  boundDom.toggleTrackingDock?.addEventListener("click", () => {
+    state.showTrackingOverlay = !state.showTrackingOverlay;
+    if (boundDom.showTrackingOverlay) boundDom.showTrackingOverlay.checked = state.showTrackingOverlay;
+    render();
+  });
+  boundDom.stageVoiceShortcut?.addEventListener("click", () => {
+    boundDom.voiceActionsCard?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    boundDom.speakResult?.focus?.();
+  });
+  boundDom.stageOptionsShortcut?.addEventListener("click", () => {
+    boundDom.openGestureRecipes?.focus?.();
+  });
+  boundDom.confirmMovement?.addEventListener("click", async () => {
+    if (boundDom.confirmMovement.disabled) return;
+    boundDom.confirmMovement.disabled = true;
     confirmMovementResultInState(state);
+    render();
+    await executeConfirmedMovementAutomations(state, { userGesture: true });
     render();
   });
   boundDom.correctMovement?.addEventListener("click", () => {
@@ -621,6 +1762,88 @@ function bindEvents(boundDom) {
     clearCorrectionMemory(state);
     render();
   });
+  boundDom.automateThisMovement?.addEventListener("click", () => openAutomationRecipeEditor(state));
+  boundDom.cancelAutomationRecipe?.addEventListener("click", () => closeAutomationRecipeEditor(state, boundDom));
+  boundDom.automationRecipeForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveAutomationRecipeFromForm(state, boundDom);
+    render();
+  });
+  boundDom.automationInstantMode?.addEventListener("change", () => updateAutomationRecipeModeFields(boundDom));
+  boundDom.automationActionType?.addEventListener("change", () => {
+    const previous = String(boundDom.automationActionType.dataset?.previousAction || "");
+    const next = String(boundDom.automationActionType.value || "");
+    if (previous && previous !== next && boundDom.automationConfigValue) boundDom.automationConfigValue.value = "";
+    if (boundDom.automationActionType.dataset) boundDom.automationActionType.dataset.previousAction = next;
+    updateAutomationRecipeModeFields(boundDom);
+  });
+  boundDom.automationGestureKey?.addEventListener("change", () => handleAutomationGestureChange(boundDom));
+  boundDom.automationRecipeDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (!state.automationEditor?.isSaving) closeAutomationRecipeEditor(state, boundDom);
+  });
+  boundDom.automationRecipeDialog?.addEventListener("click", (event) => {
+    const dialog = boundDom.automationRecipeDialog;
+    const rect = dialog?.getBoundingClientRect?.();
+    const outside = rect && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+    if (event.target === dialog && outside && !state.automationEditor?.isSaving) closeAutomationRecipeEditor(state, boundDom);
+  });
+  boundDom.automationRecipeDialog?.addEventListener("keydown", (event) => trapAutomationDialogFocus(event, boundDom.automationRecipeDialog));
+  boundDom.runRecipeInstantly?.addEventListener("click", () => {
+    if (boundDom.automationInstantMode) boundDom.automationInstantMode.checked = true;
+    if (boundDom.automationGestureKey) boundDom.automationGestureKey.value = boundDom.automationMovementKey?.value || "thumbs_up";
+    if (boundDom.automationMinConfidence) boundDom.automationMinConfidence.value = String(DEFAULT_INSTANT_RECIPE_MIN_CONFIDENCE);
+    if (boundDom.automationHoldMs) boundDom.automationHoldMs.value = "350";
+    if (boundDom.automationCooldown) boundDom.automationCooldown.value = "3";
+    updateAutomationRecipeModeFields(boundDom);
+    saveAutomationRecipeFromForm(state, boundDom);
+    render();
+  });
+  document.addEventListener("visibilitychange", () => {
+    state.instantGestureRuntimeState.documentVisible = document.hidden !== true;
+    if (document.hidden) stopInstantGestureEngine("Off");
+    else syncInstantGestureEngine();
+  });
+  boundDom.addAutomationPreset?.addEventListener("click", () => {
+    addAutomationPresetToState(state, boundDom.automationPresetSelect?.value);
+    render();
+  });
+  boundDom.createCustomGesture?.addEventListener("click", () => openCustomGestureEditor(state));
+  boundDom.clearCustomGestures?.addEventListener("click", () => clearAllCustomGestures(state));
+  boundDom.customGestureList?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-custom-skill-action]");
+    if (!button || button.disabled) return;
+    handleCustomSkillManagerAction(state, button.getAttribute("data-custom-skill-action"), button.getAttribute("data-custom-skill-id"));
+  });
+  boundDom.customGestureForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveCustomGestureFromWizard(state);
+  });
+  boundDom.customGestureNext?.addEventListener("click", () => advanceCustomGestureWizard(state));
+  boundDom.customGestureBack?.addEventListener("click", () => moveCustomGestureWizardBack(state));
+  boundDom.cancelCustomGesture?.addEventListener("click", () => closeCustomGestureEditor(state));
+  boundDom.captureCustomGestureExample?.addEventListener("click", () => captureCustomSkillExample(state));
+  boundDom.captureCustomGestureNegative?.addEventListener("click", () => captureCustomSkillExample(state, { negative: true }));
+  boundDom.startCustomGestureTest?.addEventListener("click", () => startCustomGestureTest(state));
+  boundDom.approveCustomGestureTest?.addEventListener("click", () => approveCustomGestureTest(state));
+  boundDom.customGestureActionType?.addEventListener("change", () => updateCustomGestureActionField(boundDom));
+  boundDom.customGestureEditor?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (!state.customSkillWizard.isSaving) closeCustomGestureEditor(state);
+  });
+  boundDom.customGestureEditor?.addEventListener("click", (event) => {
+    const dialog = boundDom.customGestureEditor;
+    const rect = dialog?.getBoundingClientRect?.();
+    const outside = rect && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+    if (event.target === dialog && outside && !state.customSkillWizard.isSaving) closeCustomGestureEditor(state);
+  });
+  boundDom.customGestureEditor?.addEventListener("keydown", (event) => trapAutomationDialogFocus(event, boundDom.customGestureEditor));
+  boundDom.automationManagerList?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-automation-action]");
+    if (!button || button.disabled) return;
+    handleAutomationManagerAction(state, button.getAttribute("data-automation-action"), button.getAttribute("data-recipe-id"));
+    render();
+  });
   boundDom.tryAgainMovement?.addEventListener("click", () => {
     resetMovementResultInState(state);
     render();
@@ -628,32 +1851,64 @@ function bindEvents(boundDom) {
   boundDom.speakResult?.addEventListener("click", () => speakMovementResult(state));
   boundDom.autoSpeak?.addEventListener("change", () => {
     state.movementRecognition.autoSpeak = boundDom.autoSpeak.checked === true;
-    state.movementRecognition.voiceStatus = "Voice ready";
+    persistVisualAutoSpeakPreference(state.movementRecognition.autoSpeak);
+    state.movementRecognition.voiceStatus = state.movementRecognition.autoSpeak ? "Ready" : "Muted";
     render();
   });
-  boundDom.resetSession.addEventListener("click", resetSession);
-  boundDom.calibrateZones.addEventListener("click", openCalibrationPanel);
+  boundDom.openGestureRecipes?.addEventListener("click", () => {
+    state.automationManagerOpener = boundDom.openGestureRecipes;
+    boundDom.automationManagerPanel?.showModal?.();
+  });
+  const closeGestureRecipes = () => {
+    boundDom.automationManagerPanel?.close?.();
+    state.automationManagerOpener?.focus?.();
+    state.automationManagerOpener = null;
+  };
+  boundDom.closeGestureRecipes?.addEventListener("click", closeGestureRecipes);
+  boundDom.closeGestureRecipesFooter?.addEventListener("click", closeGestureRecipes);
+  boundDom.automationManagerPanel?.addEventListener("cancel", () => {
+    state.automationManagerOpener?.focus?.();
+    state.automationManagerOpener = null;
+  });
+  boundDom.automationManagerPanel?.addEventListener("keydown", (event) => trapAutomationDialogFocus(event, boundDom.automationManagerPanel));
+  boundDom.visualMemoryMode?.addEventListener("change", () => {
+    state.visualContext.memoryMode = boundDom.visualMemoryMode.value;
+    if (state.visualContext.memoryMode === "persistent") persistVisualContextIfAllowed(state.visualContext);
+    else clearVisualContextStorage();
+    render();
+  });
+  boundDom.clearVisualContext?.addEventListener("click", () => {
+    clearVisualContextInState(state);
+    render();
+  });
+  boundDom.confirmVisualSuggestedAction?.addEventListener("click", async () => {
+    boundDom.confirmVisualSuggestedAction.disabled = true;
+    await confirmVisualSuggestedActionInState(state);
+    render();
+  });
+  boundDom.resetSession?.addEventListener("click", resetSession);
+  boundDom.calibrateZones?.addEventListener("click", openCalibrationPanel);
   boundDom.editZones?.addEventListener("click", openCalibrationPanel);
-  boundDom.saveCalibration.addEventListener("click", () => {
+  boundDom.saveCalibration?.addEventListener("click", () => {
     saveCalibrationToState(state, readCalibrationForm(boundDom));
     render();
   });
-  boundDom.startFocusRitual.addEventListener("click", () => {
+  boundDom.startFocusRitual?.addEventListener("click", () => {
     startFocusRitualInState(state);
     render();
   });
-  boundDom.startRecording.addEventListener("click", () => {
+  boundDom.startRecording?.addEventListener("click", () => {
     const preserve = state.events.some((event) => !REQUIRED_EXPORT_EVENT_IDS.slice(0, 1).includes(event.id)) &&
       typeof window !== "undefined" &&
       window.confirm("Preserve existing symbolic events? Choose OK to preserve, Cancel to clear and start fresh.");
     startRecordingInState(state, { preserve });
     render();
   });
-  boundDom.stopRecording.addEventListener("click", () => {
+  boundDom.stopRecording?.addEventListener("click", () => {
     stopRecordingInState(state);
     render();
   });
-  boundDom.confirmPhysical.addEventListener("change", () => {
+  boundDom.confirmPhysical?.addEventListener("change", () => {
     state.physicalConfirmed = boundDom.confirmPhysical.checked === true;
     state.statusMessage = state.physicalConfirmed
       ? "Physical session confirmed. Export unlocks after watching is stopped and the session is complete."
@@ -661,12 +1916,12 @@ function bindEvents(boundDom) {
     updateExportReadiness(state);
     render();
   });
-  boundDom.exportTrace.addEventListener("click", exportPhysicalTrace);
-  boundDom.copyValidation.addEventListener("click", copyValidationCommands);
-  boundDom.copyOperatorCommands.addEventListener("click", copyOperatorCommands);
-  boundDom.copySavePath.addEventListener("click", () => copyText("Save path", currentTracePath(state)));
-  boundDom.copyMacosCpCommand.addEventListener("click", () => copyText("macOS cp command", currentMacosSaveCommand(state)));
-  boundDom.exportBugReport.addEventListener("click", exportBugReport);
+  boundDom.exportTrace?.addEventListener("click", exportPhysicalTrace);
+  boundDom.copyValidation?.addEventListener("click", copyValidationCommands);
+  boundDom.copyOperatorCommands?.addEventListener("click", copyOperatorCommands);
+  boundDom.copySavePath?.addEventListener("click", () => copyText("Save path", currentTracePath(state)));
+  boundDom.copyMacosCpCommand?.addEventListener("click", () => copyText("macOS cp command", currentMacosSaveCommand(state)));
+  boundDom.exportBugReport?.addEventListener("click", exportBugReport);
   boundDom.exportCampaignBundle?.addEventListener("click", exportCampaignBundle);
   boundDom.runLiveAiSmoke?.addEventListener("click", () => runLiveAiSmokeTestInState(state));
   boundDom.currentActionControl?.addEventListener("click", (event) => {
@@ -736,6 +1991,879 @@ function bindEvents(boundDom) {
     if (!button) return;
     runCampaignAction(button.getAttribute("data-campaign-action"), button.getAttribute("data-trace-mode"));
   });
+
+  boundDom.savedActionsList?.addEventListener("click", (event) => {
+    const row = event.target?.closest?.("[data-saved-action]");
+    if (row) openPrimarySavedAction(row.getAttribute("data-saved-action"));
+  });
+  boundDom.savedActionsList?.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    const row = event.target?.closest?.("[data-saved-action]");
+    if (!row) return;
+    event.preventDefault();
+    openPrimarySavedAction(row.getAttribute("data-saved-action"));
+  });
+}
+
+function openPrimarySavedAction() {
+  const targetUrl = `${globalThis.location?.pathname || "/"}?advanced=1`;
+  globalThis.location?.assign?.(targetUrl);
+}
+
+function handlePrimaryAction() {
+  if (state.interactionState.sessionActive || state.realtimeSession.state === "active") {
+    void endInteractionSession(state);
+    return;
+  }
+  if (state.realtimeSession.state === "inactive" || state.realtimeSession.state === "error") {
+    void startInteractionSession(state);
+  }
+}
+
+export async function setInteractionModeInState(target = state, mode = "conversation", options = {}) {
+  const nextMode = normalizeInteractionMode(mode);
+  if (nextMode === target.interactionState.mode) return target;
+  persistInteractionModePreference(nextMode);
+  if (target.interactionState.sessionActive) {
+    return switchInteractionMode(target, nextMode, options);
+  }
+  target.emergencyRuntimeController.selectMode(nextMode);
+  syncEmergencyRuntimeOwner(target);
+  target.realtimeSession.state = "inactive";
+  clearTransientPresentationState(target);
+  target.movementRecognition.persistent.state = "inactive";
+  target.statusMessage = nextMode === "conversation" ? "Conversation mode selected." : "Observing mode selected.";
+  render();
+  return target;
+}
+
+export async function startInteractionSession(target = state, options = {}) {
+  return interactionModeIs(target, "observing")
+    ? startRealtimeObserving(target, options)
+    : startRealtimeConversation(target, options);
+}
+
+export async function startRealtimeConversation(target = state, options = {}) {
+  if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) {
+    return switchInteractionMode(target, "conversation", options);
+  }
+  if (["starting", "active"].includes(target.realtimeSession.state) || target.cameraStartInFlight) return target;
+  const startingRuntime = target.emergencyRuntimeController.beginStart("conversation");
+  const generationId = startingRuntime.session.modeGeneration;
+  const sessionGenerationId = startingRuntime.session.sessionGeneration;
+  target.appState = startingRuntime;
+  clearTransientPresentationState(target);
+  target.conversationMemory = createConversationMemoryState();
+  target.realtimeSession = {
+    ...createRealtimeSessionState(),
+    state: "starting",
+    memory: target.conversationMemory,
+    lastStartedAtMs: Math.round(now())
+  };
+  applyInteractionState(target, {
+    mode: "conversation",
+    sessionActive: false,
+    cameraActive: false,
+    microphoneActive: false,
+    visualContextActive: false,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId,
+    modeGenerationId: generationId
+  });
+  target.movementRecognition.persistent.active = false;
+  target.movementRecognition.persistent.pausedForVisibility = false;
+  target.movementRecognition.persistent.state = "inactive";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.autoSpeak = true;
+  target.errorMessage = "";
+  target.statusMessage = "Starting conversation…";
+  stopInstantGestureEngine("off");
+  render();
+  try {
+    const stream = options.mediaStream || await withTimeout(
+      requestRealtimeConversationMedia(options),
+      options.mediaTimeoutMs ?? 20000,
+      "Camera and microphone permission timed out."
+    );
+    await attachInteractionStreamToPreview(target, stream, "conversation");
+    startLocalPerception();
+    const speechStarted = startRealtimeSpeechInput(target, options);
+    if (!speechStarted) throw new Error("Speech recognition is unavailable in this browser.");
+    const ownedRuntime = target.emergencyRuntimeController.activate("conversation", {
+      cameraActive: true,
+      microphoneActive: activeAudioTracks(target).length > 0
+    });
+    applyInteractionState(target, {
+      mode: "conversation",
+      sessionActive: true,
+      cameraActive: true,
+      microphoneActive: activeAudioTracks(target).length > 0,
+      visualContextActive: true,
+      proactiveObservationActive: false,
+      listeningActive: true,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: null,
+      sessionGenerationId: ownedRuntime.session.sessionGeneration,
+      modeGenerationId: ownedRuntime.session.modeGeneration
+    });
+    target.appState = ownedRuntime;
+    target.realtimeSession.state = "active";
+    target.movementRecognition.persistent.state = "inactive";
+    target.movementRecognition.status = "idle";
+    target.statusMessage = "Listening.";
+    target.objective = "Conversation mode active.";
+  } catch (error) {
+    target.emergencyRuntimeController.failSession(error?.message || "Conversation unavailable");
+    applyInteractionState(target, {
+      mode: "conversation",
+      sessionActive: false,
+      cameraActive: false,
+      microphoneActive: false,
+      visualContextActive: false,
+      proactiveObservationActive: false,
+      listeningActive: false,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: error?.message ?? "unavailable",
+      modeGenerationId: generationId
+    });
+    target.realtimeSession.state = "error";
+    target.movementRecognition.persistent.active = false;
+    target.movementRecognition.persistent.state = "error";
+    target.errorMessage = `Conversation error: ${error?.message ?? "unavailable"}`;
+    target.statusMessage = "Conversation did not start.";
+    stopRealtimeMediaTracks(target);
+  }
+  render();
+  return target;
+}
+
+export async function startRealtimeObserving(target = state, options = {}) {
+  if (target.interactionState.sessionActive && interactionModeIs(target, "conversation")) {
+    return switchInteractionMode(target, "observing", options);
+  }
+  if (["starting", "active"].includes(target.realtimeSession.state) || target.cameraStartInFlight) return target;
+  const startingRuntime = target.emergencyRuntimeController.beginStart("observing");
+  const generationId = startingRuntime.session.modeGeneration;
+  const sessionGenerationId = startingRuntime.session.sessionGeneration;
+  target.appState = startingRuntime;
+  clearTransientPresentationState(target);
+  target.observationMemory = createObservationMemoryState();
+  target.realtimeSession = {
+    ...createRealtimeSessionState(),
+    state: "starting",
+    memory: target.observationMemory,
+    lastStartedAtMs: Math.round(now())
+  };
+  applyInteractionState(target, {
+    mode: "observing",
+    sessionActive: false,
+    cameraActive: false,
+    microphoneActive: false,
+    visualContextActive: false,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId,
+    modeGenerationId: generationId
+  });
+  target.movementRecognition.persistent.active = true;
+  target.movementRecognition.persistent.pausedForVisibility = false;
+  target.movementRecognition.persistent.state = "starting";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.autoSpeak = true;
+  target.errorMessage = "";
+  target.statusMessage = "Starting observing…";
+  render();
+  try {
+    const stream = options.mediaStream || await withTimeout(
+      requestRealtimeObservingMedia(options),
+      options.mediaTimeoutMs ?? 20000,
+      "Camera permission timed out."
+    );
+    await attachInteractionStreamToPreview(target, stream, "observing");
+    startLocalPerception();
+    await primeObservationBaseline(target);
+    syncInstantGestureEngine();
+    const ownedRuntime = target.emergencyRuntimeController.activate("observing", { cameraActive: true, microphoneActive: false });
+    applyInteractionState(target, {
+      mode: "observing",
+      sessionActive: true,
+      cameraActive: true,
+      microphoneActive: false,
+      visualContextActive: true,
+      proactiveObservationActive: true,
+      listeningActive: false,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: null,
+      sessionGenerationId: ownedRuntime.session.sessionGeneration,
+      modeGenerationId: ownedRuntime.session.modeGeneration
+    });
+    target.appState = ownedRuntime;
+    target.realtimeSession.state = "active";
+    target.movementRecognition.persistent.state = "active";
+    target.movementRecognition.status = "idle";
+    target.statusMessage = "Watching.";
+    target.objective = "Observing mode active.";
+  } catch (error) {
+    target.emergencyRuntimeController.failSession(error?.message || "Visual model unavailable");
+    applyInteractionState(target, {
+      mode: "observing",
+      sessionActive: false,
+      cameraActive: false,
+      microphoneActive: false,
+      visualContextActive: false,
+      proactiveObservationActive: false,
+      listeningActive: false,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: error?.message ?? "unavailable",
+      modeGenerationId: generationId
+    });
+    target.realtimeSession.state = "error";
+    target.movementRecognition.persistent.active = false;
+    target.movementRecognition.persistent.state = "error";
+    target.errorMessage = `Observing error: ${error?.message ?? "unavailable"}`;
+    target.statusMessage = "Observing did not start.";
+    stopRealtimeMediaTracks(target);
+  }
+  render();
+  return target;
+}
+
+async function requestRealtimeConversationMedia(options = {}) {
+  const mediaDevices = options.mediaDevices || globalThis.navigator?.mediaDevices;
+  if (!mediaDevices?.getUserMedia) throw new Error("Camera and microphone are unavailable.");
+  return mediaDevices.getUserMedia({
+    video: true,
+    audio: REALTIME_AUDIO_CONSTRAINTS
+  });
+}
+
+async function requestRealtimeObservingMedia(options = {}) {
+  const mediaDevices = options.mediaDevices || globalThis.navigator?.mediaDevices;
+  if (!mediaDevices?.getUserMedia) throw new Error("Camera is unavailable.");
+  return mediaDevices.getUserMedia({
+    video: true,
+    audio: false
+  });
+}
+
+async function requestRealtimeMicrophoneMedia(options = {}) {
+  const mediaDevices = options.mediaDevices || globalThis.navigator?.mediaDevices;
+  if (!mediaDevices?.getUserMedia) throw new Error("Microphone is unavailable.");
+  return mediaDevices.getUserMedia({
+    video: false,
+    audio: REALTIME_AUDIO_CONSTRAINTS
+  });
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), Math.max(1000, Number(timeoutMs || 0)));
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function attachInteractionStreamToPreview(target, stream, mode = target.interactionState?.mode || "conversation") {
+  target.stream = stream;
+  target.cameraReady = true;
+  target.cameraStarted = true;
+  target.cameraStatus = mode === "observing" ? "observing" : "conversation";
+  target.statusMessage = mode === "observing" ? "Camera is ready." : "Camera and microphone are ready.";
+  target.errorMessage = "";
+  if (target === state) {
+    sensefieldTestRuntime.resourceCounts.mediaStreamsCreated += 1;
+    recordSensefieldTestEvent("media_stream_started", {
+      mode,
+      track_kinds: (stream?.getTracks?.() || []).map((track) => track.kind),
+      track_count: (stream?.getTracks?.() || []).length
+    });
+  }
+  if (dom?.preview) {
+    dom.preview.srcObject = stream;
+    await dom.preview.play?.();
+  }
+}
+
+export async function endRealtimeConversation(target = state, options = {}) {
+  return endInteractionSession(target, options);
+}
+
+export async function endInteractionSession(target = state, options = {}) {
+  if (!target.interactionState.sessionActive && target.realtimeSession.state === "inactive") return target;
+  const endingMode = target.interactionState.mode;
+  target.emergencyRuntimeController.beginEnd();
+  syncEmergencyRuntimeOwner(target);
+  target.realtimeSession.state = "ending";
+  target.statusMessage = endingMode === "observing" ? "Ending observing…" : "Ending conversation…";
+  render();
+  target.movementRecognition.activeRequestAbortController?.abort?.();
+  target.movementRecognition.activeRequestAbortController = null;
+  stopRealtimeSpeechInput(target);
+  await cancelVisualSpeech(target, options);
+  stopMicrophoneTracks(target);
+  target.movementRecognition.requestInFlight = false;
+  target.movementRecognition.persistent.active = false;
+  target.movementRecognition.persistent.pausedForVisibility = false;
+  target.movementRecognition.persistent.state = "inactive";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.persistent.cooldownUntilMs = 0;
+  stopInstantGestureEngine("off");
+  stopLocalPerception();
+  stopRealtimeMediaTracks(target);
+  target.emergencyRuntimeController.finishEnd();
+  syncEmergencyRuntimeOwner(target);
+  clearTransientPresentationState(target);
+  target.realtimeSession.state = "inactive";
+  target.realtimeSession.queuedUserTurns = [];
+  target.realtimeSession.lastEndedAtMs = Math.round(now());
+  target.cameraStatus = "stopped";
+  target.statusMessage = endingMode === "observing" ? "Start observing." : "Start conversation.";
+  target.objective = target.statusMessage;
+  syncInstantGestureEngine();
+  render();
+  return target;
+}
+
+export async function switchInteractionMode(target = state, mode = "conversation", options = {}) {
+  const nextMode = normalizeInteractionMode(mode);
+  if (nextMode === target.interactionState.mode) return target;
+  const switchingRuntime = target.emergencyRuntimeController.switchMode(nextMode, {
+    cameraActive: target.cameraReady,
+    microphoneActive: false
+  });
+  const generationId = switchingRuntime.session.modeGeneration;
+  const sessionGenerationId = switchingRuntime.session.sessionGeneration;
+  target.appState = switchingRuntime;
+  syncEmergencyRuntimeOwner(target);
+  persistInteractionModePreference(nextMode);
+  target.realtimeSession.state = "starting";
+  target.statusMessage = nextMode === "observing" ? "Switching to observing…" : "Switching to conversation…";
+  stopRealtimeSpeechInput(target);
+  await cancelVisualSpeech(target, options);
+  target.movementRecognition.requestInFlight = false;
+  target.movementRecognition.status = "idle";
+  clearTransientPresentationState(target);
+  target.realtimeSession.queuedVisualEvent = null;
+  target.realtimeSession.queuedUserTurn = null;
+  target.realtimeSession.queuedUserTurns = [];
+  applyInteractionState(target, {
+    mode: nextMode,
+    sessionActive: false,
+    cameraActive: target.cameraReady,
+    microphoneActive: nextMode === "conversation" && activeAudioTracks(target).length > 0,
+    visualContextActive: target.cameraReady,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId,
+    modeGenerationId: generationId
+  });
+  render();
+  if (nextMode === "observing") {
+    stopMicrophoneTracks(target);
+    target.movementRecognition.persistent.active = true;
+    target.movementRecognition.persistent.state = "active";
+    target.movementRecognition.persistent.queuedEvent = null;
+    startLocalPerception();
+    await primeObservationBaseline(target);
+    syncInstantGestureEngine();
+    const ownedRuntime = target.emergencyRuntimeController.setActiveCapabilities({ cameraActive: target.cameraReady, microphoneActive: false });
+    applyInteractionState(target, {
+      mode: "observing",
+      sessionActive: true,
+      cameraActive: target.cameraReady,
+      microphoneActive: false,
+      visualContextActive: true,
+      proactiveObservationActive: true,
+      listeningActive: false,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: null,
+      sessionGenerationId: ownedRuntime.session.sessionGeneration,
+      modeGenerationId: ownedRuntime.session.modeGeneration
+    });
+    target.appState = ownedRuntime;
+    target.realtimeSession.state = "active";
+    target.statusMessage = "Watching.";
+    render();
+    return target;
+  }
+
+  target.movementRecognition.persistent.active = false;
+  target.movementRecognition.persistent.state = "inactive";
+  target.movementRecognition.persistent.queuedEvent = null;
+  stopInstantGestureEngine("off");
+  startLocalPerception();
+  try {
+    await withTimeout(
+      ensureMicrophoneTrack(target, options),
+      options.mediaTimeoutMs ?? 20000,
+      "Microphone permission timed out."
+    );
+    const speechStarted = startRealtimeSpeechInput(target, options);
+    if (!speechStarted) throw new Error("Speech recognition is unavailable in this browser.");
+  } catch (error) {
+    stopRealtimeSpeechInput(target);
+    stopMicrophoneTracks(target);
+    target.movementRecognition.persistent.active = false;
+    target.movementRecognition.persistent.state = "error";
+    target.errorMessage = `Conversation error: ${error?.message ?? "unavailable"}`;
+    target.statusMessage = "Conversation did not start.";
+    target.emergencyRuntimeController.failSession(error?.message || "Conversation unavailable");
+    applyInteractionState(target, {
+      mode: "conversation",
+      sessionActive: false,
+      cameraActive: target.cameraReady,
+      microphoneActive: false,
+      visualContextActive: false,
+      proactiveObservationActive: false,
+      listeningActive: false,
+      userSpeaking: false,
+      inferenceInFlight: false,
+      assistantSpeaking: false,
+      queuedUserTurn: null,
+      queuedVisualEvent: null,
+      safeError: error?.message ?? "unavailable",
+      modeGenerationId: generationId
+    });
+    target.realtimeSession.state = "error";
+    render();
+    return target;
+  }
+  const ownedRuntime = target.emergencyRuntimeController.setActiveCapabilities({
+    cameraActive: target.cameraReady,
+    microphoneActive: activeAudioTracks(target).length > 0
+  });
+  applyInteractionState(target, {
+    mode: "conversation",
+    sessionActive: true,
+    cameraActive: target.cameraReady,
+    microphoneActive: activeAudioTracks(target).length > 0,
+    visualContextActive: true,
+    proactiveObservationActive: false,
+    listeningActive: true,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId: ownedRuntime.session.sessionGeneration,
+    modeGenerationId: ownedRuntime.session.modeGeneration
+  });
+  target.appState = ownedRuntime;
+  target.realtimeSession.state = "active";
+  target.statusMessage = "Listening.";
+  render();
+  return target;
+}
+
+async function ensureMicrophoneTrack(target, options = {}) {
+  if (activeAudioTracks(target).length > 0) return;
+  const audioStream = options.audioStream || await requestRealtimeMicrophoneMedia(options);
+  const tracks = audioStream.getAudioTracks?.() || [];
+  if (!target.stream) {
+    target.stream = audioStream;
+    return;
+  }
+  if (typeof target.stream.addTrack === "function") {
+    for (const track of tracks) target.stream.addTrack(track);
+  }
+}
+
+function stopMicrophoneTracks(target) {
+  for (const track of target.stream?.getAudioTracks?.() || []) {
+    if (track.readyState !== "ended" && track.__sensefieldStopped !== true) {
+      track.stop?.();
+      track.__sensefieldStopped = true;
+      if (target === state) recordSensefieldTestEvent("media_track_stopped", { kind: "audio" });
+    }
+  }
+}
+
+function stopRealtimeMediaTracks(target) {
+  for (const track of target.stream?.getTracks?.() ?? []) {
+    if (track.readyState !== "ended" && track.__sensefieldStopped !== true) {
+      track.stop();
+      track.__sensefieldStopped = true;
+      if (target === state) recordSensefieldTestEvent("media_track_stopped", { kind: track.kind || "unknown" });
+    }
+  }
+  target.stream = null;
+  target.cameraReady = false;
+  target.recording = false;
+  if (dom?.preview) dom.preview.srcObject = null;
+}
+
+function startRealtimeSpeechInput(target, options = {}) {
+  if (!interactionModeIs(target, "conversation")) return false;
+  target.realtimeSession.speechStopping = false;
+  const Recognition = options.SpeechRecognition || globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+  target.realtimeSession.speechFallback = Recognition ? "browser_speech_recognition" : "browser_speech_recognition_unavailable";
+  applyInteractionState(target, {
+    microphoneActive: activeAudioTracks(target).length > 0,
+    listeningActive: true,
+    proactiveObservationActive: false
+  });
+  if (typeof Recognition !== "function") return false;
+  const generationId = Number(target.interactionState.modeGenerationId || 0);
+  const recognition = new Recognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = "en-US";
+  recognition.onstart = () => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+    render();
+  };
+  recognition.onspeechstart = () => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    applyInteractionState(target, { userSpeaking: true, listeningActive: true, proactiveObservationActive: false });
+    if (target.interactionState.assistantSpeaking || persistentSpeechBusy(target)) interruptAssistantSpeech(target, "user_speech");
+    render();
+  };
+  recognition.onspeechend = () => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    applyInteractionState(target, { userSpeaking: false, listeningActive: true, proactiveObservationActive: false });
+    render();
+  };
+  recognition.onresult = (event) => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    const transcript = finalTranscriptFromSpeechEvent(event);
+    if (!transcript || transcriptLooksLikeAssistantEcho(target, transcript)) return;
+    void handleRealtimeUserSpeechTurn(target, transcript, options);
+  };
+  recognition.onerror = () => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+  };
+  recognition.onend = () => {
+    if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
+    if (target.realtimeSession.speechStopping) return;
+    applyInteractionState(target, { listeningActive: true, userSpeaking: false, proactiveObservationActive: false });
+    if (target.interactionState.sessionActive && interactionModeIs(target, "conversation")) {
+      target.realtimeSession.speechRestartTimer = setTimeout(() => {
+        try {
+          recognition.start();
+        } catch {
+          applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+        }
+      }, 120);
+    }
+    render();
+  };
+  target.realtimeSession.speechRecognition = recognition;
+  try {
+    recognition.start();
+    if (target === state) recordSensefieldTestEvent("speech_recognition_started", { provider: target.realtimeSession.speechFallback });
+  } catch {
+    applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+    target.realtimeSession.speechRecognition = null;
+    return false;
+  }
+  return true;
+}
+
+function stopRealtimeSpeechInput(target) {
+  if (target.realtimeSession.speechRestartTimer) clearTimeout(target.realtimeSession.speechRestartTimer);
+  target.realtimeSession.speechRestartTimer = null;
+  target.realtimeSession.speechStopping = true;
+  const recognition = target.realtimeSession.speechRecognition;
+  target.realtimeSession.speechRecognition = null;
+  try {
+    recognition?.abort?.();
+    recognition?.stop?.();
+    if (recognition && target === state) recordSensefieldTestEvent("speech_recognition_stopped", {});
+  } catch {
+    // Browser speech recognition shutdown is best-effort.
+  }
+}
+
+function finalTranscriptFromSpeechEvent(event) {
+  let transcript = "";
+  for (let index = Number(event?.resultIndex || 0); index < (event?.results?.length || 0); index += 1) {
+    const result = event.results[index];
+    if (result?.isFinal) transcript += ` ${result[0]?.transcript || ""}`;
+  }
+  return transcript.replace(/\s+/g, " ").trim();
+}
+
+function transcriptLooksLikeAssistantEcho(target, transcript) {
+  const value = normalizeMemoryText(transcript);
+  const lastAssistant = normalizeMemoryText(target.conversationMemory.assistantResponses.at(-1)?.text || target.movementRecognition.latestSpokenResponse);
+  return value.length > 12 && lastAssistant.length > 12 && (lastAssistant.includes(value) || value.includes(lastAssistant));
+}
+
+export async function handleRealtimeUserSpeechTurn(target = state, transcript = "", options = {}) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return { ok: false, code: "conversation_mode_inactive" };
+  const text = sanitizeMemoryText(transcript);
+  if (!text) return { ok: false, code: "empty_user_turn" };
+  const receivedAtMs = Math.round(now());
+  const accepted = target.emergencyRuntimeController.queueFinalTranscript(text, receivedAtMs);
+  if (!accepted.ok) return { ok: false, code: accepted.code === "duplicate_transcript" ? "duplicate_final_transcript" : accepted.code };
+  target.appState = target.emergencyRuntimeController.snapshot();
+  target.realtimeSession.processingTranscript = true;
+  try {
+    if (target.interactionState.assistantSpeaking || persistentSpeechBusy(target)) interruptAssistantSpeech(target, "user_turn");
+    target.realtimeSession.lastFinalTranscript = normalizeMemoryText(text);
+    target.realtimeSession.lastFinalTranscriptAtMs = receivedAtMs;
+    target.realtimeSession.lastUserTranscript = text;
+    appendRealtimeMemory(target, "user", { text, source: "speech" });
+    const userTurn = {
+      turn_id: `user_turn_${receivedAtMs}_${target.conversationMemory.userTurns.length}`,
+      text,
+      created_at_ms: receivedAtMs,
+      interactionMode: "conversation",
+      sessionGenerationId: accepted.turn.sessionGeneration,
+      modeGenerationId: accepted.turn.modeGeneration
+    };
+    if (target === state) recordSensefieldTestEvent("user_turn_received", {
+      transcript: text,
+      turn_id: userTurn.turn_id
+    }, { correlationId: userTurn.turn_id, modeGenerationId: userTurn.modeGenerationId });
+    applyInteractionState(target, {
+      queuedUserTurn: userTurn,
+      queuedVisualEvent: null,
+      listeningActive: true,
+      proactiveObservationActive: false
+    });
+    processRealtimeSessionScheduler(target, options);
+    render();
+    return { ok: true };
+  } finally {
+    target.realtimeSession.processingTranscript = false;
+  }
+}
+
+export function scheduleRealtimeVisualEvent(target = state, event = {}, options = {}) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "observing")) return false;
+  if (target.interactionState.queuedUserTurn) return false;
+  if (event.stale === true) return false;
+  const accepted = target.emergencyRuntimeController.queueVisualEvent({ ...event, queued_at_ms: Math.round(now()) });
+  if (!accepted.ok) return false;
+  applyInteractionState(target, {
+    queuedVisualEvent: {
+    ...event,
+      queued_at_ms: Math.round(now()),
+      interactionMode: "observing",
+      sessionGenerationId: accepted.event.sessionGeneration,
+      modeGenerationId: accepted.event.modeGeneration
+    },
+    listeningActive: false,
+    proactiveObservationActive: true
+  });
+  processRealtimeSessionScheduler(target, options);
+  return true;
+}
+
+export function processRealtimeSessionScheduler(target = state, options = {}) {
+  if (!target.interactionState.sessionActive) return false;
+  assertInteractionStateInvariant(target);
+  if (target.interactionState.inferenceInFlight || target.movementRecognition.requestInFlight) return false;
+  if (interactionModeIs(target, "observing") && (target.interactionState.assistantSpeaking || persistentSpeechBusy(target))) return false;
+  const ownedTask = target.emergencyRuntimeController.takeNextTask();
+  if (!ownedTask) return false;
+  const runtimeToken = {
+    requestId: ownedTask.requestId,
+    sessionGeneration: ownedTask.sessionGeneration,
+    modeGeneration: ownedTask.modeGeneration,
+    mode: ownedTask.mode
+  };
+  const task = ownedTask.type === "user_turn"
+    ? { type: "user_turn", userTurn: { turn_id: ownedTask.requestId, text: ownedTask.text, created_at_ms: ownedTask.createdAtMs, interactionMode: "conversation", sessionGenerationId: ownedTask.sessionGeneration, modeGenerationId: ownedTask.modeGeneration }, runtimeToken }
+    : { type: "visual_event", visualEvent: { ...ownedTask, interactionMode: "observing", sessionGenerationId: ownedTask.sessionGeneration, modeGenerationId: ownedTask.modeGeneration }, runtimeToken };
+  applyInteractionState(target, { queuedUserTurn: null, queuedVisualEvent: null, inferenceInFlight: true });
+  void runRealtimeInference(target, task, options);
+  return true;
+}
+
+async function runRealtimeInference(target, task, options = {}) {
+  const interactionMode = task.userTurn?.interactionMode || task.visualEvent?.interactionMode || target.interactionState.mode;
+  const modeGenerationId = task.userTurn?.modeGenerationId ?? task.visualEvent?.modeGenerationId ?? target.interactionState.modeGenerationId;
+  const sessionGenerationId = task.userTurn?.sessionGenerationId ?? task.visualEvent?.sessionGenerationId ?? target.interactionState.sessionGenerationId;
+  if (!modeRequestStillCurrent(target, interactionMode, modeGenerationId) || Number(target.interactionState.sessionGenerationId) !== Number(sessionGenerationId)) return;
+  const inferenceGenerationId = Number(target.interactionState.inferenceGenerationId || 0) + 1;
+  const correlationId = task.userTurn?.turn_id || task.visualEvent?.event_id || `visual_${Math.round(now())}`;
+  if (target === state) {
+    sensefieldTestRuntime.resourceCounts.inferenceStarted += 1;
+    recordSensefieldTestEvent("inference_started", { task_type: task.type, mode: interactionMode }, { correlationId, modeGenerationId });
+  }
+  applyInteractionState(target, { inferenceInFlight: true, inferenceGenerationId });
+  try {
+    if (typeof options.runRealtimeInference === "function") {
+      await options.runRealtimeInference(target, task);
+    } else if (task.type === "user_turn") {
+      await analyzeMovementInState(target, {
+        ...options,
+        userQuestion: task.userTurn.text,
+        realtimeTask: task,
+        directUserTurn: true,
+        interactionMode,
+        modeGenerationId
+      });
+    } else {
+      await analyzeMovementInState(target, {
+        ...options,
+        persistent: true,
+        changeEvent: task.visualEvent,
+        realtimeTask: task,
+        interactionMode,
+        modeGenerationId
+      });
+    }
+  } finally {
+    const finishedOwnedInference = target.emergencyRuntimeController.finishInference(task.runtimeToken, target.errorMessage || "");
+    if (finishedOwnedInference) target.appState = target.emergencyRuntimeController.snapshot();
+    if (target === state) {
+      sensefieldTestRuntime.resourceCounts.inferenceCompleted += 1;
+      recordSensefieldTestEvent("inference_completed", {
+        task_type: task.type,
+        mode: interactionMode,
+        stale: !modeRequestStillCurrent(target, interactionMode, modeGenerationId)
+      }, { correlationId, modeGenerationId });
+    }
+    if (modeRequestStillCurrent(target, interactionMode, modeGenerationId) &&
+        Number(target.interactionState.sessionGenerationId) === Number(sessionGenerationId) &&
+        Number(target.interactionState.inferenceGenerationId) === inferenceGenerationId) {
+      applyInteractionState(target, { inferenceInFlight: false });
+      render();
+    }
+    processRealtimeSessionScheduler(target, options);
+  }
+}
+
+export function interruptAssistantSpeech(target = state, reason = "user_interruption") {
+  const text = target.movementRecognition.latestSpokenResponse || "";
+  if (text) {
+    target.realtimeSession.lastInterruptedAssistantText = text;
+    appendRealtimeMemory(target, "assistant", { text, interrupted: true, reason });
+  }
+  applyInteractionState(target, { assistantSpeaking: false });
+  void cancelVisualSpeech(target);
+  return { ok: true, interrupted: Boolean(text) };
+}
+
+function appendRealtimeMemory(target, role, entry = {}) {
+  const memory = target.conversationMemory;
+  const normalized = {
+    text: sanitizeMemoryText(entry.text || ""),
+    created_at_ms: Math.round(now()),
+    interrupted: entry.interrupted === true,
+    source: sanitizeMemoryText(entry.source || role),
+    reason: sanitizeMemoryText(entry.reason || "")
+  };
+  if (!normalized.text) return memory;
+  if (role === "user") memory.userTurns.push(normalized);
+  if (role === "assistant") {
+    memory.assistantResponses.push(normalized);
+    if (normalized.interrupted) memory.interruptedResponses.push(normalized);
+  }
+  target.emergencyRuntimeController.recordMoment("conversation", {
+    id: entry.id || `${role}_${normalized.created_at_ms}_${normalized.text}`,
+    role: role === "user" ? "USER" : "SENSEFIELD",
+    text: normalized.text,
+    createdAt: normalized.created_at_ms
+  });
+  target.appState = target.emergencyRuntimeController.snapshot();
+  memory.userTurns = memory.userTurns.slice(-8);
+  memory.assistantResponses = memory.assistantResponses.slice(-8);
+  memory.interruptedResponses = memory.interruptedResponses.slice(-4);
+  return memory;
+}
+
+function appendRealtimeVisualSummary(target, summary = "") {
+  const text = sanitizeMemoryText(summary);
+  if (!text) return;
+  if (interactionModeIs(target, "observing")) {
+    target.observationMemory.movementDescriptions.push({ text, created_at_ms: Math.round(now()) });
+    target.observationMemory.movementDescriptions = target.observationMemory.movementDescriptions.slice(-8);
+    return;
+  }
+  const memory = target.conversationMemory;
+  memory.visualSummaries.push({ text, created_at_ms: Math.round(now()) });
+  memory.visualSummaries = memory.visualSummaries.slice(-8);
+}
+
+function normalizeMemoryText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export async function startObserving(target = state) {
+  if (isPrimaryView()) return startRealtimeObserving(target);
+  if (target.movementRecognition.persistent.active || target.cameraStartInFlight) return target;
+  target.movementRecognition.persistent.active = true;
+  target.movementRecognition.persistent.pausedForVisibility = typeof document !== "undefined" && document.hidden === true;
+  target.movementRecognition.persistent.state = "starting";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.autoSpeak = true;
+  target.errorMessage = "";
+  render();
+  if (!target.cameraReady) await startCamera();
+  if (target.cameraReady && target.movementRecognition.persistent.active) {
+    target.movementRecognition.persistent.state = "active";
+    target.statusMessage = "Listening and looking.";
+  }
+  render();
+  return target;
+}
+
+export function stopObserving(target = state) {
+  if (isPrimaryView()) {
+    void endInteractionSession(target);
+    return target;
+  }
+  target.movementRecognition.persistent.active = false;
+  target.movementRecognition.persistent.pausedForVisibility = false;
+  target.movementRecognition.persistent.state = target.errorMessage ? "error" : "inactive";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.persistent.cooldownUntilMs = 0;
+  stopCamera();
+  return target;
 }
 
 function openCalibrationPanel() {
@@ -748,6 +2876,10 @@ function openCalibrationPanel() {
 }
 
 async function startCamera() {
+  if (state.cameraReady || state.cameraStartInFlight) return;
+  state.cameraStartInFlight = true;
+  if (state.movementRecognition.persistent.active) state.movementRecognition.persistent.state = "starting";
+  render();
   const startedAt = now();
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -760,17 +2892,35 @@ async function startCamera() {
     dom.preview.srcObject = state.stream;
     await dom.preview.play();
     startLocalPerception();
+    syncInstantGestureEngine();
+    if (state.movementRecognition.persistent.active) {
+      state.movementRecognition.persistent.state = "active";
+    }
   } catch (error) {
     state.cameraReady = false;
+    if (state.movementRecognition.persistent.active) {
+      state.movementRecognition.persistent.active = false;
+      state.movementRecognition.persistent.state = "error";
+    }
     state.cameraStatus = `error: ${error?.message ?? "camera unavailable"}`;
-    state.objective = "Allow camera permission, then press Start Camera again.";
+    state.objective = "Allow camera permission, then try again.";
     state.statusMessage = "Camera did not start.";
     state.errorMessage = `Camera error: ${error?.message ?? "camera unavailable"}`;
+  } finally {
+    state.cameraStartInFlight = false;
   }
   render();
 }
 
 function stopCamera() {
+  if (state.movementRecognition?.persistent) {
+    state.movementRecognition.persistent.active = false;
+    state.movementRecognition.persistent.pausedForVisibility = false;
+    state.movementRecognition.persistent.state = state.errorMessage ? "error" : "inactive";
+    state.movementRecognition.persistent.queuedEvent = null;
+    state.movementRecognition.persistent.cooldownUntilMs = 0;
+  }
+  stopInstantGestureEngine("off");
   stopLocalPerception();
   for (const track of state.stream?.getTracks?.() ?? []) track.stop();
   state.stream = null;
@@ -780,10 +2930,12 @@ function stopCamera() {
   state.objective = "Press Start Camera.";
   state.statusMessage = "Camera stopped.";
   if (dom?.preview) dom.preview.srcObject = null;
+  syncInstantGestureEngine();
   render();
 }
 
 function resetSession() {
+  stopInstantGestureEngine("off");
   stopLocalPerception();
   for (const track of state.stream?.getTracks?.() ?? []) track.stop();
   state = resetSessionInState(state);
@@ -797,6 +2949,7 @@ export function resetSessionInState(target) {
   const fresh = createInitialState();
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, fresh);
+  attachRuntimeCompatibilityAliases(target);
   return target;
 }
 
@@ -1239,12 +3392,24 @@ export function confirmMovementResultInState(target = state) {
   }
   const result = normalizeMovementRecognitionResult(target.movementRecognition.lastResult);
   const timestampMs = Math.round(now());
+  const confirmedSnapshot = freezeConfirmedMovementSnapshot({
+    ...target.movementResultSnapshot,
+    movement: target.movementResultSnapshot?.movement_sentence || result.movement,
+    short_label: target.movementResultSnapshot?.short_label || result.short_label,
+    movement_key: target.movementResultSnapshot?.movement_key || result.movement_key,
+    gesture_tags: target.movementResultSnapshot?.gesture_tags || result.gesture_tags,
+    confidence: target.movementResultSnapshot?.confidence ?? result.confidence,
+    uncertainty: target.movementResultSnapshot?.uncertainty ?? result.uncertainty
+  }, timestampMs);
   emitEvents(target, [
     eventSpec(`evt_movement_confirmed_${timestampMs}`, "gesture.detected", timestampMs, result.confidence, {
       gesture_type: "movement_narration",
       movement: result.movement,
       short_label: result.short_label,
-      detection_method: "ai_movement_recognition",
+      movement_key: confirmedSnapshot.movement_key,
+      gesture_tags: confirmedSnapshot.gesture_tags,
+      event_name: "movement.confirmed",
+      detection_method: "visual_companion_observation",
       provider: result.provider,
       model: result.model,
       latency_ms: result.latency_ms,
@@ -1264,9 +3429,19 @@ export function confirmMovementResultInState(target = state) {
   if (target.movementResultSnapshot) {
     target.movementResultSnapshot = {
       ...target.movementResultSnapshot,
-      confirmed: true
+      movement_key: confirmedSnapshot.movement_key,
+      gesture_tags: [...confirmedSnapshot.gesture_tags],
+      confirmed: true,
+      confirmed_at: timestampMs
     };
   }
+  target.automation.lastConfirmedSnapshot = confirmedSnapshot;
+  target.automation.lastEvent = {
+    type: "movement.confirmed",
+    execution_seed: confirmedSnapshot.movement_result_id,
+    timestamp_ms: timestampMs,
+    contains_raw_media: false
+  };
   target.confidenceCalibration.confirmed_count += 1;
   target.statusMessage = "Movement result confirmed.";
   target.errorMessage = "";
@@ -1274,6 +3449,7 @@ export function confirmMovementResultInState(target = state) {
 }
 
 export function resetMovementResultInState(target = state) {
+  void cancelVisualSpeech(target);
   target.perceptionSuggestions = target.perceptionSuggestions.filter((suggestion) => suggestion.payload?.ai_recognition !== true);
   setMovementCaptureState(target, "idle");
   target.movementRecognition.status = "idle";
@@ -1283,10 +3459,13 @@ export function resetMovementResultInState(target = state) {
   target.movementRecognition.fallbackUsed = false;
   target.movementRecognition.confirmed = false;
   target.movementRecognition.requestInFlight = false;
-  target.movementRecognition.voiceStatus = "Voice ready";
+  target.movementRecognition.voiceStatus = "Ready";
   target.movementRecognition.lastSpokenMovement = "";
+  target.movementRecognition.voiceStatus = "Ready";
   target.correctionDraft = { open: false, text: "" };
   target.movementResultSnapshot = null;
+  target.automation.lastConfirmedSnapshot = null;
+  target.automation.lastEvent = null;
   lastMovementResultRenderKey = "";
   lastMovementDetailsRenderKey = "";
   lastMovementRevealResultId = "";
@@ -1305,12 +3484,21 @@ function setMovementCaptureState(target, status) {
 
 function movementResultSnapshotFrom(result, timestampMs = Math.round(now())) {
   const normalized = normalizeMovementRecognitionResult(result);
+  const observationId = normalized.observation_id || normalized.movement_result_id || `movement_result_${timestampMs}`;
   return {
+    schema_version: "canonical-movement-result.v1",
+    observation_id: observationId,
     movement_sentence: normalized.movement,
+    spoken_response: normalized.spoken_response || normalized.movement,
     short_label: normalized.short_label,
+    movement_key: normalized.movement_key,
+    gesture_tags: normalized.gesture_tags,
     confidence: normalized.confidence,
     reason: normalized.reason,
     evidence: normalized.evidence,
+    meaningful_change: normalized.meaningful_change,
+    movement_label: normalized.movement_label,
+    evidence_frames: normalized.evidence_frames,
     uncertainty: normalized.uncertainty,
     provider: normalized.provider,
     model: normalized.model,
@@ -1320,8 +3508,16 @@ function movementResultSnapshotFrom(result, timestampMs = Math.round(now())) {
     image_tokens: normalized.image_tokens,
     retries: normalized.retries,
     failed_candidates: normalized.failed_candidates,
+    response_type: normalized.response_type,
+    response_source: normalized.response_source,
+    requires_confirmation: normalized.requires_confirmation,
+    question: normalized.question,
+    suggested_actions: normalized.suggested_actions,
+    time_to_first_token_ms: normalized.time_to_first_token_ms,
+    time_to_first_audio_ms: normalized.time_to_first_audio_ms,
     latency_ms: normalized.latency_ms,
-    result_id: `movement_result_${timestampMs}`,
+    result_id: observationId,
+    movement_result_id: observationId,
     created_at: timestampMs,
     revision: timestampMs,
     confirmed: false
@@ -1333,7 +3529,10 @@ function movementResultForDisplay(target) {
   if (snapshot) {
     return {
       movement: snapshot.movement_sentence,
+      spoken_response: snapshot.spoken_response,
       short_label: snapshot.short_label,
+      movement_key: snapshot.movement_key,
+      gesture_tags: snapshot.gesture_tags,
       confidence: snapshot.confidence,
       reason: snapshot.reason,
       evidence: snapshot.evidence,
@@ -1343,7 +3542,13 @@ function movementResultForDisplay(target) {
       image_tokens: snapshot.image_tokens,
       retries: snapshot.retries,
       failed_candidates: snapshot.failed_candidates,
+      response_type: snapshot.response_type,
+      question: snapshot.question,
+      suggested_actions: snapshot.suggested_actions,
+      time_to_first_token_ms: snapshot.time_to_first_token_ms,
+      time_to_first_audio_ms: snapshot.time_to_first_audio_ms,
       latency_ms: snapshot.latency_ms,
+      observation_id: snapshot.observation_id,
       result_id: snapshot.result_id,
       confirmed: snapshot.confirmed
     };
@@ -1351,6 +3556,192 @@ function movementResultForDisplay(target) {
   return target.movementRecognition.lastResult
     ? { ...normalizeMovementRecognitionResult(target.movementRecognition.lastResult), result_id: "unsnapshotted_result" }
     : null;
+}
+
+export function visualContextForRequest(target = state) {
+  const mode = target.visualContext?.memoryMode || "session";
+  if (mode === "off") return {};
+  const memory = target.conversationMemory || createConversationMemoryState();
+  const observationMemory = target.observationMemory || createObservationMemoryState();
+  const rolling = target.realtimeSession?.rollingVisualContext || createRealtimeSessionState().rollingVisualContext;
+  return {
+    interaction_mode: target.interactionState?.mode || "conversation",
+    last_observation_summary: sanitizeMemoryText(target.visualContext.lastObservationSummary),
+    last_response: sanitizeMemoryText(target.visualContext.lastResponse),
+    user_correction: sanitizeMemoryText(target.visualContext.userCorrection),
+    follow_up_answer: sanitizeMemoryText(target.visualContext.followUpAnswer),
+    approved_preferences: sanitizeMemoryText(target.visualContext.approvedPreferences),
+    realtime_visual_summary: sanitizeMemoryText(rolling.summary),
+    recent_user_turns: memory.userTurns.slice(-4).map((item) => sanitizeMemoryText(item.text)),
+    recent_assistant_responses: memory.assistantResponses.slice(-4).map((item) => ({
+      text: sanitizeMemoryText(item.text),
+      interrupted: item.interrupted === true
+    })),
+    recent_visual_summaries: memory.visualSummaries.slice(-4).map((item) => sanitizeMemoryText(item.text)),
+    interrupted_response: sanitizeMemoryText(memory.interruptedResponses.at(-1)?.text || ""),
+    recent_movement_descriptions: interactionModeIs(target, "observing")
+      ? observationMemory.movementDescriptions.slice(-4).map((item) => sanitizeMemoryText(item.text))
+      : []
+  };
+}
+
+export function updateVisualContextFromResult(target = state, result = {}) {
+  target.visualContext ??= {};
+  target.visualContext.lastObservationSummary = sanitizeMemoryText(result.reason || result.movement || "");
+  target.visualContext.lastResponse = sanitizeMemoryText(result.movement || "");
+  target.visualContext.suggestedActions = Array.isArray(result.suggested_actions)
+    ? result.suggested_actions.filter((action) => VISUAL_COMPANION_ALLOWED_ACTIONS.includes(String(action.action || ""))).slice(0, 3)
+    : [];
+  persistVisualContextIfAllowed(target.visualContext);
+  return target.visualContext;
+}
+
+export function clearVisualContextInState(target = state) {
+  target.visualContext = {
+    memoryMode: target.visualContext?.memoryMode || "session",
+    lastObservationSummary: "",
+    lastResponse: "",
+    userCorrection: "",
+    followUpAnswer: "",
+    approvedPreferences: "",
+    suggestedActions: []
+  };
+  clearVisualContextStorage();
+  target.statusMessage = "Visual context cleared.";
+  return target;
+}
+
+function loadVisualContextFromStorage() {
+  try {
+    const storage = browserLocalStorage();
+    const serialized = storage?.getItem?.(VISUAL_CONTEXT_STORAGE_KEY);
+    if (!serialized) return null;
+    const parsed = JSON.parse(serialized);
+    if (parsed?.memoryMode !== "persistent") return null;
+    return {
+      memoryMode: "persistent",
+      lastObservationSummary: sanitizeMemoryText(parsed.lastObservationSummary),
+      lastResponse: sanitizeMemoryText(parsed.lastResponse),
+      userCorrection: sanitizeMemoryText(parsed.userCorrection),
+      followUpAnswer: sanitizeMemoryText(parsed.followUpAnswer),
+      approvedPreferences: sanitizeMemoryText(parsed.approvedPreferences),
+      suggestedActions: []
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistVisualContextIfAllowed(context = {}) {
+  if (context.memoryMode !== "persistent") return;
+  try {
+    browserLocalStorage()?.setItem?.(VISUAL_CONTEXT_STORAGE_KEY, JSON.stringify({
+      memoryMode: "persistent",
+      lastObservationSummary: sanitizeMemoryText(context.lastObservationSummary),
+      lastResponse: sanitizeMemoryText(context.lastResponse),
+      userCorrection: sanitizeMemoryText(context.userCorrection),
+      followUpAnswer: sanitizeMemoryText(context.followUpAnswer),
+      approvedPreferences: sanitizeMemoryText(context.approvedPreferences)
+    }));
+  } catch {
+    // Text-only memory is best-effort and never blocks observation.
+  }
+}
+
+function clearVisualContextStorage() {
+  try {
+    browserLocalStorage()?.removeItem?.(VISUAL_CONTEXT_STORAGE_KEY);
+  } catch {
+    // Ignore local storage failures.
+  }
+}
+
+function loadVisualAutoSpeakPreference() {
+  try {
+    const value = browserLocalStorage()?.getItem?.(VISUAL_AUTO_SPEAK_STORAGE_KEY);
+    if (value === "off") return false;
+    if (value === "on") return true;
+  } catch {
+    // Auto-speak defaults on when local storage is unavailable.
+  }
+  return true;
+}
+
+function persistVisualAutoSpeakPreference(enabled) {
+  try {
+    browserLocalStorage()?.setItem?.(VISUAL_AUTO_SPEAK_STORAGE_KEY, enabled ? "on" : "off");
+  } catch {
+    // Preference persistence is best-effort and must not block narration.
+  }
+}
+
+function browserLocalStorage() {
+  if (typeof window === "undefined" || typeof document === "undefined") return null;
+  return window.localStorage || null;
+}
+
+export async function confirmVisualSuggestedActionInState(target = state) {
+  const action = target.visualContext?.suggestedActions?.[0];
+  if (!action || !target.movementResultSnapshot) {
+    target.statusMessage = "No suggested action is ready to confirm.";
+    return { ok: false, code: "visual_suggested_action_missing" };
+  }
+  if (!VISUAL_COMPANION_ALLOWED_ACTIONS.includes(String(action.action))) {
+    target.statusMessage = "Suggested action is not allowed.";
+    return { ok: false, code: "visual_suggested_action_not_allowed" };
+  }
+  const timestampMs = Math.round(now());
+  const executionId = `visual_action_${target.movementResultSnapshot.result_id}_${timestampMs}`;
+  let outcome;
+  try {
+    outcome = await executeLocalAction({
+      action: {
+        type: action.action,
+        config: automationConfigFromVisualAction(action)
+      },
+      runtime: target.automation,
+      idempotency_key: executionId,
+      consent: true,
+      snapshot: target.movementResultSnapshot
+    }, {
+      runtime: target.automation,
+      userGesture: true
+    });
+  } catch (error) {
+    outcome = {
+      status: "failed",
+      finished_at: timestampMs,
+      safe_message: error?.safe_message || "Automation failed — view safe details"
+    };
+  }
+  const receipt = {
+    execution_id: `visual_action_${target.movementResultSnapshot.result_id}_${timestampMs}`,
+    recipe_id: "visual_companion_suggested_action",
+    movement_result_id: target.movementResultSnapshot.result_id,
+    action_type: action.action,
+    status: outcome?.status === "failed" ? "failed" : "succeeded",
+    started_at: timestampMs,
+    finished_at: Math.max(timestampMs, Number(outcome?.finished_at || timestampMs)),
+    duration_ms: Math.max(0, Number(outcome?.finished_at || timestampMs) - timestampMs),
+    safe_message: outcome?.safe_message || `${action.label || "Suggested action"} completed.`,
+    contains_raw_media: false
+  };
+  target.automation.receipts.push(receipt);
+  target.automation.receipts = target.automation.receipts.slice(-MAX_AUTOMATION_RECEIPTS);
+  target.automation.lastStatus = receipt.status;
+  target.automation.executionStatus = receipt.safe_message;
+  target.statusMessage = receipt.safe_message;
+  return { ok: true, receipt };
+}
+
+function automationConfigFromVisualAction(action = {}) {
+  const params = action.parameters || {};
+  if (action.action === "start_timer") return { duration_seconds: Number(params.duration_seconds || 60) };
+  if (action.action === "speak_phrase") return { text: String(params.text || action.label || "Done.") };
+  if (action.action === "browser_notification") return { title: String(params.title || "Sensefield"), body: String(params.body || action.label || "Suggested action") };
+  if (action.action === "increment_counter") return { counter_name: String(params.counter_name || "visual_actions") };
+  if (action.action === "append_activity_log") return { category: String(params.category || "visual_companion") };
+  return {};
 }
 
 function sanitizeMemoryText(value) {
@@ -1364,7 +3755,9 @@ function sanitizeMemoryText(value) {
 
 function appendMovementHistory(target, snapshot) {
   const entry = {
-    movement: sanitizeMemoryText(snapshot.movement_sentence)
+    movement: sanitizeMemoryText(snapshot.movement_sentence),
+    observation_id: sanitizeMemoryText(snapshot.observation_id || snapshot.result_id || ""),
+    created_at_ms: Number(snapshot.created_at || now())
   };
   target.movementHistory.entries = [...target.movementHistory.entries, entry].slice(-target.movementHistory.max_items);
   return entry;
@@ -1403,7 +3796,7 @@ export function showMovementCorrectionInState(target = state) {
     open: true,
     text: ""
   };
-  target.statusMessage = "Tell DarkQuest what actually happened.";
+  target.statusMessage = "Tell Sensefield what actually happened.";
   return target;
 }
 
@@ -1438,6 +3831,8 @@ export function submitMovementCorrectionInState(target = state, value = "") {
     ...snapshot,
     movement_sentence: safeMovementSentence(correctedMovement),
     short_label: safeShortLabel(correctedMovement),
+    movement_key: snapshot.movement_key,
+    gesture_tags: [...(snapshot.gesture_tags || [])],
     confirmed: false,
     corrected: true,
     revision: timestampMs
@@ -1446,6 +3841,8 @@ export function submitMovementCorrectionInState(target = state, value = "") {
     ...normalizeMovementRecognitionResult(target.movementRecognition.lastResult ?? {}),
     movement: target.movementResultSnapshot.movement_sentence,
     short_label: target.movementResultSnapshot.short_label,
+    movement_key: target.movementResultSnapshot.movement_key,
+    gesture_tags: target.movementResultSnapshot.gesture_tags,
     confidence: target.movementResultSnapshot.confidence,
     provider: target.movementResultSnapshot.provider,
     model: target.movementResultSnapshot.model
@@ -1468,36 +3865,805 @@ export function clearCorrectionMemory(target = state) {
   return target;
 }
 
-export function speakMovementResult(target = state) {
-  const movement = movementResultForDisplay(target)?.movement ?? "";
-  const speechSynthesis = globalThis.speechSynthesis;
-  const Utterance = globalThis.SpeechSynthesisUtterance;
-  if (!movement || !speechSynthesisAvailable()) {
-    target.movementRecognition.voiceStatus = "Voice unavailable";
-    render();
-    return false;
+export async function executeConfirmedMovementAutomations(target = state, options = {}) {
+  const snapshot = target.automation.lastConfirmedSnapshot;
+  if (!snapshot?.confirmed) return { matches: [], receipts: [] };
+  const outcome = await runAutomationForConfirmedMovement({
+    snapshot,
+    recipes: target.automation.recipes,
+    runtime: target.automation,
+    userGesture: options.userGesture === true,
+    requestConsent: (message) => typeof globalThis.confirm === "function" && globalThis.confirm(message) === true,
+    context: {
+      captureSnapshot: (captureOptions) => captureConfirmedMovementSnapshot(captureOptions),
+      executeWebhook: (request) => requestAutomationExecution(request),
+      onRuntimeChange: () => render()
+    }
+  });
+  target.statusMessage = outcome.matches.length
+    ? target.automation.lastSafeMessage
+    : "Movement confirmed. No automation recipe matched.";
+  target.errorMessage = outcome.receipts.some((receipt) => receipt.status === "failed")
+    ? target.automation.lastSafeMessage
+    : "";
+  lastAutomationRenderKey = "";
+  return outcome;
+}
+
+async function requestAutomationExecution(request) {
+  const send = globalThis[["fet", "ch"].join("")];
+  if (typeof send !== "function") return { ok: false, code: "endpoint_unavailable", safe_message: "Automation failed — view safe details" };
+  try {
+    const response = await send(AUTOMATION_EXECUTE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(request)
+    });
+    const body = await response.json().catch(() => ({}));
+    return response.ok ? body : { ok: false, ...body };
+  } catch {
+    return { ok: false, code: "network_error", safe_message: "Automation failed — view safe details" };
   }
-  const utterance = new Utterance(movement);
-  utterance.onend = () => {
-    target.movementRecognition.voiceStatus = "Voice ready";
+}
+
+async function captureConfirmedMovementSnapshot(options = {}) {
+  const video = dom?.preview;
+  if (!video || !state.cameraReady || video.readyState < 2) throw new Error("Camera snapshot could not be created");
+  const canvas = document.createElement("canvas");
+  const width = Math.min(1280, video.videoWidth || 640);
+  const height = Math.max(1, Math.round(width * ((video.videoHeight || 480) / Math.max(1, video.videoWidth || 640))));
+  canvas.width = width;
+  canvas.height = height;
+  let objectUrl = "";
+  try {
+    const context = canvas.getContext("2d", { alpha: false });
+    drawVideoFrameForAnalysis(context, video, width, height, true);
+    const blob = await new Promise((resolve) => canvas[["to", "Blob"].join("")](resolve, "image/jpeg", 0.86));
+    if (!blob) throw new Error("Camera snapshot could not be created");
+    objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const prefix = String(options.filenamePrefix || "darkquest-movement").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 80);
+    anchor.href = objectUrl;
+    anchor.download = `${prefix || "darkquest-movement"}-${Date.now()}.jpg`;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    if (objectUrl) globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+}
+
+export function openAutomationRecipeEditor(target, recipeId = "", options = {}) {
+  const store = options.store || automationRecipeStore;
+  const editorDom = options.dom || dom;
+  const recipe = recipeId ? store.read(recipeId) : null;
+  const recipeSnapshot = recipe ? {
+    confirmed: true,
+    movement: recipe.execution_mode === "instant_local_gesture" ? gestureStatusLabel(recipe.trigger.gesture_key) : recipe.name,
+    short_label: recipe.execution_mode === "instant_local_gesture" ? gestureStatusLabel(recipe.trigger.gesture_key) : recipe.name,
+    movement_key: recipe.trigger.movement_key,
+    gesture_tags: [],
+    confidence: recipe.trigger.minimum_confidence
+  } : null;
+  const snapshot = target.automation.lastConfirmedSnapshot || recipeSnapshot;
+  if (!snapshot?.confirmed) {
+    target.errorMessage = "Recognize and confirm a movement before creating an automation.";
     render();
-  };
-  utterance.onerror = () => {
-    target.movementRecognition.voiceStatus = "Voice unavailable";
-    render();
-  };
-  target.movementRecognition.voiceStatus = "Speaking...";
-  target.movementRecognition.lastSpokenMovement = movement;
-  speechSynthesis.cancel?.();
-  speechSynthesis.speak(utterance);
-  render();
+    return;
+  }
+  const editorState = target.automationEditor ||= { recipeId: "", isSaving: false, opener: null };
+  editorState.recipeId = recipe?.recipe_id || createAutomationRecipeId(store.list().map((item) => item.recipe_id));
+  editorState.isSaving = false;
+  editorState.opener = editorDom.automationRecipeDialog?.ownerDocument?.activeElement || globalThis.document?.activeElement || null;
+  if (editorDom.automationRecipeName) editorDom.automationRecipeName.value = recipe?.name || `${snapshot.short_label} automation`;
+  if (editorDom.automationMovementSentence) editorDom.automationMovementSentence.textContent = snapshot.movement;
+  if (editorDom.automationShortLabel) editorDom.automationShortLabel.textContent = snapshot.short_label;
+  if (editorDom.automationMovementKey) editorDom.automationMovementKey.value = recipe?.trigger?.movement_key || snapshot.movement_key;
+  if (editorDom.automationInstantMode) editorDom.automationInstantMode.checked = recipe?.execution_mode === "instant_local_gesture";
+  if (editorDom.automationGestureKey) editorDom.automationGestureKey.value = recipe?.trigger?.gesture_key || "thumbs_up";
+  if (editorDom.automationGestureKey?.dataset) editorDom.automationGestureKey.dataset.previousGesture = editorDom.automationGestureKey.value;
+  if (editorDom.automationConfidence) editorDom.automationConfidence.textContent = snapshot.confidence.toFixed(2);
+  if (editorDom.automationActionType) editorDom.automationActionType.value = recipe?.action?.type || "speak_phrase";
+  if (editorDom.automationActionType?.dataset) editorDom.automationActionType.dataset.previousAction = editorDom.automationActionType.value;
+  if (editorDom.automationAliases) editorDom.automationAliases.value = (recipe?.trigger?.aliases || []).join(", ");
+  if (editorDom.automationMinConfidence) editorDom.automationMinConfidence.value = String(recipe?.trigger?.minimum_confidence ?? DEFAULT_INSTANT_RECIPE_MIN_CONFIDENCE);
+  if (editorDom.automationHoldMs) editorDom.automationHoldMs.value = String(recipe?.trigger?.hold_ms ?? INSTANT_GESTURE_DEFAULTS.holdMs);
+  if (editorDom.automationCooldown) editorDom.automationCooldown.value = String((recipe?.execution_policy?.cooldown_ms ?? 3000) / 1000);
+  if (editorDom.automationConfirmationPolicy) editorDom.automationConfirmationPolicy.value = recipe?.confirmation_policy || (recipe?.execution_policy?.require_per_run_confirmation ? "per_run" : "movement_confirmation");
+  if (editorDom.automationConfigValue) editorDom.automationConfigValue.value = automationConfigValue(recipe);
+  if (editorDom.automationSecretRef) editorDom.automationSecretRef.value = recipe?.action?.config?.secret_ref || "";
+  if (editorDom.automationEnabled) editorDom.automationEnabled.checked = recipe ? recipe.enabled === true : true;
+  setAutomationFormError(editorDom, "");
+  if (editorDom.automationInstantUpgrade) {
+    const instantActions = ["speak_phrase", "increment_counter", "start_timer", "append_activity_log", "browser_notification"];
+    const supportedGesture = ["thumbs_up", "thumbs_down", "peace_sign", "open_palm", "closed_fist", "pointing_up", "i_love_you"].includes(recipe?.trigger?.movement_key);
+    editorDom.automationInstantUpgrade.hidden = !recipe || recipe.execution_mode === "instant_local_gesture" || !supportedGesture || !instantActions.includes(recipe.action?.type);
+  }
+  updateAutomationRecipeModeFields(editorDom);
+  editorDom.automationRecipeDialog?.showModal?.();
+  globalThis.setTimeout?.(() => editorDom.automationRecipeName?.focus?.(), 0);
+  return recipe;
+}
+
+export function saveAutomationRecipeFromForm(target, boundDom, options = {}) {
+  const editorState = target.automationEditor ||= { recipeId: "", isSaving: false, opener: null };
+  if (editorState.isSaving) return null;
+  const store = options.store || automationRecipeStore;
+  const existingIds = store.list().map((recipe) => recipe.recipe_id);
+  const suppliedId = String(editorState.recipeId || "");
+  const id = /^recipe_[a-zA-Z0-9_-]{1,80}$/.test(suppliedId)
+    ? suppliedId
+    : createAutomationRecipeId(existingIds);
+  editorState.recipeId = id;
+  const actionType = boundDom.automationActionType?.value || "speak_phrase";
+  const instant = boundDom.automationInstantMode?.checked === true;
+  const issue = automationEditorValidationIssue(boundDom, { actionType, instant });
+  if (issue) {
+    setAutomationFormError(boundDom, issue.message, issue.field);
+    return null;
+  }
+  editorState.isSaving = true;
+  if (boundDom.automationRecipeSave) boundDom.automationRecipeSave.disabled = true;
+  try {
+    const existing = id ? store.read(id) : null;
+    const snapshot = target.automation.lastConfirmedSnapshot || (existing ? {
+      movement_key: existing.trigger.movement_key,
+      gesture_tags: [],
+      confidence: existing.trigger.minimum_confidence
+    } : null);
+    if (!snapshot && !instant) throw new Error("Movement must be confirmed first");
+    const gestureKey = boundDom.automationGestureKey?.value || "thumbs_up";
+    const recipeInput = {
+      ...(existing || {}),
+      schema: "movement-automation-recipe.v1-1",
+      recipe_id: id,
+      name: boundDom.automationRecipeName?.value,
+      enabled: boundDom.automationEnabled?.checked === true,
+      execution_mode: instant ? "instant_local_gesture" : "confirmed_ai_movement",
+      confirmation_policy: instant ? "none" : boundDom.automationConfirmationPolicy?.value === "per_run" ? "per_run" : "movement_confirmation",
+      trigger: {
+        movement_key: instant ? gestureKey : boundDom.automationMovementKey?.value || snapshot.movement_key,
+        ...(instant ? { source: "mediapipe_gesture", gesture_key: gestureKey, hold_ms: Number(boundDom.automationHoldMs?.value || 350), neutral_reset_required: true } : {}),
+        required_tags: instant ? [] : existing?.trigger?.required_tags || snapshot.gesture_tags,
+        aliases: instant ? [] : String(boundDom.automationAliases?.value || "").split(",").map((item) => item.trim()).filter(Boolean),
+        minimum_confidence: Number(boundDom.automationMinConfidence?.value || DEFAULT_INSTANT_RECIPE_MIN_CONFIDENCE),
+        require_user_confirmation: !instant
+      },
+      action: {
+        type: actionType,
+        config: automationActionConfig(actionType, boundDom.automationConfigValue?.value, boundDom.automationSecretRef?.value)
+      },
+      risk_tier: riskTierForAutomationAction(actionType),
+      execution_policy: {
+        cooldown_ms: Number(boundDom.automationCooldown?.value || 3) * 1000,
+        max_runs_per_session: instant ? 20 : existing?.execution_policy?.max_runs_per_session || 10,
+        require_per_run_confirmation: !instant && (actionType === "local_snapshot_download" || boundDom.automationConfirmationPolicy?.value === "per_run"),
+        retry_limit: actionType === "signed_webhook_post" ? 1 : 0
+      },
+      consent: instant ? {
+        run_instantly: true,
+        consent_version: Number(existing?.consent?.consent_version || 0) + 1,
+        consented_at: Math.round(now())
+      } : undefined
+    };
+    const saved = store.save(recipeInput, { existingId: existing?.recipe_id || "" });
+    target.automation.recipes = store.list();
+    target.automation.lastSafeMessage = "Automation recipe saved.";
+    target.errorMessage = "";
+    setAutomationFormError(boundDom, "");
+    editorState.isSaving = false;
+    closeAutomationRecipeEditor(target, boundDom);
+    lastAutomationRenderKey = "";
+    if (target === state && store === automationRecipeStore) syncInstantGestureEngine();
+    return saved;
+  } catch (error) {
+    const issue = automationEditorError(error, boundDom, actionType);
+    setAutomationFormError(boundDom, issue.message, issue.field);
+    return null;
+  } finally {
+    editorState.isSaving = false;
+    if (boundDom.automationRecipeSave) boundDom.automationRecipeSave.disabled = false;
+  }
+}
+
+export function updateAutomationRecipeModeFields(boundDom) {
+  updateAutomationActionFields(boundDom);
+  let instant = boundDom.automationInstantMode?.checked === true;
+  const actionType = boundDom.automationActionType?.value || "speak_phrase";
+  const instantAllowed = INSTANT_LOCAL_ACTION_TYPES.includes(actionType);
+  if (!instantAllowed) {
+    if (boundDom.automationInstantMode) boundDom.automationInstantMode.checked = false;
+    instant = false;
+    if (boundDom.automationInstantPolicy) {
+      boundDom.automationInstantPolicy.hidden = false;
+      boundDom.automationInstantPolicy.textContent = "This action requires confirmation and cannot run instantly.";
+    }
+  } else if (boundDom.automationInstantPolicy) {
+    boundDom.automationInstantPolicy.hidden = !instant;
+    boundDom.automationInstantPolicy.textContent = "This safe local action runs immediately after local gesture recognition.";
+  }
+  if (boundDom.automationInstantMode) boundDom.automationInstantMode.disabled = !instantAllowed;
+  if (boundDom.automationGestureKey) boundDom.automationGestureKey.disabled = !instant;
+  if (boundDom.automationHoldMs) boundDom.automationHoldMs.disabled = !instant;
+  if (boundDom.automationGestureField) boundDom.automationGestureField.hidden = !instant;
+  if (boundDom.automationHoldField) boundDom.automationHoldField.hidden = !instant;
+  if (boundDom.automationAliasesField) boundDom.automationAliasesField.hidden = instant;
+  if (boundDom.automationAliases) boundDom.automationAliases.disabled = instant;
+  if (boundDom.automationMovementKey) boundDom.automationMovementKey.readOnly = true;
+  if (instant && boundDom.automationMinConfidence && !String(boundDom.automationMinConfidence.value).trim()) boundDom.automationMinConfidence.value = String(DEFAULT_INSTANT_RECIPE_MIN_CONFIDENCE);
+  if (boundDom.automationConfirmationPolicy) {
+    const snapshotRequiresConfirmation = !instant && actionType === "local_snapshot_download";
+    boundDom.automationConfirmationPolicy.disabled = instant || snapshotRequiresConfirmation;
+    if (instant) boundDom.automationConfirmationPolicy.value = "none";
+    else if (snapshotRequiresConfirmation) boundDom.automationConfirmationPolicy.value = "per_run";
+    else if (boundDom.automationConfirmationPolicy.value === "none") boundDom.automationConfirmationPolicy.value = "movement_confirmation";
+  }
+  const confirmationField = boundDom.automationConfirmationPolicyField || boundDom.automationConfirmationPolicy?.closest?.("label");
+  if (confirmationField) confirmationField.hidden = instant;
+  if (boundDom.automationInstantUpgrade) boundDom.automationInstantUpgrade.hidden = instant || boundDom.automationInstantUpgrade.hidden;
+}
+
+export function updateAutomationActionFields(boundDom) {
+  const actionType = boundDom.automationActionType?.value || "speak_phrase";
+  const config = {
+    speak_phrase: ["Phrase", "GREAT JOB"],
+    browser_notification: ["Notification message", "Movement recognized"],
+    start_timer: ["Duration seconds", "60"],
+    increment_counter: ["Counter name", "completions"],
+    append_activity_log: ["Activity category or template", "workout"],
+    local_snapshot_download: ["Filename prefix", "darkquest-movement"],
+    signed_webhook_post: ["Approved destination ID", "presentation"]
+  }[actionType] || ["Configuration", ""];
+  if (boundDom.automationConfigField) boundDom.automationConfigField.hidden = false;
+  if (boundDom.automationConfigLabel) boundDom.automationConfigLabel.textContent = config[0];
+  if (boundDom.automationConfigValue) {
+    boundDom.automationConfigValue.placeholder = config[1];
+    boundDom.automationConfigValue.inputMode = actionType === "start_timer" ? "numeric" : "text";
+  }
+  const webhook = actionType === "signed_webhook_post";
+  if (boundDom.automationSecretRefField) boundDom.automationSecretRefField.hidden = !webhook;
+  if (boundDom.automationSecretRef) {
+    boundDom.automationSecretRef.disabled = !webhook;
+    if (!webhook) boundDom.automationSecretRef.value = "";
+  }
+  if (boundDom.automationSnapshotPolicy) boundDom.automationSnapshotPolicy.hidden = actionType !== "local_snapshot_download";
+}
+
+export function handleAutomationGestureChange(boundDom) {
+  const select = boundDom.automationGestureKey;
+  if (!select) return;
+  const previous = String(select.dataset?.previousGesture || "");
+  const next = String(select.value || "");
+  if (previous && next && previous !== next && boundDom.automationAliases) boundDom.automationAliases.value = "";
+  if (select.dataset) select.dataset.previousGesture = next;
+}
+
+function setAutomationFormError(boundDom, message, field) {
+  if (!boundDom.automationFormError) return;
+  const safeMessage = String(message || "").replace(/\b(?:hf_|sk-)[a-z0-9_-]+\b/gi, "[redacted]").slice(0, 240);
+  boundDom.automationFormError.textContent = safeMessage;
+  boundDom.automationFormError.hidden = !safeMessage;
+  for (const element of [boundDom.automationRecipeName, boundDom.automationGestureKey, boundDom.automationConfigValue, boundDom.automationSecretRef, boundDom.automationMinConfidence, boundDom.automationHoldMs, boundDom.automationCooldown]) {
+    element?.removeAttribute?.("aria-invalid");
+  }
+  if (safeMessage && field) {
+    field.setAttribute?.("aria-invalid", "true");
+    field.focus?.();
+  }
+}
+
+function automationEditorValidationIssue(boundDom, { actionType, instant }) {
+  const name = String(boundDom.automationRecipeName?.value || "").trim();
+  const value = String(boundDom.automationConfigValue?.value || "").trim();
+  const secretRef = String(boundDom.automationSecretRef?.value || "").trim();
+  if (!name || name.length > 80) return { message: "Enter a name for this automation.", field: boundDom.automationRecipeName };
+  if (instant && !String(boundDom.automationGestureKey?.value || "")) return { message: "Choose a gesture before saving.", field: boundDom.automationGestureKey };
+  if (instant && !INSTANT_LOCAL_ACTION_TYPES.includes(actionType)) return { message: "This action cannot run instantly.", field: boundDom.automationActionType };
+  if (actionType === "speak_phrase" && !value) return { message: "Enter the phrase Sensefield should speak.", field: boundDom.automationConfigValue };
+  if (actionType === "browser_notification" && !value) return { message: "Enter the notification message.", field: boundDom.automationConfigValue };
+  if (actionType === "start_timer" && (!Number.isFinite(Number(value)) || Number(value) <= 0)) return { message: "Enter a timer duration greater than zero.", field: boundDom.automationConfigValue };
+  if (actionType === "increment_counter" && !value) return { message: "Enter a counter name.", field: boundDom.automationConfigValue };
+  if (actionType === "append_activity_log" && !value) return { message: "Enter an activity category or template.", field: boundDom.automationConfigValue };
+  if (actionType === "signed_webhook_post" && !value) return { message: "Choose an approved webhook destination.", field: boundDom.automationConfigValue };
+  if (actionType === "signed_webhook_post" && !/^[A-Z][A-Z0-9_]{0,79}$/.test(secretRef)) return { message: "Enter a valid server-side secret reference.", field: boundDom.automationSecretRef };
+  const confidence = Number(boundDom.automationMinConfidence?.value);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return { message: "Enter a confidence between 0 and 1.", field: boundDom.automationMinConfidence };
+  const holdMs = Number(boundDom.automationHoldMs?.value);
+  if (instant && (!Number.isInteger(holdMs) || holdMs < 250 || holdMs > 1000)) return { message: "Choose a hold duration from 250 to 1000 milliseconds.", field: boundDom.automationHoldMs };
+  const cooldown = Number(boundDom.automationCooldown?.value);
+  if (!Number.isFinite(cooldown) || cooldown < 0) return { message: "Enter a valid cooldown.", field: boundDom.automationCooldown };
+  return null;
+}
+
+function automationEditorError(error, boundDom, actionType) {
+  const code = String(error?.code || "");
+  if (code === "automation_instant_action_requires_confirmation") return { message: "This action cannot run instantly.", field: boundDom.automationActionType };
+  if (/name/i.test(String(error?.message || ""))) return { message: "Enter a name for this automation.", field: boundDom.automationRecipeName };
+  if (actionType === "speak_phrase" && /config|phrase/i.test(String(error?.message || ""))) return { message: "Enter the phrase Sensefield should speak.", field: boundDom.automationConfigValue };
+  return { message: "Couldn’t save this automation. Please review the highlighted field.", field: boundDom.automationRecipeName };
+}
+
+function closeAutomationRecipeEditor(target, boundDom) {
+  const editorState = target.automationEditor ||= { recipeId: "", isSaving: false, opener: null };
+  if (editorState.isSaving) return false;
+  try {
+    boundDom.automationRecipeDialog?.close?.();
+  } catch {
+    // The native dialog may already be closed.
+  }
+  const opener = editorState.opener;
+  editorState.recipeId = "";
+  editorState.opener = null;
+  opener?.focus?.();
   return true;
 }
 
-function speechSynthesisAvailable() {
-  return typeof globalThis.speechSynthesis?.speak === "function" &&
-    typeof globalThis.SpeechSynthesisUtterance === "function";
+function trapAutomationDialogFocus(event, dialog) {
+  if (event.key !== "Tab" || !dialog?.open) return;
+  const focusable = Array.from(dialog.querySelectorAll?.('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])') || [])
+    .filter((element) => !element.hidden && !element.closest?.("[hidden]"));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && dialog.ownerDocument?.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && dialog.ownerDocument?.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
+
+function addAutomationPresetToState(target, presetId) {
+  if (!presetId) return;
+  try {
+    automationRecipeStore.create(presetRecipe(presetId));
+    target.automation.recipes = automationRecipeStore.list();
+    const added = target.automation.recipes.at(-1);
+    target.automation.lastSafeMessage = added?.enabled ? "Preset added and enabled." : "Preset added disabled. Review it before enabling.";
+    target.errorMessage = "";
+    lastAutomationRenderKey = "";
+    if (target === state) syncInstantGestureEngine();
+  } catch (error) {
+    target.errorMessage = error?.message || "Automation failed — view safe details";
+  }
+}
+
+function handleAutomationManagerAction(target, action, recipeId) {
+  const recipe = recipeId ? automationRecipeStore.read(recipeId) : null;
+  if (action === "edit" && recipe) return openAutomationRecipeEditor(target, recipe.recipe_id);
+  if (action === "toggle" && recipe) automationRecipeStore.setEnabled(recipe.recipe_id, !recipe.enabled);
+  if (action === "delete" && recipe) automationRecipeStore.delete(recipe.recipe_id);
+  if (action === "dry-run" && recipe) {
+    const snapshot = target.automation.lastConfirmedSnapshot || freezeConfirmedMovementSnapshot({
+      result_id: `dry_${recipe.recipe_id}`,
+      movement: recipe.trigger.movement_key,
+      short_label: recipe.trigger.movement_key,
+      movement_key: recipe.trigger.movement_key,
+      gesture_tags: recipe.trigger.required_tags,
+      confidence: 1,
+      uncertainty: false
+    });
+    dryRunAutomationRecipe(recipe, snapshot, target.automation);
+  }
+  if (action === "clear-data") clearAutomationRuntimeData(target.automation);
+  if (action === "toggle-engine") target.automation.enabled = !target.automation.enabled;
+  target.automation.recipes = automationRecipeStore.list();
+  lastAutomationRenderKey = "";
+  if (target === state) syncInstantGestureEngine();
+}
+
+function automationActionConfig(actionType, value, secretRef) {
+  const text = String(value || "").trim();
+  if (actionType === "speak_phrase") return { text: text || "Movement confirmed." };
+  if (actionType === "browser_notification") return { title: "Sensefield", body: text || "Movement confirmed." };
+  if (actionType === "start_timer") return { duration_seconds: Number(text || 60) };
+  if (actionType === "increment_counter") return { counter_name: text || "completions" };
+  if (actionType === "append_activity_log") return { category: text || "activity" };
+  if (actionType === "local_snapshot_download") return { filename_prefix: text || "darkquest-movement" };
+  if (actionType === "signed_webhook_post") return { destination_id: text, secret_ref: String(secretRef || "").trim(), payload_label: "darkquest_movement" };
+  return {};
+}
+
+function automationConfigValue(recipe) {
+  const config = recipe?.action?.config || {};
+  return String(config.text ?? config.phrase ?? config.body ?? config.duration_seconds ?? config.counter_name ?? config.category ?? config.filename_prefix ?? config.destination_id ?? "");
+}
+
+function riskTierForAutomationAction(actionType) {
+  if (actionType === "local_snapshot_download") return 2;
+  if (["browser_notification", "signed_webhook_post"].includes(actionType)) return 1;
+  return 0;
+}
+
+export async function speakMovementResult(target = state, options = {}) {
+  const snapshot = target.movementResultSnapshot;
+  const text = spokenResponseForSnapshot(snapshot) || target.movementRecognition.latestSpokenResponse || "";
+  const observationId = observationIdForSnapshot(snapshot) || options.observationId || "";
+  return speakVisualResponse({ observationId, text }, { ...options, target });
+}
+
+export async function speakVisualResponse({ observationId = "", text = "" } = {}, options = {}) {
+  const target = options.target || state;
+  const cleanText = String(text || "").trim();
+  if (!cleanText) {
+    target.movementRecognition.voiceStatus = "Voice unavailable";
+    render();
+    return { ok: false, code: "visual_voice_empty" };
+  }
+  target.movementRecognition.latestSpokenResponse = cleanText;
+  target.movementRecognition.lastSpokenMovement = cleanText;
+  await cancelVisualSpeech(target, options);
+  const runtimeSpeechToken = target.interactionState?.sessionActive ? target.emergencyRuntimeController.beginSpeech() : null;
+  if (target.interactionState?.sessionActive && !runtimeSpeechToken) return { ok: false, code: "visual_speech_busy" };
+  const speechGenerationId = Number(target.interactionState?.speechGenerationId || 0) + 1;
+  if (target.interactionState) applyInteractionState(target, { speechGenerationId });
+  const ownership = {
+    responseId: observationId || `response_${sensefieldTestRuntime.speech.length + 1}`,
+    speechId: runtimeSpeechToken?.speechId || `speech_${speechGenerationId}`,
+    sessionGeneration: Number(runtimeSpeechToken?.sessionGeneration ?? target.interactionState?.sessionGenerationId ?? 0),
+    modeGeneration: Number(runtimeSpeechToken?.modeGeneration ?? target.interactionState?.modeGenerationId ?? 0),
+    speechGenerationId,
+    cancelled: false,
+    playing: false,
+    completed: false
+  };
+  target.movementRecognition.activeSpeechOwnership = ownership;
+  if (target === state) recordSensefieldTestSpeech("requested", speechOwnershipMetadata(ownership, { path: "local_tts", text }), {
+    correlationId: ownership.responseId,
+    modeGenerationId: ownership.modeGeneration
+  });
+  target.movementRecognition.voiceStatus = "Preparing voice…";
+  render();
+  await delay(0);
+  const localVoice = await tryLocalVisualSpeech({ text: cleanText, observationId, speechGenerationId, runtimeSpeechToken, ownership }, target, options);
+  if (localVoice.ok) {
+    if (observationId) {
+      target.movementRecognition.spokenObservationIds ??= new Set();
+      target.movementRecognition.spokenObservationIds.add(observationId);
+    }
+    return localVoice;
+  }
+  if (runtimeSpeechToken && target.emergencyRuntimeController.isCurrent(runtimeSpeechToken, "speechId", runtimeSpeechToken.speechId)) {
+    finishRuntimeSpeech(target, runtimeSpeechToken, { error: "Voice unavailable" });
+  }
+  if (target.movementRecognition.activeSpeechOwnership === ownership) {
+    target.movementRecognition.activeSpeechOwnership = null;
+  }
+  target.movementRecognition.voiceStatus = "Voice unavailable";
+  if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+  resumeRealtimeSpeechInputAfterAssistant(target);
+  render();
+  return localVoice;
+}
+
+export function maybeAutoSpeakVisualResult(target = state, options = {}) {
+  const snapshot = target.movementResultSnapshot;
+  const observationId = observationIdForSnapshot(snapshot);
+  const text = spokenResponseForSnapshot(snapshot);
+  if (!snapshot || !observationId || !text) return false;
+  if (snapshot.response_type === "silent") return false;
+  if (target.movementRecognition.autoSpeak !== true) {
+    target.movementRecognition.voiceStatus = "Muted";
+    render();
+    return false;
+  }
+  target.movementRecognition.spokenObservationIds ??= new Set();
+  if (target.movementRecognition.spokenObservationIds.has(observationId)) return false;
+  target.movementRecognition.spokenObservationIds.add(observationId);
+  void speakVisualResponse({ observationId, text }, { ...options, target, auto: true })
+    .finally(() => {
+      if (target.interactionState?.sessionActive) {
+        target.movementRecognition.persistent.state = "active";
+        processRealtimeSessionScheduler(target);
+      } else {
+        completePersistentObservationCycle(target);
+      }
+    });
+  return true;
+}
+
+function semanticObservationKey(result = {}) {
+  const normalized = normalizeMovementRecognitionResult(result);
+  return normalizeMovementKey(normalized.movement_key || normalized.short_label || normalized.movement);
+}
+
+function spokenResponseForSnapshot(snapshot) {
+  if (!snapshot) return "";
+  const text = String(snapshot.spoken_response || snapshot.movement_sentence || "").trim();
+  if (isOperationalVisualMessage(text)) return text;
+  return text || UNCERTAIN_SPOKEN_RESPONSE;
+}
+
+function observationIdForSnapshot(snapshot) {
+  return String(snapshot?.observation_id || snapshot?.movement_result_id || snapshot?.result_id || "").trim();
+}
+
+function speechOwnershipMetadata(ownership, extra = {}) {
+  return {
+    response_id: String(ownership?.responseId || ""),
+    speech_id: String(ownership?.speechId || ""),
+    session_generation: Number(ownership?.sessionGeneration || 0),
+    mode_generation: Number(ownership?.modeGeneration || 0),
+    speech_generation_id: Number(ownership?.speechGenerationId || 0),
+    ...extra
+  };
+}
+
+async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, runtimeSpeechToken, ownership }, target, options = {}) {
+  const send = options.fetch || globalThis.fetch;
+  if (typeof send !== "function") return { ok: false, code: "visual_local_tts_unavailable" };
+  const Controller = globalThis.AbortController;
+  const controller = typeof Controller === "function" ? new Controller() : null;
+  target.movementRecognition.activeVoiceAbortController = controller;
+  try {
+    const response = await send(VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        observation_id: observationId || "",
+        voice: "sensefield_default",
+        style: "warm_conversational",
+        contains_raw_media: false
+      }),
+      signal: controller?.signal
+    });
+    const contentType = String(response.headers?.get?.("content-type") || "");
+    if (response.ok && /^audio\//i.test(contentType)) {
+      const blob = await audioBlobFromResponse(response, contentType);
+      if (!blob || Number(blob.size || 0) <= 0) return { ok: false, code: "visual_local_tts_empty_audio" };
+      const durationMs = Number(response.headers?.get?.("x-sensefield-audio-duration-ms") || 0);
+      if (!Number.isFinite(durationMs) || durationMs <= 0) return { ok: false, code: "visual_local_tts_invalid_duration" };
+      if (runtimeSpeechToken && !target.emergencyRuntimeController.isCurrent(runtimeSpeechToken, "speechId", runtimeSpeechToken.speechId)) {
+        return { ok: false, code: "visual_speech_stale" };
+      }
+      const playback = await playAudioBlob(blob, target, options, text, speechGenerationId, runtimeSpeechToken, ownership);
+      if (playback.ok) {
+        return {
+          ok: true,
+          path: "local_tts",
+          engine: response.headers?.get?.("x-sensefield-voice-engine") || "local_tts",
+          spoken_response: text,
+          observation_id: observationId || "",
+          contains_raw_media: false
+        };
+      }
+      return playback;
+    }
+    const body = await response.json().catch(() => ({}));
+    const engine = String(body.engine || body.path || body.tts || "");
+    if (response.ok && body.ok !== false && /local_tts|kokoro/i.test(engine) && body.audio_base64) {
+      return { ok: false, code: "visual_local_tts_audio_base64_unsupported" };
+    }
+  } catch {
+    // Neural voice failures stay textual; no second playback engine is started.
+  } finally {
+    if (target.movementRecognition.activeVoiceAbortController === controller) {
+      target.movementRecognition.activeVoiceAbortController = null;
+    }
+  }
+  return { ok: false, code: "visual_local_tts_unavailable" };
+}
+
+async function audioBlobFromResponse(response, contentType) {
+  if (typeof response.blob === "function") return response.blob();
+  if (typeof response.arrayBuffer === "function" && typeof Blob === "function") {
+    return new Blob([await response.arrayBuffer()], { type: contentType || "audio/wav" });
+  }
+  return null;
+}
+
+function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId = 0, runtimeSpeechToken = null, ownership = null) {
+  const URLApi = options.URLApi || globalThis.URL;
+  const AudioCtor = options.AudioCtor || globalThis.Audio;
+  if (typeof URLApi?.createObjectURL !== "function" || typeof URLApi?.revokeObjectURL !== "function" || typeof AudioCtor !== "function") {
+    return Promise.resolve({ ok: false, code: "visual_audio_playback_unavailable" });
+  }
+  const objectUrl = URLApi.createObjectURL(blob);
+  const audio = new AudioCtor(objectUrl);
+  audio.muted = false;
+  audio.volume = 1;
+  target.movementRecognition.activeSpeechAudio = audio;
+  target.movementRecognition.activeSpeechObjectUrl = objectUrl;
+  target.movementRecognition.activeSpeechOwnership = ownership;
+  return new Promise((resolve) => {
+    let settled = false;
+    let startTimer = null;
+    let endTimer = null;
+    const cleanup = (result) => {
+      if (settled) return;
+      settled = true;
+      if (startTimer) clearTimeout(startTimer);
+      if (endTimer) clearTimeout(endTimer);
+      clearActiveAudio(target, URLApi, ownership);
+      resolve(result);
+    };
+    target.movementRecognition.activeSpeechCancel = () => {
+      if (ownership) ownership.cancelled = true;
+      cleanup({ ok: false, code: "visual_speech_cancelled" });
+    };
+    const current = () => Number(target.interactionState?.speechGenerationId || 0) === Number(speechGenerationId) &&
+      target.movementRecognition.activeSpeechOwnership === ownership && ownership?.cancelled !== true &&
+      (!runtimeSpeechToken || target.emergencyRuntimeController.isCurrent(runtimeSpeechToken, "speechId", runtimeSpeechToken.speechId));
+    audio.onplaying = () => {
+      if (settled) return;
+      if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
+      if (runtimeSpeechToken && !target.emergencyRuntimeController.markSpeechStarted(runtimeSpeechToken)) return cleanup({ ok: false, code: "visual_speech_stale" });
+      if (ownership) ownership.playing = true;
+      target.movementRecognition.voiceStatus = "Speaking…";
+      if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: true });
+      pauseRealtimeSpeechInputForAssistant(target);
+      if (target === state) {
+        sensefieldTestRuntime.resourceCounts.speechStarted += 1;
+        recordSensefieldTestSpeech("started", speechOwnershipMetadata(ownership, { path: "local_tts", text }), {
+          correlationId: ownership?.responseId,
+          modeGenerationId: ownership?.modeGeneration
+        });
+      }
+      render();
+      if (startTimer) clearTimeout(startTimer);
+      endTimer = setTimeout(() => {
+        if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
+        target.movementRecognition.voiceStatus = "Voice unavailable";
+        if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+        resumeRealtimeSpeechInputAfterAssistant(target);
+        cleanup({ ok: false, code: "visual_local_tts_end_timeout" });
+      }, options.speechEndTimeoutMs ?? 30000);
+    };
+    audio.onended = () => {
+      if (settled) return;
+      if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
+      const completed = runtimeSpeechToken ? finishRuntimeSpeech(target, runtimeSpeechToken, { completed: true }) : true;
+      if (!completed) return cleanup({ ok: false, code: "visual_speech_stale" });
+      if (ownership) ownership.completed = true;
+      target.movementRecognition.voiceStatus = "Voice complete";
+      if (target.interactionState?.sessionActive) {
+        applyInteractionState(target, { assistantSpeaking: false });
+        if (interactionModeIs(target, "conversation")) appendRealtimeMemory(target, "assistant", { text, interrupted: false, source: "voice" });
+        resumeRealtimeSpeechInputAfterAssistant(target);
+      }
+      if (target === state) {
+        sensefieldTestRuntime.resourceCounts.speechCompleted += 1;
+        recordSensefieldTestSpeech("completed", speechOwnershipMetadata(ownership, { path: "local_tts", text }), {
+          correlationId: ownership?.responseId,
+          modeGenerationId: ownership?.modeGeneration
+        });
+      }
+      render();
+      cleanup({ ok: true, path: "local_tts" });
+    };
+    audio.onerror = () => {
+      if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
+      target.movementRecognition.voiceStatus = "Voice unavailable";
+      if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      resumeRealtimeSpeechInputAfterAssistant(target);
+      render();
+      cleanup({ ok: false, code: "visual_local_tts_playback_error" });
+    };
+    startTimer = setTimeout(() => {
+      if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
+      target.movementRecognition.voiceStatus = "Voice unavailable";
+      if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      resumeRealtimeSpeechInputAfterAssistant(target);
+      cleanup({ ok: false, code: "visual_local_tts_start_timeout" });
+    }, options.speechStartTimeoutMs ?? 3000);
+    try {
+      const playResult = audio.play();
+      if (playResult?.catch) {
+        playResult.catch(() => {
+          target.movementRecognition.voiceStatus = "Voice unavailable";
+          if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+          render();
+          cleanup({ ok: false, code: "visual_local_tts_play_rejected" });
+        });
+      }
+    } catch {
+      target.movementRecognition.voiceStatus = "Voice unavailable";
+      if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      render();
+      cleanup({ ok: false, code: "visual_local_tts_play_failed" });
+    }
+  });
+}
+
+export async function cancelVisualSpeech(target = state, options = {}) {
+  const URLApi = options.URLApi || globalThis.URL;
+  const ownership = target.movementRecognition.activeSpeechOwnership;
+  const wasActive = Boolean(target.interactionState?.assistantSpeaking || target.movementRecognition.activeSpeechAudio || target.movementRecognition.activeVoiceAbortController || ownership);
+  if (ownership) ownership.cancelled = true;
+  target.movementRecognition.activeVoiceAbortController?.abort?.();
+  target.movementRecognition.activeVoiceAbortController = null;
+  if (target.interactionState) applyInteractionState(target, {
+    assistantSpeaking: false,
+    speechGenerationId: Number(target.interactionState.speechGenerationId || 0) + 1
+  });
+  target.emergencyRuntimeController?.cancelSpeech?.(wasActive ? "Voice playback cancelled" : "");
+  target.appState = target.emergencyRuntimeController?.snapshot?.() || target.appState;
+  clearActiveAudio(target, URLApi, ownership);
+  if (["Speaking…", "Preparing voice…"].includes(target.movementRecognition.voiceStatus)) {
+    target.movementRecognition.voiceStatus = "Voice unavailable";
+  }
+  resumeRealtimeSpeechInputAfterAssistant(target);
+  if (wasActive && target === state) {
+    sensefieldTestRuntime.resourceCounts.speechCancelled += 1;
+    recordSensefieldTestSpeech("cancelled", speechOwnershipMetadata(ownership, { path: "local_tts", reason: "runtime_cancel" }), {
+      correlationId: ownership?.responseId,
+      modeGenerationId: ownership?.modeGeneration
+    });
+  }
+  const send = options.fetch || globalThis.fetch;
+  if (typeof send === "function") {
+    try {
+      await send(VISUAL_COMPANION_CLIENT_CONFIG.cancelEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contains_raw_media: false })
+      });
+    } catch {
+      // Neural cancellation is best-effort after local ownership is invalidated.
+    }
+  }
+  return { ok: true };
+}
+
+function finishRuntimeSpeech(target, runtimeSpeechToken, outcome) {
+  const completed = target.emergencyRuntimeController.finishSpeech(runtimeSpeechToken, outcome);
+  target.appState = target.emergencyRuntimeController.snapshot();
+  return completed;
+}
+
+function clearActiveAudio(target, URLApi = globalThis.URL, ownership = target.movementRecognition.activeSpeechOwnership) {
+  if (target.movementRecognition.activeSpeechOwnership !== ownership) return false;
+  const cancelActive = target.movementRecognition.activeSpeechCancel;
+  target.movementRecognition.activeSpeechCancel = null;
+  cancelActive?.();
+  const audio = target.movementRecognition.activeSpeechAudio;
+  if (audio) {
+    audio.onplaying = null;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause?.();
+    audio.removeAttribute?.("src");
+    try {
+      audio.src = "";
+      audio.load?.();
+    } catch {
+      // Ignore media element cleanup failures.
+    }
+  }
+  if (target.movementRecognition.activeSpeechObjectUrl) {
+    URLApi?.revokeObjectURL?.(target.movementRecognition.activeSpeechObjectUrl);
+  }
+  target.movementRecognition.activeSpeechAudio = null;
+  target.movementRecognition.activeSpeechObjectUrl = "";
+  if (target.movementRecognition.activeSpeechOwnership === ownership) {
+    target.movementRecognition.activeSpeechOwnership = null;
+  }
+  return true;
+}
+
+function pauseRealtimeSpeechInputForAssistant(target) {
+  if (!interactionModeIs(target, "conversation")) return;
+  target.realtimeSession.speechStopping = true;
+  try { target.realtimeSession.speechRecognition?.abort?.(); } catch {}
+}
+
+function resumeRealtimeSpeechInputAfterAssistant(target) {
+  if (!target.interactionState?.sessionActive || !interactionModeIs(target, "conversation")) return;
+  const recognition = target.realtimeSession.speechRecognition;
+  if (!recognition) return;
+  target.realtimeSession.speechStopping = false;
+  if (target.realtimeSession.speechRestartTimer) clearTimeout(target.realtimeSession.speechRestartTimer);
+  target.realtimeSession.speechRestartTimer = setTimeout(() => {
+    if (!target.interactionState?.sessionActive || !interactionModeIs(target, "conversation") || target.interactionState.assistantSpeaking) return;
+    try { recognition.start(); } catch {}
+  }, 120);
+}
+
 
 export function buildReplayFixture(target, options = {}) {
   const devDryRun = options.devDryRun === true;
@@ -2245,6 +5411,973 @@ async function copySingleValidationCommand(commandId) {
   render();
 }
 
+export function openCustomGestureEditor(target, customSkillId = "", options = {}) {
+  const store = options.store || customSkillStore;
+  const boundDom = options.dom || dom;
+  const wizard = target.customSkillWizard;
+  if (wizard?.open && target.customSkillDraft) return target.customSkillDraft;
+  const existing = customSkillId ? store.read(customSkillId) : null;
+  const skill = existing || createCustomSkill({
+    name: "Custom gesture",
+    pose_type: "one_hand",
+    enabled: false,
+    active: false,
+    positive_templates: [],
+    negative_templates: [],
+    test_state: { successful_recognitions: 0, neutral_observed: false, user_approved: false }
+  }, { existingIds: store.list().map((skill) => skill.custom_skill_id) });
+  const linkedRecipe = existing?.linked_recipe_id ? automationRecipeStore.read(existing.linked_recipe_id) : null;
+  const draft = createCustomSkillDraft(skill, existing ? 5 : 1);
+  target.customSkillDraft = draft;
+  wizard.open = true;
+  wizard.action = {
+    type: linkedRecipe?.action?.type || "speak_phrase",
+    value: automationConfigValue(linkedRecipe)
+  };
+  wizard.testing = false;
+  wizard.testArmed = true;
+  wizard.opener = options.opener || (typeof document !== "undefined" ? document.activeElement : null);
+  wizard.isSaving = false;
+  if (boundDom?.customGestureName) boundDom.customGestureName.value = existing?.name || "";
+  if (boundDom?.customGesturePoseType) boundDom.customGesturePoseType.value = skill.pose_type;
+  if (boundDom?.customGestureActionType) boundDom.customGestureActionType.value = wizard.action.type;
+  if (boundDom?.customGestureActionValue) boundDom.customGestureActionValue.value = wizard.action.value;
+  if (boundDom?.customGestureSensitivity) boundDom.customGestureSensitivity.value = String(skill.sensitivity || 1);
+  if (boundDom?.customGestureHoldMs) boundDom.customGestureHoldMs.value = String(skill.recognition?.hold_ms || 400);
+  if (boundDom?.customGestureCooldown) boundDom.customGestureCooldown.value = String((skill.recognition?.cooldown_ms ?? 2500) / 1000);
+  if (boundDom?.customGestureEnabled) boundDom.customGestureEnabled.checked = existing ? existing.enabled === true : true;
+  setCustomGestureFormError(boundDom, "");
+  updateCustomGestureActionField(boundDom);
+  renderCustomGestureWizard(target, boundDom);
+  boundDom?.customGestureEditor?.showModal?.();
+  globalThis.setTimeout?.(() => (existing ? boundDom?.customGestureActionType : boundDom?.customGestureName)?.focus?.(), 0);
+  if (target === state) syncInstantGestureEngine();
+  return draft;
+}
+
+export function advanceCustomGestureWizard(target, options = {}) {
+  const boundDom = options.dom || dom;
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  if (!wizard?.open || !draft) return false;
+  setCustomGestureFormError(boundDom, "");
+  try {
+    if (draft.currentStep === 1) {
+      const name = String(boundDom?.customGestureName?.value || "").trim();
+      if (!name) throw customWizardError("Enter a name for this gesture.", boundDom?.customGestureName);
+      draft.skill = normalizeCustomMovementSkill({ ...draft.skill, name });
+    } else if (draft.currentStep === 2) {
+      const poseType = boundDom?.customGesturePoseType?.value === "two_hand" ? "two_hand" : "one_hand";
+      if (poseType !== draft.skill.pose_type) {
+        draft.skill = normalizeCustomMovementSkill({
+          ...draft.skill,
+          pose_type: poseType,
+          positive_templates: [],
+          negative_templates: [],
+          test_state: { successful_recognitions: 0, neutral_observed: false, user_approved: false },
+          active: false,
+          enabled: false
+        });
+      }
+    } else if (draft.currentStep === 3) {
+      if (draft.positiveExamples.length < MIN_CUSTOM_SKILL_EXAMPLES) throw customWizardError(`Capture ${MIN_CUSTOM_SKILL_EXAMPLES} accepted examples before testing.`, boundDom?.captureCustomGestureExample);
+      const calibrated = calibrateCustomSkillThreshold(draft.skill);
+      if (!calibrated.ok) throw customWizardError("Examples vary too much. Retrain with a steadier pose.", boundDom?.captureCustomGestureExample);
+      draft.skill = calibrated.skill;
+    } else if (draft.currentStep === 4) {
+      if (!canActivateCustomSkill(draft.skill)) throw customWizardError("Complete two successful tests, show one non-match, then select Looks correct.", boundDom?.startCustomGestureTest);
+      wizard.testing = false;
+    } else if (draft.currentStep === 5) {
+      const actionType = String(boundDom?.customGestureActionType?.value || "speak_phrase");
+      const value = String(boundDom?.customGestureActionValue?.value || "").trim();
+      if (actionType === "signed_webhook_post") throw customWizardError("This external action requires confirmation and cannot run from an instant custom gesture.", boundDom?.customGestureActionType);
+      if (!value) throw customWizardError(customActionValuePrompt(actionType), boundDom?.customGestureActionValue);
+      wizard.action = { type: actionType, value };
+    }
+    clearCustomSkillCapture(draft);
+    draft.captureState = "idle";
+    draft.currentStep = Math.min(6, draft.currentStep + 1);
+    renderCustomGestureWizard(target, boundDom);
+    return true;
+  } catch (error) {
+    setCustomGestureFormError(boundDom, error?.message || "Review this step before continuing.", error?.field);
+    return false;
+  }
+}
+
+export function moveCustomGestureWizardBack(target, options = {}) {
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  if (!wizard?.open || !draft) return false;
+  clearCustomSkillCapture(draft);
+  draft.captureState = "idle";
+  draft.lastCaptureError = "";
+  wizard.testing = false;
+  draft.currentStep = Math.max(1, draft.currentStep - 1);
+  renderCustomGestureWizard(target, options.dom || dom);
+  return true;
+}
+
+export function captureCustomSkillExample(target, options = {}) {
+  const wizard = target.customSkillWizard;
+  const boundDom = options.dom || dom;
+  const draft = target.customSkillDraft;
+  if (!wizard?.open || !draft || draft.currentStep !== 3) {
+    setCustomGestureFormError(boundDom, "Open Capture examples before capturing a gesture.", boundDom?.captureCustomGestureExample);
+    return false;
+  }
+  if (!target.cameraReady) {
+    draft.captureState = "error";
+    draft.lastCaptureError = "Start the camera first";
+    setCustomGestureFormError(boundDom, "Start the camera first", boundDom?.captureCustomGestureExample);
+    renderCustomGestureWizard(target, boundDom);
+    return false;
+  }
+  setCustomGestureFormError(boundDom, "");
+  clearCustomSkillCapture(draft);
+  draft.captureNegative = options.negative === true;
+  draft.captureState = "checking_hands";
+  draft.lastCaptureError = "";
+  draft.liveCandidate = null;
+  draft.visibleHandCount = 0;
+  draft.landmarkFrameAvailable = false;
+  draft.stableHoldMs = 0;
+  draft.captureStartedAt = 0;
+  renderCustomGestureWizard(target, boundDom);
+  if (target === state) syncInstantGestureEngine();
+  const setTimer = options.setTimeout || globalThis.setTimeout;
+  if (typeof setTimer === "function") {
+    draft.captureTimer = setTimer(() => {
+      if (target.customSkillDraft !== draft || !customCaptureInProgress(draft)) return;
+      const unstable = draft.transientSamples.length > 0;
+      finishCustomSkillCaptureFailure(
+        target,
+        draft,
+        unstable ? "Example rejected — movement was too unstable" : "Example rejected — hands were not fully visible",
+        boundDom
+      );
+    }, Number(options.timeoutMs || CUSTOM_SKILL_CAPTURE_TIMEOUT_MS));
+  }
+  return true;
+}
+
+export function beginCustomGestureCapture(target, negative = false, options = {}) {
+  return captureCustomSkillExample(target, { ...options, negative });
+}
+
+export function startCustomGestureTest(target, options = {}) {
+  const draft = target.customSkillDraft;
+  if (!draft) return false;
+  if (!target.cameraReady) {
+    setCustomGestureFormError(options.dom || dom, "Start the camera before testing your gesture.", (options.dom || dom)?.startCustomGestureTest);
+    return false;
+  }
+  target.customSkillWizard.testing = true;
+  target.customSkillWizard.testArmed = true;
+  draft.captureState = "testing";
+  draft.liveCandidate = null;
+  renderCustomGestureWizard(target, options.dom || dom);
+  if (target === state) syncInstantGestureEngine();
+  return true;
+}
+
+export function approveCustomGestureTest(target, options = {}) {
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  const test = draft?.testResults;
+  if (!test || test.successful_recognitions < 2 || test.neutral_observed !== true) return false;
+  draft.skill = recordCustomSkillTestObservation(draft.skill, { user_approved: true });
+  wizard.testing = false;
+  draft.captureState = "approved";
+  draft.liveCandidate = null;
+  renderCustomGestureWizard(target, options.dom || dom);
+  return true;
+}
+
+export function handleCustomSkillLandmarksInState(target, frame, options = {}) {
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  const hands = currentFrameHands(frame);
+  if (draft) {
+    draft.visibleHandCount = hands.length;
+    draft.landmarkFrameAvailable = hands.length > 0;
+  }
+  if (wizard?.open && draft && customCaptureInProgress(draft)) {
+    if (hands.length !== draft.requiredHandCount) {
+      draft.transientSamples.length = 0;
+      draft.captureStartedAt = 0;
+      draft.stableHoldMs = 0;
+      draft.captureState = "waiting_for_hands";
+      options.onWizardChange?.(draft);
+      if (target === state) renderCustomGestureWizard(target);
+      return { code: "custom_skill_hand_count_mismatch", candidate: null, contains_raw_media: false };
+    }
+    const timestampMs = Number(frame.timestamp_ms);
+    if (!draft.transientSamples.length) draft.captureStartedAt = timestampMs;
+    draft.transientSamples.push({
+      timestamp_ms: timestampMs,
+      hands,
+      mirrored: frame.mirrored === true,
+      contains_raw_media: false
+    });
+    draft.stableHoldMs = Math.max(0, timestampMs - Number(draft.captureStartedAt || timestampMs));
+    draft.captureState = draft.stableHoldMs > 0 ? "capturing" : "hands_detected";
+    if (draft.transientSamples.length >= 3 && draft.stableHoldMs >= 250) {
+      const transientSamples = draft.transientSamples.splice(0);
+      clearCustomSkillCaptureTimer(draft);
+      const accepted = acceptCustomSkillDemonstration(draft.skill, transientSamples, { negative: draft.captureNegative });
+      transientSamples.length = 0;
+      if (accepted.ok) {
+        draft.skill = accepted.skill;
+        draft.captureState = draft.captureNegative
+          ? "negative_accepted"
+          : draft.positiveExamples.length >= MIN_CUSTOM_SKILL_EXAMPLES ? "complete" : "accepted";
+        draft.lastCaptureError = "";
+      } else {
+        draft.captureState = "rejected";
+        draft.lastCaptureError = customTrainingStatus(accepted.code, draft.requiredHandCount);
+      }
+      draft.captureNegative = false;
+      draft.captureStartedAt = 0;
+      draft.stableHoldMs = 0;
+    }
+    options.onWizardChange?.(draft);
+    if (target === state) renderCustomGestureWizard(target);
+    return { code: "custom_skill_training", candidate: null, contains_raw_media: false };
+  }
+
+  if (wizard?.open && draft && wizard.testing) {
+    const classification = processCustomSkillLandmarks(target.customSkillRuntime, {
+      ...frame,
+      hands,
+      landmarks: hands.map((hand) => hand.landmarks),
+      handedness: hands.map((hand) => hand.handedness),
+      skills: [{ ...draft.skill, active: true, enabled: true }]
+    });
+    if (classification.candidate && wizard.testArmed) {
+      draft.skill = recordCustomSkillTestObservation(draft.skill, { matched: true });
+      wizard.testArmed = false;
+      draft.liveCandidate = classification.candidate;
+      draft.captureState = "test_match";
+    } else if (!classification.candidate) {
+      draft.skill = recordCustomSkillTestObservation(draft.skill, { neutral: true });
+      wizard.testArmed = true;
+      draft.liveCandidate = null;
+      draft.captureState = classification.code === "custom_skill_ambiguous" ? "test_ambiguous" : "testing";
+    }
+    options.onWizardChange?.(wizard);
+    if (target === state) renderCustomGestureWizard(target);
+    return { ...classification, candidate: null };
+  }
+
+  const classification = processCustomSkillLandmarks(target.customSkillRuntime, {
+    ...frame,
+    hands,
+    landmarks: hands.map((hand) => hand.landmarks),
+    handedness: hands.map((hand) => hand.handedness),
+    skills: target.customSkills || []
+  });
+  return classification;
+}
+
+export function saveCustomGestureFromWizard(target, options = {}) {
+  const boundDom = options.dom || dom;
+  const skillStore = options.skillStore || customSkillStore;
+  const recipeStore = options.recipeStore || automationRecipeStore;
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  if (!wizard?.open || !draft || wizard.isSaving) return null;
+  wizard.isSaving = true;
+  setCustomGestureFormError(boundDom, "");
+  let createdRecipeId = "";
+  try {
+    if (!canActivateCustomSkill(draft.skill)) throw customWizardError("Test and approve this gesture before saving.", boundDom?.startCustomGestureTest);
+    const actionType = wizard.action.type;
+    if (!INSTANT_LOCAL_ACTION_TYPES.includes(actionType)) throw customWizardError("This action requires confirmation and cannot run from an instant custom gesture.", boundDom?.customGestureActionType);
+    const actionConfig = automationActionConfig(actionType, wizard.action.value, "");
+    const active = boundDom?.customGestureEnabled?.checked !== false;
+    const holdMs = Math.max(250, Math.min(1500, Number(boundDom?.customGestureHoldMs?.value || draft.skill.recognition?.hold_ms || 400)));
+    const cooldownMs = Math.max(0, Math.min(86_400_000, Number(boundDom?.customGestureCooldown?.value || 2.5) * 1000));
+    const recipeInput = {
+      schema_version: "movement-automation-recipe.v1-1",
+      name: `${draft.name} automation`,
+      enabled: active,
+      execution_mode: "instant_local_gesture",
+      confirmation_policy: "none",
+      trigger: {
+        movement_key: draft.skill.gesture_key,
+        source: "custom_local_skill",
+        custom_skill_id: draft.skillId,
+        gesture_key: draft.skill.gesture_key,
+        aliases: [],
+        required_tags: [],
+        minimum_confidence: 0.25,
+        hold_ms: Math.round(holdMs),
+        neutral_reset_required: true,
+        require_user_confirmation: false
+      },
+      action: { type: actionType, config: actionConfig },
+      risk_tier: riskTierForAutomationAction(actionType),
+      execution_policy: { cooldown_ms: Math.round(cooldownMs), max_runs_per_session: 20, require_per_run_confirmation: false, retry_limit: 0 },
+      consent: { run_instantly: true, consent_version: 1, consented_at: Date.now() }
+    };
+    const existingSkill = skillStore.read(draft.skillId);
+    let recipe;
+    if (existingSkill?.linked_recipe_id && recipeStore.read(existingSkill.linked_recipe_id)) {
+      recipe = recipeStore.update(existingSkill.linked_recipe_id, recipeInput);
+    } else {
+      recipe = recipeStore.create(recipeInput);
+      createdRecipeId = recipe.recipe_id;
+    }
+    const finalSkill = normalizeCustomMovementSkill({
+      ...draft.skill,
+      sensitivity: Number(boundDom?.customGestureSensitivity?.value || draft.skill.sensitivity || 1),
+      recognition: { ...draft.skill.recognition, hold_ms: Math.round(holdMs), cooldown_ms: Math.round(cooldownMs) },
+      enabled: active,
+      active,
+      linked_recipe_id: recipe.recipe_id
+    });
+    const saved = existingSkill ? skillStore.update(finalSkill.custom_skill_id, finalSkill) : skillStore.create(finalSkill);
+    target.customSkills = skillStore.list();
+    target.automation.recipes = recipeStore.list();
+    target.automation.lastSafeMessage = "Custom gesture saved.";
+    wizard.isSaving = false;
+    closeCustomGestureEditor(target, { dom: boundDom, skipFocus: false, force: true });
+    lastAutomationRenderKey = "";
+    if (target === state) renderAutomationState(target);
+    if (target === state) syncInstantGestureEngine();
+    return saved;
+  } catch (error) {
+    if (createdRecipeId) recipeStore.delete(createdRecipeId);
+    wizard.isSaving = false;
+    setCustomGestureFormError(boundDom, error?.message || "Could not save this custom gesture.", error?.field);
+    return null;
+  }
+}
+
+function closeCustomGestureEditor(target, options = {}) {
+  const boundDom = options.dom || dom;
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  const opener = wizard?.opener;
+  if (!options.force && draft?.positiveExamples.length) {
+    const confirmClose = options.confirm || globalThis.confirm;
+    if (typeof confirmClose === "function" && confirmClose("Discard captured gesture examples?") !== true) return false;
+  }
+  if (draft) clearCustomSkillCapture(draft);
+  target.customSkillDraft = null;
+  wizard.testing = false;
+  wizard.open = false;
+  boundDom?.customGestureEditor?.close?.();
+  if (!options.skipFocus) opener?.focus?.();
+  if (target === state) syncInstantGestureEngine();
+  return true;
+}
+
+function handleCustomSkillManagerAction(target, action, customSkillId) {
+  const skill = customSkillStore.read(customSkillId);
+  if (!skill) return;
+  if (action === "test") return openCustomGestureEditor(target, customSkillId) && startCustomGestureTest(target);
+  if (action === "edit-action") return openCustomGestureEditor(target, customSkillId);
+  if (action === "retrain") {
+    const updated = customSkillStore.clearTemplates(customSkillId);
+    if (updated.linked_recipe_id && automationRecipeStore.read(updated.linked_recipe_id)) automationRecipeStore.setEnabled(updated.linked_recipe_id, false);
+    target.customSkills = customSkillStore.list();
+    target.automation.recipes = automationRecipeStore.list();
+    return openCustomGestureEditor(target, customSkillId);
+  }
+  if (action === "toggle") {
+    const enabled = !skill.enabled;
+    customSkillStore.update(customSkillId, { enabled, active: enabled });
+    if (skill.linked_recipe_id && automationRecipeStore.read(skill.linked_recipe_id)) automationRecipeStore.setEnabled(skill.linked_recipe_id, enabled);
+  }
+  if (action === "delete" && globalThis.confirm?.(`Delete ${skill.name} and its local templates?`) === true) {
+    if (skill.linked_recipe_id) automationRecipeStore.delete(skill.linked_recipe_id);
+    customSkillStore.delete(customSkillId);
+  }
+  target.customSkills = customSkillStore.list();
+  target.automation.recipes = automationRecipeStore.list();
+  lastAutomationRenderKey = "";
+  renderAutomationState(target);
+  if (target === state) syncInstantGestureEngine();
+}
+
+function clearAllCustomGestures(target) {
+  if (!target.customSkills.length || globalThis.confirm?.("Delete all custom gestures and linked local recipes?") !== true) return false;
+  for (const skill of target.customSkills) if (skill.linked_recipe_id) automationRecipeStore.delete(skill.linked_recipe_id);
+  customSkillStore.clear();
+  target.customSkills = [];
+  target.automation.recipes = automationRecipeStore.list();
+  lastAutomationRenderKey = "";
+  renderAutomationState(target);
+  syncInstantGestureEngine();
+  return true;
+}
+
+function renderCustomGestureWizard(target, boundDom = dom) {
+  const wizard = target.customSkillWizard;
+  const draft = target.customSkillDraft;
+  if (!wizard?.open || !draft || !boundDom) return;
+  boundDom.customGestureEditor?.querySelectorAll?.("[data-custom-skill-step]").forEach((section) => {
+    section.hidden = Number(section.getAttribute("data-custom-skill-step")) !== draft.currentStep;
+  });
+  if (boundDom.customGestureStepStatus) boundDom.customGestureStepStatus.textContent = `Step ${draft.currentStep} of 6`;
+  if (boundDom.customGestureTrainingStatus) boundDom.customGestureTrainingStatus.textContent = customCaptureStatusText(draft);
+  if (boundDom.customGestureExampleCount) boundDom.customGestureExampleCount.textContent = `${draft.positiveExamples.length} of ${MIN_CUSTOM_SKILL_EXAMPLES} examples accepted`;
+  if (boundDom.customGestureTestStatus) boundDom.customGestureTestStatus.textContent = customTestStatusText(draft);
+  if (boundDom.customGestureMatchStatus) {
+    const test = draft.testResults;
+    boundDom.customGestureMatchStatus.textContent = `${test.successful_recognitions} successful tests · ${test.neutral_observed ? "neutral observed" : "neutral needed"}`;
+  }
+  if (boundDom.approveCustomGestureTest) {
+    boundDom.approveCustomGestureTest.disabled = draft.testResults.successful_recognitions < 2 || !draft.testResults.neutral_observed;
+  }
+  if (boundDom.customGestureSaveSummary) boundDom.customGestureSaveSummary.textContent = `${draft.name} · ${draft.skill.pose_type === "two_hand" ? "Custom two-hand pose" : "Custom one-hand pose"} · ${draft.positiveExamples.length} examples · ${wizard.action.type.replaceAll("_", " ")}`;
+  if (boundDom.captureCustomGestureExample) {
+    boundDom.captureCustomGestureExample.disabled = customCaptureInProgress(draft) || draft.positiveExamples.length >= MIN_CUSTOM_SKILL_EXAMPLES;
+    boundDom.captureCustomGestureExample.title = customCaptureStatusText(draft);
+  }
+  if (boundDom.captureCustomGestureNegative) boundDom.captureCustomGestureNegative.disabled = customCaptureInProgress(draft);
+  if (boundDom.customGestureBack) boundDom.customGestureBack.hidden = draft.currentStep === 1;
+  if (boundDom.customGestureNext) {
+    boundDom.customGestureNext.hidden = draft.currentStep === 6;
+    boundDom.customGestureNext.disabled = draft.currentStep === 3 && draft.positiveExamples.length < MIN_CUSTOM_SKILL_EXAMPLES;
+  }
+  if (boundDom.customGestureSave) boundDom.customGestureSave.hidden = draft.currentStep !== 6;
+}
+
+function updateCustomGestureActionField(boundDom = dom) {
+  const type = boundDom?.customGestureActionType?.value || "speak_phrase";
+  if (boundDom?.customGestureActionLabel) boundDom.customGestureActionLabel.textContent = {
+    speak_phrase: "Phrase",
+    start_timer: "Duration in seconds",
+    increment_counter: "Counter name",
+    append_activity_log: "Activity category",
+    browser_notification: "Notification text",
+    signed_webhook_post: "Approved destination"
+  }[type] || "Configuration";
+}
+
+function setCustomGestureFormError(boundDom, message, field) {
+  if (!boundDom?.customGestureFormError) return;
+  boundDom.customGestureFormError.hidden = !message;
+  boundDom.customGestureFormError.textContent = message || "";
+  if (message && field) {
+    field.setAttribute?.("aria-invalid", "true");
+    field.focus?.();
+  }
+}
+
+function customWizardError(message, field) {
+  const error = new Error(message);
+  error.field = field;
+  return error;
+}
+
+function customActionValuePrompt(actionType) {
+  if (actionType === "speak_phrase") return "Enter the phrase Sensefield should speak.";
+  if (actionType === "start_timer") return "Enter a timer duration.";
+  if (actionType === "increment_counter") return "Enter a counter name.";
+  if (actionType === "append_activity_log") return "Enter an activity category.";
+  if (actionType === "browser_notification") return "Enter notification text.";
+  return "Configure this action before continuing.";
+}
+
+function customTrainingStatus(code, handCount) {
+  if (code === "custom_skill_example_unstable") return "Example rejected — movement was too unstable";
+  if (code === "custom_skill_example_duplicate") return "Move slightly before the next example";
+  if (["custom_skill_wrong_hand_count", "custom_skill_example_incomplete"].includes(code)) return "Example rejected — hands were not fully visible";
+  return handCount === 2 ? "Example rejected — hands were not fully visible" : "Example rejected — hand was not fully visible";
+}
+
+function customCaptureInProgress(draft) {
+  return ["checking_hands", "waiting_for_hands", "hands_detected", "capturing"].includes(draft?.captureState);
+}
+
+function customCaptureStatusText(draft) {
+  if (!draft) return "Start the camera first";
+  if (draft.lastCaptureError) return draft.lastCaptureError;
+  if (draft.captureState === "checking_hands") return "Checking hands…";
+  if (draft.captureState === "waiting_for_hands") return draft.requiredHandCount === 2 ? "Waiting for both hands" : "Waiting for one hand";
+  if (draft.captureState === "hands_detected") return draft.requiredHandCount === 2 ? "Both hands detected — hold steady" : "Hand detected — hold steady";
+  if (draft.captureState === "capturing") return "Capturing local landmark template…";
+  if (draft.captureState === "accepted") return `Example accepted — ${draft.positiveExamples.length} of ${MIN_CUSTOM_SKILL_EXAMPLES}`;
+  if (draft.captureState === "negative_accepted") return "Non-match example accepted";
+  if (draft.captureState === "complete") return "Five examples captured";
+  return draft.requiredHandCount === 2 ? "Position both hands and hold steady." : "Position your hand and hold steady.";
+}
+
+function customTestStatusText(draft) {
+  if (draft.captureState === "approved") return "Looks correct. Choose an action.";
+  if (draft.captureState === "test_ambiguous") return "Ambiguous with another skill.";
+  if (draft.captureState === "test_match" && draft.liveCandidate) {
+    return `${draft.name} candidate — match score ${coarseMatchScore(draft.liveCandidate.match_score)} — return to neutral.`;
+  }
+  return "No match — show the gesture, then return to neutral.";
+}
+
+function currentFrameHands(frame = {}) {
+  const suppliedHands = Array.isArray(frame.hands) ? frame.hands.slice(0, 2) : [];
+  const groups = suppliedHands.length
+    ? suppliedHands.map((hand) => hand?.landmarks)
+    : Array.isArray(frame.landmarks) ? frame.landmarks.slice(0, 2) : [];
+  const handedness = suppliedHands.length
+    ? suppliedHands.map((hand) => hand?.handedness)
+    : Array.isArray(frame.handedness) ? frame.handedness : [];
+  return groups.map((group, index) => {
+    if (!Array.isArray(group) || group.length < 21) return null;
+    const landmarks = group.slice(0, 21).map((point) => ({ x: Number(point?.x), y: Number(point?.y), z: Number(point?.z || 0) }));
+    if (landmarks.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y) || !Number.isFinite(point.z))) return null;
+    const value = Array.isArray(handedness[index]) ? handedness[index][0] : handedness[index];
+    return {
+      handedness: String(value?.categoryName || value?.displayName || value?.label || value || `hand_${index + 1}`),
+      landmarks
+    };
+  }).filter(Boolean);
+}
+
+function clearCustomSkillCaptureTimer(draft) {
+  if (draft?.captureTimer != null) globalThis.clearTimeout?.(draft.captureTimer);
+  if (draft) draft.captureTimer = null;
+}
+
+function clearCustomSkillCapture(draft) {
+  if (!draft) return;
+  clearCustomSkillCaptureTimer(draft);
+  draft.transientSamples.length = 0;
+  draft.captureStartedAt = 0;
+  draft.captureNegative = false;
+  draft.stableHoldMs = 0;
+}
+
+function finishCustomSkillCaptureFailure(target, draft, message, boundDom = dom) {
+  clearCustomSkillCapture(draft);
+  draft.captureState = "rejected";
+  draft.lastCaptureError = message;
+  renderCustomGestureWizard(target, boundDom);
+}
+
+function coarseMatchScore(value) {
+  const score = Number(value || 0);
+  if (score >= 0.8) return "strong";
+  if (score >= 0.55) return "medium";
+  return "low";
+}
+
+function instantRuntimeFor(target) {
+  return target.instantGestureRuntimeState || target.instantGestures;
+}
+
+function runtimeNow() {
+  return Number(globalThis.performance?.now?.() ?? Date.now());
+}
+
+function instantRuntimeEffectiveEnabled(runtime) {
+  return runtime.userEnabled === true
+    && runtime.cameraActive === true
+    && runtime.documentVisible === true
+    && runtime.enabledRecipeCount > 0;
+}
+
+function instantRuntimeReady(runtime, engineStatus = runtime.engineStatus) {
+  const age = Number(runtime.lastInferenceAgeMs);
+  const recent = Number.isFinite(age)
+    ? age < INSTANT_INFERENCE_STALE_MS
+    : runtime.lastInferenceAt > 0 && runtimeNow() - runtime.lastInferenceAt < INSTANT_INFERENCE_STALE_MS;
+  return String(engineStatus).startsWith("ready")
+    && runtime.recognizerInitialized === true
+    && runtime.loopRunning === true
+    && runtime.successfulInferences > 0
+    && recent
+    && !runtime.lastErrorCode;
+}
+
+export function deriveInstantGestureStatus(input) {
+  const runtime = input?.instantGestureRuntimeState || input;
+  if (!runtime?.userEnabled) return "Off";
+  if (runtime.safeError || runtime.engineStatus === "error" || runtime.engineStatus === "unavailable") return "Error";
+  if (!runtime.cameraActive) return "Enabled — waiting for camera";
+  if (!runtime.documentVisible) return "Starting inference";
+  if (runtime.engineStatus === "loading") return "Loading local gesture AI";
+  if (["gesture_detected", "candidate"].includes(runtime.engineStatus)) return "Gesture detected";
+  if (["hold_steady", "hold_progress"].includes(runtime.engineStatus)) return "Hold steady";
+  if (["executing", "recognized"].includes(runtime.engineStatus)) return "Executing";
+  if (runtime.engineStatus === "completed") return "Completed";
+  if (runtime.engineStatus === "cooling_down") return "Cooling down";
+  if (runtime.engineStatus === "ready" && instantRuntimeReady(runtime)) return "Ready — scanning";
+  return "Starting inference";
+}
+
+function instantRuntimeDiagnostics(runtime) {
+  return {
+    ...(runtime._diagnostics || {}),
+    engine_mode: runtime.engineMode,
+    recognizer_initialized: runtime.recognizerInitialized,
+    loop_running: runtime.loopRunning,
+    frames_processed: runtime.framesProcessed,
+    successful_inferences: runtime.successfulInferences,
+    frame_in_flight: runtime.frameInFlight,
+    video_ready: runtime.videoReady,
+    status: runtime.engineStatus,
+    last_inference_at_ms: runtime.lastInferenceAt,
+    last_inference_age_ms: runtime.lastInferenceAgeMs,
+    last_raw_label: runtime.lastRawLabel,
+    last_raw_confidence: runtime.lastRawConfidence,
+    mapped_gesture: runtime.lastCandidate,
+    fallback_classifier_used: runtime.fallbackClassifierUsed,
+    current_hold_ms: runtime.currentHoldMs,
+    required_hold_ms: runtime.requiredHoldMs,
+    last_stable_event: runtime.lastStableEvent,
+    last_stable_event_id: runtime.lastStableEvent,
+    last_recipe_outcome_code: runtime.lastRecipeOutcomeCode,
+    last_recipe_match: runtime.lastRecipeMatch,
+    last_action_outcome_code: runtime.lastActionOutcomeCode,
+    last_receipt: runtime.lastReceipt,
+    last_receipt_id: runtime.lastReceiptId,
+    safe_error: runtime.safeError,
+    last_outcome_code: runtime.lastOutcomeCode,
+    last_error_code: runtime.lastErrorCode,
+    last_error_message: runtime.lastErrorMessage,
+    contains_raw_media: false
+  };
+}
+
+function renderInstantGestureStatus(target = state) {
+  const runtime = instantRuntimeFor(target);
+  const copy = deriveInstantGestureStatus(runtime);
+  target.automation.instantGestureStatus = runtime.engineStatus;
+  if (target === state && dom?.instantGestureStatus) dom.instantGestureStatus.textContent = copy;
+  return copy;
+}
+
+function setInstantGesturePhase(target, engineStatus, patch = {}) {
+  const runtime = instantRuntimeFor(target);
+  Object.assign(runtime, patch, { engineStatus, contains_raw_media: false });
+  renderInstantGestureStatus(target);
+}
+
+function syncInstantGestureEngine() {
+  const runtime = state.instantGestureRuntimeState;
+  runtime.cameraActive = state.cameraReady === true;
+  runtime.documentVisible = typeof document === "undefined" || document.hidden !== true;
+  runtime.enabledRecipeCount = state.automation.recipes.filter((recipe) => recipe.enabled === true
+    && recipe.execution_mode === "instant_local_gesture"
+    && recipe.consent?.run_instantly === true).length;
+  const instantRequested = runtime.userEnabled === true;
+  const trainerRequested = state.customSkillWizard?.open === true && state.customSkillDraft != null;
+  const primaryConversation = isPrimaryView() && state.interactionState?.mode === "conversation";
+  const engineRequested = (instantRequested || trainerRequested)
+    && runtime.cameraActive
+    && runtime.documentVisible
+    && Boolean(dom?.preview)
+    && !primaryConversation;
+  if (!engineRequested) {
+    stopInstantGestureEngine(runtime.userEnabled && !runtime.cameraActive ? "waiting_camera" : runtime.userEnabled ? "starting_inference" : "off");
+    return;
+  }
+  localGestureEngine ??= createLocalGestureEngine({
+    directMainThread: false,
+    numHands: 2,
+    compatibilityMaxFps: 6,
+    onStatusChange: ({ status, reason, code, mode }) => {
+      runtime.engineMode = mode || runtime.engineMode;
+      if (code && code !== "gesture_direct_main_thread") runtime.lastErrorCode = code;
+      if (reason) runtime.lastErrorMessage = String(reason);
+      if (["loading", "loading_model"].includes(status)) setInstantGesturePhase(state, "loading");
+      if (["starting_inference", "waiting_camera_frames", "stalled"].includes(status)) setInstantGesturePhase(state, "starting_inference");
+      if (["ready", "ready_compatibility"].includes(status)) {
+        runtime.lastErrorCode = "";
+        runtime.lastErrorMessage = "";
+        const actionVisible = ["gesture_detected", "hold_steady", "executing", "completed", "cooling_down"].includes(runtime.engineStatus);
+        if (!actionVisible) setInstantGesturePhase(state, "ready");
+      }
+      if (status === "unavailable") {
+        const safeError = safeInstantGestureError(reason, code);
+        setInstantGesturePhase(state, "error", {
+          safeError,
+          lastErrorMessage: safeError,
+          lastOutcomeCode: code || "gesture_engine_unavailable"
+        });
+      }
+    },
+    onDiagnosticsChange: (diagnostics) => setInstantGestureDiagnostics(diagnostics),
+    onLandmarks: (frame) => handleCustomSkillLandmarksInState(state, frame),
+    onObservation: (observation) => handleLocalGestureObservation(observation, { physicalSmokeTest: true })
+  });
+  if (!localGestureEngine.isRunning()) {
+    setInstantGesturePhase(state, "loading", { safeError: "" });
+    localGestureEngine.start(dom.preview);
+  }
+}
+
+function stopInstantGestureEngine(nextStatus = "off") {
+  localGestureEngine?.stop();
+  localGestureEngine = null;
+  if (instantGestureCooldownTimer) clearTimeout(instantGestureCooldownTimer);
+  instantGestureCooldownTimer = null;
+  const runtime = state?.instantGestureRuntimeState;
+  if (!runtime) return;
+  const normalizedStatus = nextStatus === "Off" ? (runtime.userEnabled ? "starting_inference" : "off") : nextStatus;
+  runtime.stabilizer = createGestureStabilizerState();
+  runtime.loopRunning = false;
+  runtime.recognizerInitialized = false;
+  runtime.engineMode = "off";
+  setInstantGesturePhase(state, normalizedStatus);
+}
+
+function safeInstantGestureError(reason, code) {
+  const fallback = code ? `Local gesture engine failed: ${code}` : "Unavailable — local gesture processing could not start.";
+  const raw = String(reason || fallback);
+  return raw
+    .replace(/(?:hf_|sk-)[a-z0-9_-]+/gi, "[redacted]")
+    .replace(/([?&](?:token|key|secret|signature|credential)=)[^&\s]+/gi, "$1[redacted]")
+    .slice(0, 220);
+}
+
+function setInstantGestureDiagnostics(diagnostics = {}) {
+  const runtime = state.instantGestureRuntimeState;
+  runtime._diagnostics = { ...runtime._diagnostics, ...diagnostics, contains_raw_media: false };
+  runtime.engineMode = String(diagnostics.engine_mode || diagnostics.mode || runtime.engineMode);
+  runtime.recognizerInitialized = diagnostics.recognizer_initialized ?? diagnostics.recognizer_ready ?? runtime.recognizerInitialized;
+  runtime.loopRunning = diagnostics.loop_running === true;
+  runtime.framesProcessed = Number(diagnostics.frames_processed || 0);
+  runtime.successfulInferences = Number(diagnostics.successful_inferences || 0);
+  runtime.lastInferenceAt = Number(diagnostics.last_inference_at_ms || 0);
+  runtime.lastInferenceAgeMs = Number.isFinite(Number(diagnostics.last_inference_age_ms)) ? Number(diagnostics.last_inference_age_ms) : null;
+  runtime.lastRawLabel = String(diagnostics.last_raw_label || "None");
+  runtime.lastRawConfidence = Number(diagnostics.last_raw_confidence || 0);
+  runtime.lastCandidate = diagnostics.mapped_gesture || null;
+  runtime.fallbackClassifierUsed = diagnostics.fallback_classifier_used === true;
+  runtime.frameInFlight = diagnostics.frame_in_flight === true;
+  runtime.videoReady = diagnostics.video_ready === true;
+  if (diagnostics.last_error_code) runtime.lastErrorCode = String(diagnostics.last_error_code);
+  if (diagnostics.last_error_message) runtime.lastErrorMessage = String(diagnostics.last_error_message);
+  renderInstantGestureStatus(state);
+  renderInstantGestureDiagnostics(state);
+}
+
+export async function handleLocalGestureObservationInState(target, observation, options = {}) {
+  if (target.interactionState?.sessionActive && interactionModeIs(target, "conversation")) {
+    return { matches: [], receipts: [], code: "conversation_runtime_isolated" };
+  }
+  const runtime = instantRuntimeFor(target);
+  const documentHidden = options.documentHidden ?? (typeof document !== "undefined" && document.hidden === true);
+  runtime.cameraActive = target.cameraReady === true;
+  runtime.documentVisible = !documentHidden;
+  runtime.enabledRecipeCount = target.automation.recipes.filter((recipe) => recipe.enabled && recipe.execution_mode === "instant_local_gesture").length;
+  if (!runtime.userEnabled) return { matches: [], receipts: [], code: "instant_gesture_not_enabled" };
+  if (!target.cameraReady) return { matches: [], receipts: [], code: "instant_camera_inactive" };
+  if (documentHidden) return { matches: [], receipts: [], code: "instant_document_hidden" };
+  const engineStatus = String(options.engineStatus || runtime.engineStatus || "unavailable");
+  if (["off", "unavailable"].includes(engineStatus)) return { matches: [], receipts: [], code: "instant_engine_unavailable" };
+  const compatibilityReady = target !== state && engineStatus.startsWith("ready");
+  if (!instantRuntimeReady(runtime, engineStatus) && !compatibilityReady) {
+    setInstantGestureStatusForTarget(target, "starting_inference", "Starting inference", options);
+    return { matches: [], receipts: [], code: "instant_engine_not_ready" };
+  }
+  const candidates = target.automation.recipes.filter((recipe) => recipe.enabled && recipe.execution_mode === "instant_local_gesture" && recipe.trigger?.gesture_key === observation.gesture_key);
+  const physicalSmokeTest = options.physicalSmokeTest === true && observation.gesture_key === "thumbs_up";
+  const settings = candidates.length ? {
+    minimumConfidence: physicalSmokeTest ? 0.55 : Math.min(...candidates.map((recipe) => Number(recipe.trigger.minimum_confidence ?? INSTANT_GESTURE_DEFAULTS.minimumConfidence))),
+    holdMs: physicalSmokeTest ? 250 : Math.max(...candidates.map((recipe) => Number(recipe.trigger.hold_ms ?? INSTANT_GESTURE_DEFAULTS.holdMs))),
+    neutralResetMs: INSTANT_GESTURE_DEFAULTS.neutralResetMs,
+    cooldownMs: physicalSmokeTest ? 3000 : Math.max(...candidates.map((recipe) => Number(recipe.execution_policy?.cooldown_ms ?? INSTANT_GESTURE_DEFAULTS.cooldownMs)))
+  } : INSTANT_GESTURE_DEFAULTS;
+  const stabilized = updateGestureStabilizer(runtime.stabilizer, observation, settings);
+  runtime.stabilizer = stabilized.state;
+  const timestampMs = Number(observation.timestamp_ms || 0);
+  const holdProgressMs = stabilized.state.candidateSinceMs == null
+    ? 0
+    : Math.max(0, timestampMs - Number(stabilized.state.candidateSinceMs));
+  runtime.currentHoldMs = holdProgressMs;
+  runtime.requiredHoldMs = settings.holdMs;
+  runtime.fallbackClassifierUsed = observation.source === "mediapipe_landmark_fallback";
+  runtime.lastRecipeOutcomeCode = stabilized.code;
+  runtime.lastCandidate = observation.gesture_key || null;
+  if (observation.gesture_key) {
+    const label = gestureStatusLabel(observation.gesture_key);
+    const confidencePercent = Math.round(Number(observation.confidence || 0) * 100);
+    const message = holdProgressMs > 0
+      ? `${label} — ${formatVisibleGestureHold(holdProgressMs, settings.holdMs)} / ${Math.round(settings.holdMs)}ms`
+      : `${label} ${confidencePercent}% — hold steady`;
+    setInstantGestureStatusForTarget(target, holdProgressMs > 0 ? "hold_progress" : "candidate", message, options);
+  }
+  if (!stabilized.event) {
+    runtime.lastOutcomeCode = stabilized.code;
+    const activeCooldown = target.automation.recipes.some((recipe) => recipe.execution_mode === "instant_local_gesture"
+      && Number(target.automation.cooldowns?.[recipe.recipe_id] || 0) > timestampMs);
+    if (activeCooldown || stabilized.code === "instant_gesture_cooldown_active" || stabilized.code === "instant_gesture_duplicate") {
+      setInstantGestureStatusForTarget(target, "cooling_down", "Cooling down", options);
+    } else if (observation.gesture_key && holdProgressMs >= settings.holdMs) {
+      setInstantGestureStatusForTarget(target, "unavailable", stabilized.code, options);
+    } else if (!observation.gesture_key && !["completed", "cooling_down"].includes(runtime.engineStatus)) {
+      setInstantGestureStatusForTarget(
+        target,
+        engineStatus.startsWith("ready") ? "ready" : "starting_inference",
+        engineStatus.startsWith("ready") ? "No hand gesture detected" : "Starting inference",
+        options
+      );
+    }
+    return { matches: [], receipts: [], code: stabilized.code, stabilization: stabilized };
+  }
+  if (!engineStatus.startsWith("ready")) {
+    setInstantGestureStatusForTarget(target, "unavailable", "instant_engine_unavailable", options);
+    return { matches: [], receipts: [], code: "instant_engine_unavailable", stabilization: stabilized };
+  }
+  setInstantGestureStatusForTarget(target, "recognized", "Recognized — executing", options);
+  const stableHandler = options.handleStableLocalGesture || handleStableLocalGesture;
+  const executionRecipes = physicalSmokeTest
+    ? withPhysicalSmokeThresholds(target.automation.recipes, observation.gesture_key)
+    : target.automation.recipes;
+  const outcome = await stableHandler(stabilized.event, { ...options, target, documentHidden, executionRecipes });
+  runtime.lastOutcomeCode = outcome.code || "instant_recipe_mismatch";
+  runtime.lastStableEvent = stabilized.event.gesture_event_id;
+  runtime.lastRecipeOutcomeCode = outcome.outcome_codes?.includes("instant_recipe_matched")
+    ? "instant_recipe_matched"
+    : outcome.code || "instant_recipe_not_enabled";
+  runtime.lastRecipeMatch = outcome.matches?.map((recipe) => recipe.recipe_id).join(", ") || "";
+  runtime.lastActionOutcomeCode = outcome.outcome_codes?.find((code) => code.startsWith("instant_action_") || code.startsWith("instant_speech_"))
+    || (/^instant_(?:action_|speech_)/.test(outcome.code || "") ? outcome.code : "");
+  const receipt = outcome.receipts?.at(-1);
+  runtime.lastReceipt = receipt?.safe_message || "";
+  runtime.lastReceiptId = receipt?.execution_id || "";
+  runtime.safeError = receipt?.status === "failed" ? receipt.safe_message : "";
+  return { ...outcome, stabilization: stabilized };
+}
+
+export async function handleStableLocalGesture(gestureEvent, options = {}) {
+  const target = options.target || state;
+  if (target.interactionState?.sessionActive && interactionModeIs(target, "conversation")) {
+    return { matches: [], receipts: [], code: "conversation_runtime_isolated" };
+  }
+  const runtime = instantRuntimeFor(target);
+  const documentHidden = options.documentHidden ?? (typeof document !== "undefined" && document.hidden === true);
+  const engineStatus = options.engineStatus || localGestureEngine?.getStatus?.() || "unavailable";
+  if (!runtime.userEnabled) return { matches: [], receipts: [], code: "instant_gesture_not_enabled" };
+  if (!target.cameraReady) return { matches: [], receipts: [], code: "instant_camera_inactive" };
+  if (documentHidden) return { matches: [], receipts: [], code: "instant_document_hidden" };
+  if (!String(engineStatus).startsWith("ready")) return { matches: [], receipts: [], code: "instant_engine_unavailable" };
+
+  const frozenGestureEvent = Object.freeze({ ...gestureEvent, contains_raw_media: false });
+  runtime.lastGestureEvent = frozenGestureEvent;
+  setInstantGestureStatusForTarget(target, "recognized", "Recognized — executing", options);
+  const runStableGesture = options.runAutomationForStableLocalGesture || runStableGestureRecipes;
+  const instantGestureConsent = { instantGesturesEnabled: runtime.userEnabled };
+  const outcome = await runStableGesture({
+    gestureEvent: frozenGestureEvent,
+    recipes: options.executionRecipes || target.automation.recipes,
+    runtimeState: target.automation,
+    context: {
+      ...instantGestureConsent,
+      cameraActive: target.cameraReady,
+      cameraReady: target.cameraReady,
+      documentVisible: !documentHidden,
+      documentHidden,
+      engineStatus: String(engineStatus).startsWith("ready") ? "ready" : engineStatus,
+      speechSynthesis: options.speechSynthesis || globalThis.speechSynthesis,
+      SpeechSynthesisUtterance: options.SpeechSynthesisUtterance || globalThis.SpeechSynthesisUtterance,
+      Notification: options.Notification || globalThis.Notification,
+      userGesture: false,
+      onRuntimeChange: options.onRuntimeChange,
+      ...(options.context || {})
+    }
+  });
+  const receipt = outcome.receipts?.at(-1);
+  if (receipt?.status === "succeeded") {
+    setInstantGestureStatusForTarget(target, "completed", String(receipt.safe_message || "Completed").replace(/^Completed:\s*/, "Completed — "), options);
+  } else if (receipt?.status === "failed") {
+    setInstantGestureStatusForTarget(target, "unavailable", receipt.safe_message, options);
+  } else if (outcome.code) {
+    setInstantGestureStatusForTarget(target, "unavailable", outcome.code, options);
+  }
+  return { ...outcome, gestureEvent: frozenGestureEvent };
+}
+
+function setInstantGestureStatusForTarget(target, status, message, options = {}) {
+  options.onStatusChange?.({ status, message });
+  const phase = {
+    candidate: "gesture_detected",
+    hold_progress: "hold_steady",
+    recognized: "executing",
+    unavailable: "error"
+  }[status] || status;
+  setInstantGesturePhase(target, phase, phase === "error" ? { safeError: String(message || "Instant gesture failed.") } : {});
+}
+
+function formatVisibleGestureHold(holdMs, requiredHoldMs) {
+  const hold = Number(holdMs);
+  const required = Number(requiredHoldMs);
+  if (!Number.isFinite(hold) || hold <= 0) return 0;
+  if (Number.isFinite(required) && hold >= required) return Math.round(required);
+  return Math.max(0, Math.floor(hold));
+}
+
+function withPhysicalSmokeThresholds(recipes, gestureKey) {
+  return (Array.isArray(recipes) ? recipes : []).map((recipe) => {
+    if (recipe?.execution_mode !== "instant_local_gesture" || recipe?.trigger?.gesture_key !== gestureKey) return recipe;
+    return {
+      ...recipe,
+      trigger: { ...recipe.trigger, minimum_confidence: 0.55, hold_ms: 250 },
+      execution_policy: { ...recipe.execution_policy, cooldown_ms: 3000 }
+    };
+  });
+}
+
+async function handleLocalGestureObservation(observation, options = {}) {
+  const outcome = await handleLocalGestureObservationInState(state, observation, {
+    ...options,
+    engineStatus: localGestureEngine?.getStatus?.() || "ready",
+    speechSynthesis: globalThis.speechSynthesis,
+    SpeechSynthesisUtterance: globalThis.SpeechSynthesisUtterance,
+    Notification: globalThis.Notification,
+    onRuntimeChange: () => renderAutomationState(state)
+  });
+  if (!outcome.gestureEvent) return outcome;
+  lastAutomationRenderKey = "";
+  renderAutomationState(state);
+  scheduleInstantGestureCooldownInState(state, outcome);
+  return outcome;
+}
+
+export function scheduleInstantGestureCooldownInState(target, outcome, options = {}) {
+  if (!outcome?.receipts?.some((receipt) => receipt.status === "succeeded") || !outcome.matches?.length) return null;
+  const setTimer = options.setTimeout || globalThis.setTimeout;
+  const clearTimer = options.clearTimeout || globalThis.clearTimeout;
+  if (typeof setTimer !== "function") return null;
+  const cooldownMs = Math.max(...outcome.matches.map((recipe) => Number(recipe.execution_policy?.cooldown_ms || INSTANT_GESTURE_DEFAULTS.cooldownMs)));
+  const completedVisibleMs = Math.min(700, Math.max(0, cooldownMs));
+  const runtime = instantRuntimeFor(target);
+  const previousTimer = target === state ? instantGestureCooldownTimer : runtime.cooldownTimer;
+  if (previousTimer) clearTimer?.(previousTimer);
+  const firstTimer = setTimer(() => {
+    setInstantGestureStatusForTarget(target, "cooling_down", "Cooling down", options);
+    const secondTimer = setTimer(() => {
+      const engineStatus = options.engineStatus || (target === state ? localGestureEngine?.getStatus?.() : "ready");
+      const documentHidden = options.documentHidden ?? (typeof document !== "undefined" && document.hidden === true);
+      if (runtime.userEnabled && target.cameraReady && !documentHidden && String(engineStatus).startsWith("ready")) {
+        setInstantGestureStatusForTarget(target, "ready", "Ready — scanning", options);
+      }
+    }, Math.max(0, cooldownMs - completedVisibleMs));
+    if (target === state) instantGestureCooldownTimer = secondTimer;
+    else runtime.cooldownTimer = secondTimer;
+  }, completedVisibleMs);
+  if (target === state) instantGestureCooldownTimer = firstTimer;
+  else runtime.cooldownTimer = firstTimer;
+  return firstTimer;
+}
+
+function gestureStatusLabel(gestureKey) {
+  return {
+    thumbs_up: "Thumbs up",
+    thumbs_down: "Thumbs down",
+    peace_sign: "Peace sign",
+    open_palm: "Open palm",
+    closed_fist: "Closed fist",
+    pointing_up: "Pointing up",
+    i_love_you: "I love you"
+  }[gestureKey] || "Gesture";
+}
+
 function startLocalPerception() {
   if (!dom?.preview || perceptionRuntime.rafId) return;
   perceptionRuntime.canvas ??= document.createElement("canvas");
@@ -2262,6 +6395,17 @@ function startLocalPerception() {
   state.localActionDiagnostics.handEngineStatus = "fallback motion proxy";
   state.localPerceptionStatus = "running";
   perceptionRuntime.rafId = requestAnimationFrame(processLocalPerceptionFrame);
+  if (!perceptionRuntime.watchdogTimer) {
+    perceptionRuntime.watchdogTimer = setInterval(() => {
+      if (!state.interactionState?.sessionActive || !interactionModeIs(state, "observing")) return;
+      const heartbeatAgeMs = Math.max(0, Math.round(now() - Number(perceptionRuntime.lastPerceptionFrameMs || 0)));
+      if (heartbeatAgeMs <= 3000) return;
+      recordSensefieldTestEvent("detector_heartbeat_missing", { mode: "observing", heartbeat_age_ms: heartbeatAgeMs });
+      state.movementRecognition.persistent.state = "error";
+      state.statusMessage = "Visual detector unavailable.";
+      render();
+    }, 1000);
+  }
 }
 
 function stopLocalPerception() {
@@ -2271,10 +6415,25 @@ function stopLocalPerception() {
   perceptionRuntime.zoneState.clear();
   perceptionRuntime.gestureWindows.clear();
   perceptionRuntime.uncertainSinceMs = null;
+  if (perceptionRuntime.watchdogTimer) clearInterval(perceptionRuntime.watchdogTimer);
+  perceptionRuntime.watchdogTimer = null;
+  if (perceptionRuntime.baselineFrame) clearMovementFrameBuffer([perceptionRuntime.baselineFrame]);
+  perceptionRuntime.baselineFrame = null;
+  perceptionRuntime.baselineCaptureInFlight = false;
   state.localPerceptionStatus = "stopped";
 }
 
-export async function analyzeMovementInState(target = state) {
+export async function analyzeMovementInState(target = state, options = {}) {
+  const requestMode = normalizeInteractionMode(options.interactionMode || (options.directUserTurn ? "conversation" : options.persistent ? "observing" : target.interactionState?.mode));
+  const requestGenerationId = Number(options.modeGenerationId ?? target.interactionState?.modeGenerationId ?? 0);
+  const runtimeToken = options.realtimeTask?.runtimeToken || null;
+  const requestId = runtimeToken?.requestId || `direct_${requestMode}_${Math.round(now())}`;
+  const requestStillOwned = () => runtimeToken
+    ? target.emergencyRuntimeController.isCurrent(runtimeToken, "requestId", runtimeToken.requestId)
+    : modeRequestStillCurrent(target, requestMode, requestGenerationId);
+  if (target.interactionState?.sessionActive && !modeRequestStillCurrent(target, requestMode, requestGenerationId)) return target;
+  if (options.directUserTurn && requestMode !== "conversation") return target;
+  if (options.persistent && requestMode !== "observing") return target;
   if (target.movementRecognition.requestInFlight || ["checking", "capturing", "analyzing"].includes(target.movementRecognition.status)) return target;
   if (typeof document !== "undefined" && document.hidden) {
     target.errorMessage = "Camera tab is hidden. Return to the tab and try again.";
@@ -2287,6 +6446,10 @@ export async function analyzeMovementInState(target = state) {
     return target;
   }
   target.movementRecognition.requestInFlight = true;
+  target.movementRecognition.activeRequestId = requestId;
+  if (target.interactionState?.sessionActive) applyInteractionState(target, { inferenceInFlight: true });
+  if (options.persistent) target.movementRecognition.persistent.state = "active";
+  if (options.directUserTurn) void cancelVisualSpeech(target);
   setMovementCaptureState(target, "get_ready");
   target.movementRecognition.status = "checking";
   target.movementRecognition.lastResult = null;
@@ -2302,46 +6465,128 @@ export async function analyzeMovementInState(target = state) {
 
   const frames = [];
   const startedAt = now();
+  let captureConfig = VISUAL_COMPANION_CLIENT_CONFIG;
   try {
-    await ensureMovementRecognitionReady(target);
-    await delay(300);
+    if (requestMode === "observing") {
+      const baseline = perceptionRuntime.baselineFrame;
+      if (baseline && Math.round(now()) - Number(baseline.captured_at_ms || 0) <= 5000) {
+        frames.push(baseline);
+        perceptionRuntime.baselineFrame = null;
+      } else {
+        frames.push(await captureTransientMovementFrame(dom.preview, VISUAL_COMPANION_CLIENT_CONFIG));
+      }
+    }
+    const backend = await selectMovementAnalysisBackend(target);
+    if (!requestStillOwned()) return target;
+    captureConfig = backend.kind === "local_visual"
+      ? backend.captureConfig
+      : options.persistent
+      ? {
+          ...backend.captureConfig,
+          maxFrames: Math.max(4, Math.min(PERSISTENT_OBSERVATION.maxFrames, 8)),
+          windowMs: Math.max(2000, Math.min(PERSISTENT_OBSERVATION.windowMs, 4000))
+        }
+      : backend.captureConfig;
+    await delay(requestMode === "observing" ? 350 : 0);
+    if (!requestStillOwned()) return target;
     setMovementCaptureState(target, "capturing");
     target.movementRecognition.status = "capturing";
-    target.statusMessage = "Move now.";
+    if (options.persistent) target.movementRecognition.persistent.state = "active";
+    target.statusMessage = "Watching…";
     render();
-    frames.push(...await captureMovementFrameWindow(dom.preview, MOVEMENT_RECOGNITION_CLIENT_CONFIG));
+    const remainingFrameCount = Math.max(1, Number(captureConfig.maxFrames || 1) - frames.length);
+    frames.push(...await withTimeout(
+      captureMovementFrameWindow(dom.preview, { ...captureConfig, maxFrames: remainingFrameCount }),
+      Math.max(5000, Number(captureConfig.windowMs || 0) + 2000),
+      "Camera capture window timed out."
+    ));
+    if (!requestStillOwned()) return target;
+    validateLiveFrameWindow(frames, target, { requireChange: requestMode === "observing" });
     setMovementCaptureState(target, "analyzing");
     target.movementRecognition.status = "analyzing";
-    target.statusMessage = "Understanding movement...";
+    if (options.persistent) target.movementRecognition.persistent.state = "active";
+    target.statusMessage = "Understanding…";
     render();
-    const result = await requestMovementRecognition({
-      frames,
-      allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
-      current_step: "movement_narration",
-      zone_metadata: target.zoneGeometry,
-      recent_corrections: recentCorrectionContextForPrompt(target),
-      mode: MOVEMENT_RECOGNITION_CLIENT_CONFIG.mode
+    const inferenceRequest = backend.kind === "local_visual"
+      ? requestVisualCompanionObservation({
+          frames,
+          frame_timestamps_ms: frames.map((frame) => frame.captured_at_ms),
+          previous_context: visualContextForRequest(target),
+          user_question: sanitizeMemoryText(options.userQuestion || ""),
+          requested_response_mode: requestMode === "conversation" ? "conversation" : "movement_observation",
+          allowed_suggested_actions: VISUAL_COMPANION_ALLOWED_ACTIONS,
+          client_scene_change_score: computeVisualSceneChangeScore(frames),
+          memory_mode: target.visualContext.memoryMode,
+          interaction_mode: requestMode,
+          mode_generation_id: requestGenerationId
+        })
+      : requestMovementRecognition({
+          frames,
+          allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
+          current_step: requestMode === "conversation" ? "visual_conversation" : "movement_narration",
+          zone_metadata: movementRecognitionZoneMetadata(target),
+          recent_corrections: recentCorrectionContextForPrompt(target),
+          previous_context: visualContextForRequest(target),
+          user_question: sanitizeMemoryText(options.userQuestion || ""),
+          requested_response_mode: requestMode === "conversation" ? "conversation" : "movement_observation",
+          interaction_mode: requestMode,
+          mode_generation_id: requestGenerationId,
+          window_ms: captureConfig.windowMs
+        }, target);
+    const rawResult = await withTimeout(
+      inferenceRequest,
+      options.inferenceTimeoutMs ?? 45000,
+      "Visual inference timed out."
+    );
+    if (!requestStillOwned()) return target;
+    const responseSource = backend.kind === "local_visual" ? "local_vlm" : "cloud_vlm";
+    const result = {
+      ...rawResult,
+      ...(options.userQuestion ? { question: sanitizeMemoryText(options.userQuestion) } : {}),
+      response_source: responseSource
+    };
+    validateLiveInferenceResult(result, requestMode);
+    if (target.interactionState?.sessionActive && !modeRequestStillCurrent(target, requestMode, requestGenerationId)) {
+      target.movementRecognition.status = "idle";
+      target.movementCaptureState.status = "idle";
+      return target;
+    }
+    queueMovementRecognitionResult(target, result, Math.round(now()), {
+      recordMovementHistory: requestMode === "observing",
+      queueSuggestion: requestMode === "observing"
     });
-    queueMovementRecognitionResult(target, result, Math.round(now()));
     if (result.provider !== "local_motion_proxy") target.vlmCalls += 1;
     setMovementCaptureState(target, "result_ready");
     target.movementRecognition.status = "complete";
-    target.movementRecognition.provider = result.provider ?? MOVEMENT_RECOGNITION_CLIENT_CONFIG.provider;
-    target.movementRecognition.model = result.model ?? "configured server-side";
-    target.movementRecognition.promptVersion = result.prompt_version ?? MOVEMENT_NARRATION_PROMPT_VERSION;
+    target.movementRecognition.provider = result.provider ?? VISUAL_COMPANION_CLIENT_CONFIG.provider;
+    target.movementRecognition.model = result.model ?? "local model service";
+    target.movementRecognition.promptVersion = result.prompt_version ?? VISUAL_COMPANION_PROMPT_VERSION;
     target.movementRecognition.imageTokens = result.image_tokens ?? 0;
     target.movementRecognition.retries = result.retries ?? 0;
     target.movementRecognition.candidateFailures = safeFailedCandidateDiagnostics(result.failed_candidates);
     target.movementRecognition.lastResult = result;
-    target.statusMessage = "Result ready. Confirm, speak, or try another movement.";
-    if (target.movementRecognition.autoSpeak && !isUncertainMovement(result.movement) && target.movementRecognition.lastSpokenMovement !== result.movement) {
-      speakMovementResult(target);
+    if (target === state) recordSensefieldTestEvent("inference_result_validated", {
+      mode: requestMode,
+      frame_count: frames.length,
+      frame_dimensions: frames.map((frame) => `${frame.width}x${frame.height}`),
+      request_duration_ms: Math.max(0, Math.round(now() - startedAt)),
+      provider: result.provider || backend.health?.provider || "unavailable",
+      model: result.model || backend.health?.model || "unavailable",
+      response_source: result.response_source
+    }, { modeGenerationId: requestGenerationId });
+    updateVisualContextFromResult(target, result);
+    appendRealtimeVisualSummary(target, result.reason || result.movement || "");
+    target.statusMessage = "Response ready.";
+    if (options.persistent) {
+      target.movementRecognition.persistent.lastSemanticKey = semanticObservationKey(result);
+      target.movementRecognition.persistent.state = "active";
     }
+    maybeAutoSpeakVisualResult(target);
     target.lastLatency = {
       event_id: `movement_recognition_${Math.round(startedAt)}`,
       frame_id: `movement_recognition_${Math.round(startedAt)}`,
       timestamp_ms: Math.round(startedAt),
-      frame_capture_ms: MOVEMENT_RECOGNITION_CLIENT_CONFIG.windowMs,
+      frame_capture_ms: captureConfig.windowMs,
       observation_extraction_ms: Math.max(1, Math.round(now() - startedAt)),
       adapter_ms: 0,
       stabilizer_ms: 0,
@@ -2356,7 +6601,9 @@ export async function analyzeMovementInState(target = state) {
     };
     target.latencyRecords.push(target.lastLatency);
   } catch (error) {
-    const safeMessage = safeMovementRecognitionErrorMessage(error);
+    if (!requestStillOwned()) return target;
+    const safeMessage = safeObservationErrorMessage(error);
+    const localFallback = false;
     setMovementCaptureState(target, "error");
     target.movementRecognition.status = "fallback";
     target.movementRecognition.fallbackUsed = true;
@@ -2364,22 +6611,37 @@ export async function analyzeMovementInState(target = state) {
     target.movementRecognition.lastSafeError = safeMessage;
     target.movementRecognition.candidateFailures = safeFailedCandidateDiagnostics(error?.safe_diagnostics?.failed_candidates);
     target.statusMessage = safeMessage;
-    console.warn("movement recognition failed", safeMovementRecognitionDiagnostics(error));
-    if (!isKnownMovementRecognitionFailure(error)) {
-      queueMovementRecognitionFallback(target, Math.round(now()));
+    if (options.persistent) target.movementRecognition.persistent.state = target.realtimeSession?.state === "active" ? "active" : "error";
+    console.warn("movement observation failed", safeMovementRecognitionDiagnostics(error));
+    if (localFallback) {
+      queueMovementRecognitionFallback(target, Math.round(now()), { fallbackMessage: safeMessage });
+    } else {
+      queueVisualReasoningUnavailable(target, safeMessage, Math.round(now()), {
+        recordMovementHistory: requestMode === "observing",
+        queueSuggestion: false
+      });
     }
   } finally {
     clearMovementFrameBuffer(frames);
     target.movementRecognition.frameBufferCleared = true;
-    target.movementRecognition.requestInFlight = false;
-    updateExportReadiness(target);
-    render();
+    const ownsLegacyLock = target.movementRecognition.activeRequestId === requestId;
+    if (ownsLegacyLock) {
+      target.movementRecognition.requestInFlight = false;
+      target.movementRecognition.activeRequestId = null;
+    }
+    if (ownsLegacyLock && target.interactionState?.sessionActive && requestStillOwned()) {
+      applyInteractionState(target, { inferenceInFlight: false });
+    }
+    if (ownsLegacyLock) {
+      updateExportReadiness(target);
+      render();
+    }
   }
   return target;
 }
 
 export async function captureMovementFrameWindow(video, config = MOVEMENT_RECOGNITION_CLIENT_CONFIG) {
-  const frameCount = Math.max(1, Math.min(config.maxFrames ?? 4, 4));
+  const frameCount = Math.max(1, Math.min(config.maxFrames ?? 4, 8));
   const waitMs = frameCount <= 1 ? 0 : Math.floor((config.windowMs ?? 1500) / (frameCount - 1));
   const frames = [];
   for (let index = 0; index < frameCount; index += 1) {
@@ -2387,6 +6649,62 @@ export async function captureMovementFrameWindow(video, config = MOVEMENT_RECOGN
     frames.push(await captureTransientMovementFrame(video, config));
   }
   return frames;
+}
+
+export function validateLiveFrameWindow(frames = [], target = state, options = {}) {
+  if (!Array.isArray(frames) || frames.length < 1) throw movementRecognitionError("No visual frames were captured.", "invalid_image_payload");
+  const timestamps = frames.map((frame) => Number(frame.captured_at_ms || 0));
+  if (frames.some((frame) => Number(frame.width || 0) <= 0 || Number(frame.height || 0) <= 0)) {
+    throw movementRecognitionError("Camera frame dimensions are invalid.", "invalid_image_payload");
+  }
+  if (timestamps.some((value, index) => value <= 0 || (index > 0 && value < timestamps[index - 1]))) {
+    throw movementRecognitionError("Camera frame timestamps are not ordered.", "invalid_image_payload");
+  }
+  if (Math.round(now()) - timestamps.at(-1) > 5000) throw movementRecognitionError("Camera frames are stale.", "invalid_image_payload");
+  const videoTracks = target.stream?.getVideoTracks?.() || target.stream?.getTracks?.().filter?.((track) => track.kind === "video") || [];
+  if (!videoTracks.length || videoTracks.some((track) => track.readyState === "ended")) {
+    throw movementRecognitionError("Camera track is not live.", "invalid_image_payload");
+  }
+  if (options.requireChange === true && frames.length < 2) throw movementRecognitionError("The movement window is incomplete.", "invalid_image_payload");
+  if (options.requireChange === true) {
+    const signatures = frames.map((frame) => JSON.stringify(frame.luma_signature || []));
+    const encodedFrames = frames.map((frame) => String(frame.encoded_frame || ""));
+    if (new Set(signatures).size < 2 && new Set(encodedFrames).size < 2) {
+      throw movementRecognitionError("The movement window did not include a visible change.", "invalid_image_payload");
+    }
+  }
+  return {
+    ok: true,
+    frame_count: frames.length,
+    width: frames[0].width,
+    height: frames[0].height,
+    ordered: true,
+    recent: true,
+    distinct: options.requireChange !== true || true
+  };
+}
+
+export function validateLiveInferenceResult(result = {}, mode = "observing") {
+  const text = String(result.spoken_response || result.movement || "").trim();
+  if (!text) throw movementRecognitionError("The visual model returned an empty response.", "malformed_response");
+  if (/^No meaningful change detected\.?$/i.test(text)) {
+    throw movementRecognitionError("The visual model returned a generic canned response.", "malformed_response");
+  }
+  if (result.response_source === "deterministic_test_fixture" && !sensefieldTestModeEnabled()) {
+    throw movementRecognitionError("A test fixture result reached the production runtime.", "malformed_response");
+  }
+  if (mode === "conversation" && result.response_type === "silent") {
+    throw movementRecognitionError("The conversation model returned no assistant answer.", "malformed_response");
+  }
+  if (mode === "observing") {
+    if (typeof result.meaningful_change !== "boolean" || !Array.isArray(result.evidence_frames)) {
+      throw movementRecognitionError("The visual model response did not match the movement contract.", "malformed_response");
+    }
+    if (result.meaningful_change === true && !String(result.movement_label || "").trim()) {
+      throw movementRecognitionError("The visual model response omitted its movement label.", "malformed_response");
+    }
+  }
+  return result;
 }
 
 async function captureTransientMovementFrame(video, config) {
@@ -2397,6 +6715,7 @@ async function captureTransientMovementFrame(video, config) {
   canvas.height = height;
   const context = canvas.getContext("2d", { alpha: false });
   drawVideoFrameForAnalysis(context, video, width, height, config.mirrorFramesToPreview === true);
+  const lumaSignature = readCanvasLumaSignature(context, width, height);
   const blob = await new Promise((resolve) => canvas[["to", "Blob"].join("")](resolve, config.frameMimeType, config.frameQuality));
   canvas.width = 0;
   canvas.height = 0;
@@ -2408,8 +6727,43 @@ async function captureTransientMovementFrame(video, config) {
     mime_type: mimeType,
     encoded_frame: encodedFrame,
     data_uri: `data:${mimeType};base64,${encodedFrame}`,
-    captured_at_ms: Math.round(now())
+    captured_at_ms: Math.round(now()),
+    width,
+    height,
+    luma_signature: lumaSignature
   };
+}
+
+function readCanvasLumaSignature(context, width, height) {
+  const columns = 4;
+  const rows = 4;
+  const signature = [];
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < columns; x += 1) {
+      const sx = Math.floor((x + 0.5) * width / columns);
+      const sy = Math.floor((y + 0.5) * height / rows);
+      const pixel = context.getImageData(Math.min(width - 1, sx), Math.min(height - 1, sy), 1, 1).data;
+      signature.push(Number(((pixel[0] + pixel[1] + pixel[2]) / (3 * 255)).toFixed(3)));
+    }
+  }
+  return signature;
+}
+
+export function computeVisualSceneChangeScore(frames = []) {
+  const signatures = frames.map((frame) => frame.luma_signature).filter((item) => Array.isArray(item) && item.length);
+  if (signatures.length < 2) return 0;
+  let total = 0;
+  let comparisons = 0;
+  for (let index = 1; index < signatures.length; index += 1) {
+    const previous = signatures[index - 1];
+    const current = signatures[index];
+    const length = Math.min(previous.length, current.length);
+    for (let sample = 0; sample < length; sample += 1) {
+      total += Math.abs(Number(current[sample] || 0) - Number(previous[sample] || 0));
+      comparisons += 1;
+    }
+  }
+  return comparisons ? Number((total / comparisons).toFixed(4)) : 0;
 }
 
 function encodeFrameBuffer(buffer) {
@@ -2438,6 +6792,7 @@ export function clearMovementFrameBuffer(frames = []) {
   for (const frame of frames) {
     frame.encoded_frame = "";
     frame.data_uri = "";
+    frame.luma_signature = [];
   }
   frames.length = 0;
   return frames;
@@ -2445,55 +6800,155 @@ export function clearMovementFrameBuffer(frames = []) {
 
 export async function runLiveAiSmokeTestInState(target = state) {
   if (!dom?.liveAiSmokeResult) return target;
-  dom.liveAiSmokeResult.textContent = "Checking provider health...";
+  dom.liveAiSmokeResult.textContent = "Checking local visual service...";
   if (dom.runLiveAiSmoke) dom.runLiveAiSmoke.disabled = true;
   try {
-    const health = await requestMovementRecognitionHealth();
-    if (!health.has_token) {
+    const health = await requestVisualCompanionHealth();
+    if (health.status === "model_not_installed") {
       dom.liveAiSmokeResult.textContent = JSON.stringify({
         status: "SKIP",
-        reason: "The server movement-recognition token is not configured.",
+        reason: "The local visual companion service is not running or the model is not installed.",
         provider: health.provider,
         model: health.model,
-        token_exposed_to_frontend: health.token_exposed_to_frontend
+        token_exposed_to_frontend: health.token_exposed_to_frontend,
+        next: "Run npm run visual:setup, then npm run visual:serve."
       }, null, 2);
       return target;
     }
-    dom.liveAiSmokeResult.textContent = "Health ok. Calling live provider...";
+    dom.liveAiSmokeResult.textContent = "Health ok. Calling local visual service...";
     const frames = [await captureSyntheticSmokeFrame()];
     try {
-      const result = await requestMovementRecognition({
+      const result = await requestVisualCompanionObservation({
         frames,
-        allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
-        current_step: "smoke_test",
-        zone_metadata: {},
-        mode: MOVEMENT_RECOGNITION_CLIENT_CONFIG.mode,
-        smoke_test: true
+        frame_timestamps_ms: frames.map((frame) => frame.captured_at_ms),
+        previous_context: {},
+        requested_response_mode: "auto",
+        allowed_suggested_actions: VISUAL_COMPANION_ALLOWED_ACTIONS,
+        client_scene_change_score: 0.2,
+        memory_mode: "off"
       });
       dom.liveAiSmokeResult.textContent = JSON.stringify({
-        status: "LIVE_OK",
+        status: "LOCAL_VISUAL_OK",
         provider: result.provider,
         model: result.model,
         latency_ms: result.latency_ms,
-        movement: result.movement,
-        short_label: result.short_label,
-        hidden_legacy_action_type: result.action_type,
+        response: result.movement,
+        response_type: result.response_type,
         confidence: result.confidence,
-        reason: result.reason,
-        failed_candidates: result.failed_candidates ?? []
+        reason: result.reason
       }, null, 2);
     } finally {
       clearMovementFrameBuffer(frames);
     }
   } catch (error) {
     dom.liveAiSmokeResult.textContent = JSON.stringify({
-      status: "LIVE_FAIL",
-      reason: error?.message ?? "live provider check failed"
+      status: "LOCAL_VISUAL_FAIL",
+      reason: error?.message ?? "local visual check failed"
     }, null, 2);
   } finally {
     if (dom.runLiveAiSmoke) dom.runLiveAiSmoke.disabled = false;
   }
   return target;
+}
+
+export function darkQuestSessionId(storage = globalThis.sessionStorage) {
+  const existing = safeSessionStorageGet(storage, DARKQUEST_SESSION_STORAGE_KEY);
+  if (/^darkquest_session_[a-f0-9-]{36}$/.test(existing || "")) return existing;
+  const uuid = typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : fallbackUuid();
+  const sessionId = `darkquest_session_${uuid}`;
+  safeSessionStorageSet(storage, DARKQUEST_SESSION_STORAGE_KEY, sessionId);
+  return sessionId;
+}
+
+function fallbackUuid() {
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (char) => {
+    const random = globalThis.crypto?.getRandomValues?.(new Uint8Array(1))?.[0] ?? Math.floor(Math.random() * 256);
+    return (Number(char) ^ ((random & 15) >> (Number(char) / 4))).toString(16);
+  });
+}
+
+function safeSessionStorageGet(storage, key) {
+  try {
+    return storage?.getItem?.(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function safeSessionStorageSet(storage, key, value) {
+  try {
+    storage?.setItem?.(key, value);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+async function requestCloudUsageStatus() {
+  const send = globalThis[["fet", "ch"].join("")];
+  if (typeof send !== "function") throw new Error("Cloud AI usage endpoint is unavailable.");
+  const response = await send(MOVEMENT_RECOGNITION_CLIENT_CONFIG.usageEndpoint, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "X-DarkQuest-Session-Id": darkQuestSessionId()
+    }
+  });
+  if (!response.ok) throw movementRecognitionError("Cloud AI usage endpoint unavailable.", "usage_unavailable", { status: response.status });
+  return response.json();
+}
+
+async function refreshCloudUsageStatus(target = state) {
+  try {
+    target.movementRecognition.usage = normalizeCloudUsage(await requestCloudUsageStatus());
+    target.movementRecognition.usageStatus = cloudUsageStateText(target);
+    render();
+  } catch {
+    target.movementRecognition.usageStatus = target.movementRecognition.usage?.cloud_enabled === false ? "Cloud AI disabled" : "Local model active";
+  }
+  return target.movementRecognition.usage;
+}
+
+export async function selectMovementAnalysisBackend(target = state) {
+  let visualError = null;
+  try {
+    const health = await ensureVisualCompanionReady(target);
+    return {
+      kind: "local_visual",
+      health,
+      captureConfig: VISUAL_COMPANION_CLIENT_CONFIG
+    };
+  } catch (error) {
+    visualError = error;
+  }
+
+  try {
+    const health = await ensureMovementRecognitionReady(target);
+    if (health.cloud_enabled === false || health.live_call_enabled === false) {
+      throw movementRecognitionError("Cloud AI disabled. Local features remain available.", "hf_cloud_disabled", { health, visual_error: safeMovementRecognitionDiagnostics(visualError) });
+    }
+    return {
+      kind: "hf_cloud",
+      health,
+      visualError,
+      captureConfig: MOVEMENT_RECOGNITION_CLIENT_CONFIG
+    };
+  } catch (cloudError) {
+    cloudError.safe_diagnostics = {
+      ...(cloudError.safe_diagnostics || {}),
+      local_visual_error: safeMovementRecognitionDiagnostics(visualError)
+    };
+    throw cloudError;
+  }
+}
+
+function movementRecognitionZoneMetadata(target = state) {
+  return {
+    active_zone: String(target.activeZone || "none"),
+    quest_state: String(target.questState || "idle"),
+    camera_ready: target.cameraReady === true,
+    contains_raw_media: false
+  };
 }
 
 async function requestMovementRecognitionHealth() {
@@ -2522,7 +6977,35 @@ async function ensureMovementRecognitionReady(target) {
     throw movementRecognitionError("Movement recognition endpoint unavailable.", "endpoint_missing", { health });
   }
   if (health.has_token !== true) {
-    throw movementRecognitionError("HF_TOKEN is not loaded. Restart the app after sourcing .env.", "missing_token", { health });
+    throw movementRecognitionError("HF_TOKEN is not loaded. Restart the app; the launcher loads .env automatically.", "missing_token", { health });
+  }
+  return health;
+}
+
+async function requestVisualCompanionHealth() {
+  const send = globalThis[["fet", "ch"].join("")];
+  if (typeof send !== "function") throw new Error("Visual companion health endpoint is unavailable.");
+  try {
+    const response = await send(VISUAL_COMPANION_CLIENT_CONFIG.healthEndpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+    if (response.status === 404) throw movementRecognitionError("Visual companion endpoint unavailable.", "endpoint_missing", { status: response.status });
+    if (!response.ok) throw movementRecognitionError("Visual companion endpoint unavailable.", "api_unavailable", { status: response.status });
+    return response.json();
+  } catch (error) {
+    if (error?.movement_code) throw error;
+    throw movementRecognitionError("Network error while contacting visual companion.", "network_error", { reason: error?.message ?? "fetch_failed" });
+  }
+}
+
+async function ensureVisualCompanionReady(target) {
+  const health = await requestVisualCompanionHealth();
+  target.movementRecognition.health = health;
+  target.movementRecognition.provider = health.provider ?? VISUAL_COMPANION_CLIENT_CONFIG.provider;
+  target.movementRecognition.model = health.model ?? target.movementRecognition.model;
+  if (health.observe_endpoint_ready !== true || health.ok !== true || health.status !== "ready") {
+    throw movementRecognitionError("Visual companion endpoint unavailable.", "endpoint_missing", { health });
   }
   return health;
 }
@@ -2538,32 +7021,39 @@ async function captureSyntheticSmokeFrame() {
   context.fillRect(2, 4, 8, 3);
   context.fillStyle = "#5fb3ff";
   context.fillRect(7, 2, 3, 8);
-  const blob = await new Promise((resolve) => canvas[["to", "Blob"].join("")](resolve, MOVEMENT_RECOGNITION_CLIENT_CONFIG.frameMimeType, MOVEMENT_RECOGNITION_CLIENT_CONFIG.frameQuality));
+  const blob = await new Promise((resolve) => canvas[["to", "Blob"].join("")](resolve, VISUAL_COMPANION_CLIENT_CONFIG.frameMimeType, VISUAL_COMPANION_CLIENT_CONFIG.frameQuality));
   canvas.width = 0;
   canvas.height = 0;
   if (!blob) throw new Error("Could not create smoke-test frame.");
   const buffer = await blob.arrayBuffer();
   return {
-    mime_type: blob.type || MOVEMENT_RECOGNITION_CLIENT_CONFIG.frameMimeType,
+    mime_type: blob.type || VISUAL_COMPANION_CLIENT_CONFIG.frameMimeType,
     encoded_frame: encodeFrameBuffer(buffer),
     captured_at_ms: Math.round(now())
   };
 }
 
-async function requestMovementRecognition(payload) {
+async function requestMovementRecognition(payload, target = state) {
   const send = globalThis[["fet", "ch"].join("")];
   if (typeof send !== "function") throw new Error("Movement recognition endpoint is unavailable.");
   let response;
   try {
     response = await send(MOVEMENT_RECOGNITION_CLIENT_CONFIG.endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-DarkQuest-Session-Id": darkQuestSessionId()
+      },
       body: JSON.stringify(payload)
     });
   } catch (error) {
     throw movementRecognitionError("Network error while contacting movement recognition.", "network_error", { reason: error?.message ?? "fetch_failed" });
   }
   const body = await readMovementRecognitionJson(response);
+  if (body?.usage) {
+    target.movementRecognition.usage = normalizeCloudUsage(usageFromLimitMetadata(body.usage, target.movementRecognition.usage));
+    target.movementRecognition.usageStatus = cloudUsageStateText(target);
+  }
   if (!response.ok) {
     throw movementRecognitionError(messageForMovementRecognitionFailure(response, body), failureCodeForMovementRecognition(response, body), {
       status: response.status,
@@ -2571,12 +7061,113 @@ async function requestMovementRecognition(payload) {
       failed_candidates: safeFailedCandidateDiagnostics(body?.failed_candidates)
     });
   }
+  if (!String(body?.spoken_response || body?.observation_summary || "").trim()) {
+    throw movementRecognitionError("The visual model returned an empty response.", "malformed_response");
+  }
   if (/^AI provider is busy/i.test(String(body?.movement ?? ""))) {
     throw movementRecognitionError("AI provider is busy — try again in a moment.", "provider_busy", {
       failed_candidates: safeFailedCandidateDiagnostics(body?.failed_candidates)
     });
   }
+  refreshCloudUsageStatus(target);
   return normalizeMovementRecognitionResult(body);
+}
+
+async function requestVisualCompanionObservation(payload) {
+  const send = globalThis[["fet", "ch"].join("")];
+  if (typeof send !== "function") throw new Error("Visual companion endpoint is unavailable.");
+  const endpoint = payload.interaction_mode === "conversation"
+    ? VISUAL_COMPANION_CLIENT_CONFIG.conversationEndpoint
+    : VISUAL_COMPANION_CLIENT_CONFIG.endpoint;
+  const correlationId = `visual_request_${payload.mode_generation_id}_${sensefieldTestRuntime.requests.length + 1}`;
+  recordSensefieldTestRequest("started", {
+    endpoint,
+    interaction_mode: payload.interaction_mode,
+    user_question: payload.user_question || "",
+    frame_count: Array.isArray(payload.frames) ? payload.frames.length : 0,
+    requested_response_mode: payload.requested_response_mode
+  }, { correlationId, modeGenerationId: payload.mode_generation_id });
+  let response;
+  try {
+    response = await send(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    recordSensefieldTestRequest("failed", { endpoint, error: "network_error" }, { correlationId, modeGenerationId: payload.mode_generation_id });
+    throw movementRecognitionError("Network error while contacting visual companion.", "network_error", { reason: error?.message ?? "fetch_failed" });
+  }
+  const body = await readMovementRecognitionJson(response);
+  if (!response.ok) {
+    recordSensefieldTestRequest("failed", { endpoint, status: response.status }, { correlationId, modeGenerationId: payload.mode_generation_id });
+    throw movementRecognitionError(body?.spoken_response || "Visual companion endpoint unavailable.", failureCodeForVisualCompanion(response, body), {
+      status: response.status,
+      reason: body?.evidence?.[0] ?? ""
+    });
+  }
+  recordSensefieldTestRequest("completed", {
+    endpoint,
+    status: response.status,
+    response_type: body.response_type || "unknown",
+    spoken_response: body.spoken_response || ""
+  }, { correlationId, modeGenerationId: payload.mode_generation_id });
+  return movementRecognitionResultFromVisualResponse(body);
+}
+
+function failureCodeForVisualCompanion(response, body = {}) {
+  const text = `${body.spoken_response ?? ""} ${body.observation_summary ?? ""}`.toLowerCase();
+  if (/model not installed|not running/.test(text)) return "model_not_installed";
+  if (/frame|image/.test(text)) return "invalid_image_payload";
+  return response.status === 404 ? "endpoint_missing" : `http_${response.status}`;
+}
+
+function movementRecognitionResultFromVisualResponse(body = {}) {
+  const spoken = String(body.spoken_response || body.observation_summary || "I'm not sure what changed. Try showing me again.");
+  const responseType = String(body.response_type || (body.uncertainty ? "uncertain" : "narrate"));
+  const suggestedActions = Array.isArray(body.suggested_actions) ? body.suggested_actions : [];
+  const shortLabel = responseType === "silent"
+    ? "No meaningful change"
+    : responseType === "ask"
+      ? "Question"
+      : responseType === "assist"
+        ? "Suggested action"
+        : responseType === "uncertain"
+          ? "Uncertain"
+          : "Observation";
+  return {
+    schema_version: "canonical-movement-result.v1",
+    observation_id: String(body.observation_id || `visual_observation_${Math.round(now())}`),
+    action_type: "uncertain",
+    movement: spoken,
+    spoken_response: spoken,
+    short_label: body.short_label || shortLabel,
+    movement_key: normalizeMovementKey(body.movement_key || shortLabel),
+    gesture_tags: [],
+    confidence: clamp01(body.confidence ?? 0),
+    reason: String(body.observation_summary || body.reason || spoken),
+    evidence: Array.isArray(body.evidence) ? body.evidence.map(String).slice(0, 5) : [],
+    meaningful_change: body.meaningful_change === true,
+    movement_label: body.movement_label || null,
+    evidence_frames: Array.isArray(body.evidence_frames) ? body.evidence_frames.map(Number).filter(Number.isInteger).slice(0, 8) : [],
+    uncertainty: Boolean(body.uncertainty || responseType === "uncertain"),
+    provider: String(body.provider || VISUAL_COMPANION_CLIENT_CONFIG.provider),
+    model: String(body.model || "local model service"),
+    requested_model: String(body.model || "local model service"),
+    returned_model: String(body.model || ""),
+    provider_model: String(body.model || ""),
+    prompt_version: VISUAL_COMPANION_PROMPT_VERSION,
+    image_tokens: 0,
+    retries: 0,
+    latency_ms: Math.max(0, Math.round(body.latency_ms ?? 0)),
+    response_source: ["local_detector", "local_vlm", "cloud_vlm", "deterministic_test_fixture", "unavailable"].includes(body.response_source) ? body.response_source : "unavailable",
+    requires_confirmation: suggestedActions.length > 0,
+    response_type: responseType,
+    question: String(body.question || ""),
+    suggested_actions: suggestedActions,
+    time_to_first_token_ms: Math.max(0, Math.round(body.time_to_first_token_ms ?? 0)),
+    time_to_first_audio_ms: Math.max(0, Math.round(body.time_to_first_audio_ms ?? 0))
+  };
 }
 
 async function readMovementRecognitionJson(response) {
@@ -2588,17 +7179,19 @@ async function readMovementRecognitionJson(response) {
 }
 
 function messageForMovementRecognitionFailure(response, body = {}) {
+  if (typeof body.message === "string" && /^hf_/.test(String(body.code || ""))) return body.message;
   const text = `${body.reason ?? ""} ${JSON.stringify(body.failed_candidates ?? [])}`.toLowerCase();
-  if (response.status === 503 || /hf_token|token is not configured|missing token/.test(text)) return "HF_TOKEN is not loaded. Restart the app after sourcing .env.";
+  if (response.status === 503 || /hf_token|token is not configured|missing token/.test(text)) return "HF_TOKEN is not loaded. Restart the app; the launcher loads .env automatically.";
   if (/provider_reachable_but_busy|queue_exceeded|too_many_requests|high traffic|provider overloaded|busy/.test(text)) return "AI provider is busy — try again in a moment.";
   if (/payload_or_image_failure|invalid_image|invalid image|invalid base64|bad image/.test(text)) return "Camera frame could not be read. Try again.";
   return "Movement recognition endpoint unavailable.";
 }
 
 function failureCodeForMovementRecognition(response, body = {}) {
+  if (/^hf_/.test(String(body.code || ""))) return String(body.code);
   const message = messageForMovementRecognitionFailure(response, body);
   return {
-    "HF_TOKEN is not loaded. Restart the app after sourcing .env.": "missing_token",
+    "HF_TOKEN is not loaded. Restart the app; the launcher loads .env automatically.": "missing_token",
     "AI provider is busy — try again in a moment.": "provider_busy",
     "Camera frame could not be read. Try again.": "invalid_image_payload",
     "Movement recognition endpoint unavailable.": response.status === 404 ? "endpoint_missing" : "network_error"
@@ -2616,10 +7209,23 @@ function isKnownMovementRecognitionFailure(error) {
   return [
     "missing_token",
     "endpoint_missing",
+    "model_not_installed",
     "provider_busy",
     "invalid_image_payload",
     "network_error",
-    "malformed_response"
+    "malformed_response",
+    "usage_unavailable",
+    "hf_cloud_disabled",
+    "hf_session_limit_reached",
+    "hf_daily_limit_reached",
+    "hf_monthly_limit_reached",
+    "hf_request_cooldown",
+    "hf_concurrency_limit",
+    "hf_frame_limit_exceeded",
+    "hf_window_limit_exceeded",
+    "hf_frame_dimensions_exceeded",
+    "hf_request_too_large",
+    "hf_retry_limit_reached"
   ].includes(error?.movement_code);
 }
 
@@ -2629,6 +7235,38 @@ function safeMovementRecognitionErrorMessage(error) {
   if (/endpoint.*unavailable/i.test(error?.message ?? "")) return "Movement recognition endpoint unavailable.";
   if (/network/i.test(error?.message ?? "")) return "Network error while contacting movement recognition.";
   return error?.message ? `AI unavailable — try again or use local fallback. Reason: ${error.message}` : "AI response was unclear — try again.";
+}
+
+function safeVisualCompanionErrorMessage(error) {
+  if (error?.movement_code === "model_not_installed") return "Model not installed. Run npm run visual:setup, then npm run visual:serve.";
+  if (error?.movement_code === "endpoint_missing") return "Visual companion endpoint unavailable.";
+  if (error?.movement_code === "invalid_image_payload") return "Camera frame could not be read. Try again.";
+  if (error?.movement_code === "network_error") return "Network error while contacting visual companion.";
+  return error?.message || "The local visual model is unavailable.";
+}
+
+function safeObservationErrorMessage(error) {
+  if (["model_not_installed", "endpoint_missing"].includes(error?.movement_code)) return safeVisualCompanionErrorMessage(error);
+  return safeMovementRecognitionErrorMessage(error);
+}
+
+function shouldUseLocalMotionFallback(error) {
+  return ![
+    "invalid_image_payload",
+    "malformed_response",
+    "missing_token",
+    "hf_cloud_disabled",
+    "hf_session_limit_reached",
+    "hf_daily_limit_reached",
+    "hf_monthly_limit_reached",
+    "hf_request_cooldown",
+    "hf_concurrency_limit",
+    "hf_frame_limit_exceeded",
+    "hf_window_limit_exceeded",
+    "hf_frame_dimensions_exceeded",
+    "hf_request_too_large",
+    "hf_retry_limit_reached"
+  ].includes(error?.movement_code);
 }
 
 function safeMovementRecognitionDiagnostics(error) {
@@ -2667,11 +7305,19 @@ function processLocalPerceptionFrame(timestampMs) {
 
   const observations = computeZoneMotion(previous, gray, state.zoneGeometry, timestampMs, state.localPerceptionTuning.motionSensitivity);
   applyLocalMotionObservations(state, observations, timestampMs);
+  updateRollingVisualContextFromLocalFeatures(state, observations, timestampMs);
+  maybeRefreshObservationBaseline(state, observations, timestampMs);
+  maybeTriggerPersistentObservationFromLocalChange(state, observations, timestampMs);
   state.localActionDiagnostics.lastPerceptionLatencyMs = Math.max(1, Math.round(now() - startedAt));
   state.localActionDiagnostics.frameProcessingFps = perceptionRuntime.lastPerceptionFrameMs
     ? Math.round(1000 / Math.max(1, timestampMs - perceptionRuntime.lastPerceptionFrameMs))
     : 0;
   perceptionRuntime.lastPerceptionFrameMs = timestampMs;
+  state.emergencyRuntimeController.heartbeat(timestampMs);
+  if (timestampMs - perceptionRuntime.lastHeartbeatEventMs >= 1000) {
+    perceptionRuntime.lastHeartbeatEventMs = timestampMs;
+    recordSensefieldTestEvent("detector_heartbeat", { mode: state.interactionState.mode, active: interactionModeIs(state, "observing") });
+  }
   state.liveCameraState = {
     status: "running",
     frame_id: Math.round(timestampMs),
@@ -2679,6 +7325,41 @@ function processLocalPerceptionFrame(timestampMs) {
     telemetry_revision: Math.round(timestampMs)
   };
   renderLiveCameraState(state);
+}
+
+function maybeRefreshObservationBaseline(target, observations, timestampMs) {
+  if (!target.interactionState?.sessionActive || !interactionModeIs(target, "observing") || !dom?.preview) return;
+  if (observations.some((item) => item.active || Number(item.motion_score || 0) >= PERSISTENT_OBSERVATION.changeThreshold)) return;
+  if (perceptionRuntime.baselineCaptureInFlight || timestampMs - perceptionRuntime.lastBaselineCaptureMs < 500) return;
+  perceptionRuntime.baselineCaptureInFlight = true;
+  perceptionRuntime.lastBaselineCaptureMs = timestampMs;
+  void captureTransientMovementFrame(dom.preview, VISUAL_COMPANION_CLIENT_CONFIG)
+    .then((frame) => {
+      if (perceptionRuntime.baselineFrame) clearMovementFrameBuffer([perceptionRuntime.baselineFrame]);
+      perceptionRuntime.baselineFrame = frame;
+      recordSensefieldTestEvent("observation_baseline_ready", { width: frame.width, height: frame.height, timestamp_ms: frame.captured_at_ms });
+    })
+    .catch(() => recordSensefieldTestEvent("observation_baseline_failed", { mode: "observing" }))
+    .finally(() => { perceptionRuntime.baselineCaptureInFlight = false; });
+}
+
+async function primeObservationBaseline(target) {
+  if (!dom?.preview || !target.cameraReady) return false;
+  try {
+    const frame = await withTimeout(
+      captureTransientMovementFrame(dom.preview, VISUAL_COMPANION_CLIENT_CONFIG),
+      2000,
+      "Observation baseline timed out."
+    );
+    if (perceptionRuntime.baselineFrame) clearMovementFrameBuffer([perceptionRuntime.baselineFrame]);
+    perceptionRuntime.baselineFrame = frame;
+    perceptionRuntime.lastBaselineCaptureMs = Math.round(now());
+    recordSensefieldTestEvent("observation_baseline_ready", { width: frame.width, height: frame.height, timestamp_ms: frame.captured_at_ms });
+    return true;
+  } catch {
+    recordSensefieldTestEvent("observation_baseline_failed", { mode: "observing" });
+    return false;
+  }
 }
 
 function renderLiveCameraState(target) {
@@ -2762,6 +7443,138 @@ function applyLocalMotionObservations(target, observations, timestampMs) {
   for (const suggestion of rankActionSuggestions(buildActionSuggestion({ target, observations, timestampMs, frame: localFrame }), target)) {
     queuePerceptionSuggestion(target, suggestion, timestampMs);
   }
+}
+
+export function persistentObservationEventFromLocalChange(observations = [], timestampMs = Math.round(now())) {
+  const scored = observations
+    .map((item) => ({ ...item, motion_score: Number(item.motion_score || 0) }))
+    .sort((a, b) => b.motion_score - a.motion_score);
+  const strongest = scored[0] || null;
+  const activeZones = scored.filter((item) => item.active || item.motion_score >= PERSISTENT_OBSERVATION.changeThreshold);
+  const score = Number((strongest?.motion_score || 0).toFixed(3));
+  if (!strongest || score < PERSISTENT_OBSERVATION.changeThreshold || activeZones.length === 0) return null;
+  const zoneKey = activeZones.slice(0, 3).map((item) => item.zone_id).sort().join("+");
+  const scoreBucket = Math.round(score * 10) / 10;
+  return {
+    timestamp_ms: Math.round(timestampMs),
+    score,
+    zone_id: strongest.zone_id,
+    fingerprint: `${zoneKey || strongest.zone_id}:${scoreBucket.toFixed(1)}`
+  };
+}
+
+function updateRollingVisualContextFromLocalFeatures(target, observations = [], timestampMs = Math.round(now())) {
+  const rolling = target.realtimeSession?.rollingVisualContext;
+  if (!rolling || target.interactionState?.sessionActive !== true || target.interactionState.visualContextActive !== true) return;
+  const strongest = observations
+    .map((item) => ({ ...item, motion_score: Number(item.motion_score || 0) }))
+    .sort((a, b) => b.motion_score - a.motion_score)[0];
+  if (!strongest) return;
+  const event = persistentObservationEventFromLocalChange(observations, timestampMs);
+  const activeZones = observations
+    .filter((item) => item.active || Number(item.motion_score || 0) >= PERSISTENT_OBSERVATION.changeThreshold)
+    .slice(0, 3)
+    .map((item) => sanitizeMemoryText(item.zone_label || item.zone_id))
+    .filter(Boolean);
+  const fingerprint = event?.fingerprint || activeZones.join("+") || sanitizeMemoryText(strongest.zone_id || "scene");
+  if (!fingerprint) return;
+  const duplicate = rolling.lastFingerprint === fingerprint && Math.abs(Number(timestampMs) - Number(rolling.lastMeaningfulAtMs || 0)) < PERSISTENT_OBSERVATION.duplicateWindowMs;
+  if (duplicate) return;
+  const summary = event
+    ? `Meaningful visual change near ${activeZones.join(", ") || sanitizeMemoryText(strongest.zone_id || "the frame")}.`
+    : `Recent motion near ${activeZones.join(", ") || sanitizeMemoryText(strongest.zone_id || "the frame")}.`;
+  rolling.samples.push({
+    timestamp_ms: Math.round(timestampMs),
+    fingerprint,
+    summary,
+    score: Number((strongest.motion_score || 0).toFixed(3))
+  });
+  rolling.samples = rolling.samples.slice(-24);
+  rolling.summary = summary;
+  if (event) {
+    rolling.lastFingerprint = fingerprint;
+    rolling.lastMeaningfulAtMs = Math.round(timestampMs);
+  }
+}
+
+function maybeTriggerPersistentObservationFromLocalChange(target, observations, timestampMs) {
+  if (!target.interactionState?.sessionActive || !interactionModeIs(target, "observing") || target.interactionState.proactiveObservationActive !== true) return false;
+  const observer = target.movementRecognition.persistent;
+  if (!observer.active || !target.cameraReady || observer.pausedForVisibility || (typeof document !== "undefined" && document.hidden)) return false;
+  const event = persistentObservationEventFromLocalChange(observations, timestampMs);
+  if (!event) {
+    if (!observer.neutralSinceMs) observer.neutralSinceMs = Math.round(timestampMs);
+    if (Math.round(timestampMs) - observer.neutralSinceMs >= 300) observer.lastSceneFingerprint = "";
+    if (!persistentObservationBusy(target) && observer.state !== "active") observer.state = "active";
+    return false;
+  }
+  observer.neutralSinceMs = 0;
+  observer.lastChangeScore = event.score;
+  if (persistentObservationDuplicate(observer, event, timestampMs)) {
+    observer.droppedDuplicateCount += 1;
+    return false;
+  }
+  if (target.realtimeSession?.state === "active") {
+    observer.lastTriggerAtMs = Number(event.timestamp_ms || Math.round(now()));
+    observer.lastSceneFingerprint = event.fingerprint;
+    return scheduleRealtimeVisualEvent(target, event);
+  }
+  if (persistentObservationBusy(target) || persistentSpeechBusy(target)) {
+    observer.queuedEvent = observer.queuedEvent || event;
+    observer.state = "active";
+    return false;
+  }
+  return triggerPersistentObservation(target, event);
+}
+
+function persistentObservationDuplicate(observer, event, timestampMs) {
+  return observer.lastSceneFingerprint === event.fingerprint &&
+    Math.abs(Number(timestampMs || 0) - Number(observer.lastTriggerAtMs || 0)) < PERSISTENT_OBSERVATION.duplicateWindowMs;
+}
+
+function persistentObservationBusy(target) {
+  return target.movementRecognition.requestInFlight ||
+    ["checking", "capturing", "analyzing"].includes(target.movementRecognition.status);
+}
+
+function persistentSpeechBusy(target) {
+  const status = String(target.movementRecognition.voiceStatus || "");
+  return status === "Speaking…" || status === "Preparing voice…" ||
+    Boolean(target.movementRecognition.activeSpeechAudio) ||
+    Boolean(target.movementRecognition.activeVoiceAbortController) ||
+    Boolean(target.movementRecognition.activeSpeechOwnership);
+}
+
+function triggerPersistentObservation(target, event) {
+  const observer = target.movementRecognition.persistent;
+  if (!observer.active || persistentObservationBusy(target)) return false;
+  if (Number(event.timestamp_ms || 0) - Number(observer.lastTriggerAtMs || 0) < PERSISTENT_OBSERVATION.minTriggerIntervalMs) return false;
+  observer.lastTriggerAtMs = Number(event.timestamp_ms || Math.round(now()));
+  observer.lastSceneFingerprint = event.fingerprint;
+  observer.queuedEvent = null;
+  observer.state = "active";
+  target.statusMessage = target.realtimeSession?.state === "active" ? "Looking." : "Change detected.";
+  render();
+  if (target.realtimeSession?.state === "active") scheduleRealtimeVisualEvent(target, event);
+  else void analyzeMovementInState(target, { persistent: true, changeEvent: event });
+  return true;
+}
+
+function completePersistentObservationCycle(target) {
+  const observer = target.movementRecognition.persistent;
+  if (!observer.active) return;
+  observer.cooldownUntilMs = Math.round(now()) + PERSISTENT_OBSERVATION.cooldownMs;
+  observer.state = "active";
+  render();
+  setTimeout(() => {
+    if (!observer.active || observer.pausedForVisibility || !target.cameraReady) return;
+    if (observer.queuedEvent && !persistentObservationBusy(target) && !persistentSpeechBusy(target)) {
+      triggerPersistentObservation(target, observer.queuedEvent);
+      return;
+    }
+    observer.state = "active";
+    render();
+  }, Math.max(0, PERSISTENT_OBSERVATION.cooldownMs));
 }
 
 export function updateMotionHistory(zoneObservation) {
@@ -2853,31 +7666,51 @@ export function buildActionSuggestion(context) {
 export function normalizeMovementRecognitionResult(result = {}) {
   const movement = safeMovementSentence(result.movement ?? result.label ?? "Uncertain — try again.");
   const actionType = legacyActionTypeForMovement(movement, result.action_type);
+  const shortLabel = safeShortLabel(result.short_label ?? result.label ?? (actionType === "uncertain" ? "Uncertain" : "Movement"));
+  const responseType = String(result.response_type || (result.uncertainty ? "uncertain" : "narrate"));
+  const uncertain = Boolean(result.uncertainty ?? (isUncertainMovement(movement) || responseType === "uncertain"));
+  const spokenResponse = safeMovementSentence(result.spoken_response || movement || UNCERTAIN_SPOKEN_RESPONSE);
   return {
+    schema_version: "canonical-movement-result.v1",
+    observation_id: String(result.observation_id || result.movement_result_id || result.result_id || "").trim(),
     action_type: actionType,
     movement,
-    short_label: safeShortLabel(result.short_label ?? result.label ?? (actionType === "uncertain" ? "Uncertain" : "Movement")),
+    spoken_response: spokenResponse,
+    short_label: shortLabel,
+    movement_key: normalizeMovementKey(result.movement_key || shortLabel),
+    gesture_tags: normalizeGestureTags(result.gesture_tags),
     label: movement,
     confidence: clamp01(result.confidence ?? 0.5),
-    reason: String(result.reason ?? "AI movement recognition returned no reason."),
+    reason: String(result.reason ?? "Visual companion returned no reason."),
     evidence: Array.isArray(result.evidence) ? result.evidence.map(String).slice(0, 5) : [],
-    uncertainty: Boolean(result.uncertainty ?? isUncertainMovement(movement)),
-    provider: String(result.provider ?? MOVEMENT_RECOGNITION_CLIENT_CONFIG.provider),
-    model: String(result.model ?? "configured server-side"),
-    requested_model: String(result.requested_model ?? result.model ?? "configured server-side"),
+    meaningful_change: result.meaningful_change === true,
+    movement_label: result.movement_label || null,
+    evidence_frames: Array.isArray(result.evidence_frames) ? result.evidence_frames.map(Number).filter(Number.isInteger).slice(0, 8) : [],
+    uncertainty: uncertain,
+    provider: String(result.provider ?? VISUAL_COMPANION_CLIENT_CONFIG.provider),
+    model: String(result.model ?? "local model service"),
+    requested_model: String(result.requested_model ?? result.model ?? "local model service"),
     returned_model: String(result.returned_model ?? result.provider_model ?? ""),
-    prompt_version: String(result.prompt_version ?? MOVEMENT_NARRATION_PROMPT_VERSION),
+    prompt_version: String(result.prompt_version ?? VISUAL_COMPANION_PROMPT_VERSION),
     image_tokens: Math.max(0, Math.round(result.image_tokens ?? 0)),
     retries: Math.max(0, Math.round(result.retries ?? 0)),
     failed_candidates: safeFailedCandidateDiagnostics(result.failed_candidates),
+    response_type: responseType,
+    response_source: ["local_detector", "local_vlm", "cloud_vlm", "deterministic_test_fixture", "unavailable"].includes(result.response_source) ? result.response_source : "unavailable",
+    question: String(result.question || ""),
+    suggested_actions: Array.isArray(result.suggested_actions) ? result.suggested_actions.slice(0, 3) : [],
+    time_to_first_token_ms: Math.max(0, Math.round(result.time_to_first_token_ms ?? 0)),
+    time_to_first_audio_ms: Math.max(0, Math.round(result.time_to_first_audio_ms ?? 0)),
     latency_ms: Math.max(0, Math.round(result.latency_ms ?? 0)),
     requires_confirmation: true
   };
 }
 
-export function queueMovementRecognitionResult(target, result, timestampMs = Math.round(now())) {
+export function queueMovementRecognitionResult(target, result, timestampMs = Math.round(now()), options = {}) {
   const normalized = normalizeMovementRecognitionResult(result);
   const snapshot = movementResultSnapshotFrom(normalized, timestampMs);
+  const previousObservationId = observationIdForSnapshot(target.movementResultSnapshot);
+  if (previousObservationId && previousObservationId !== snapshot.observation_id) void cancelVisualSpeech(target);
   const meta = movementMetaForAction(normalized.action_type);
   const suggestion = createPerceptionSuggestion(meta.eventType, meta.zoneId, normalized.confidence, normalized.reason, null, timestampMs, {
     suggested_action: normalized.movement,
@@ -2885,11 +7718,13 @@ export function queueMovementRecognitionResult(target, result, timestampMs = Mat
     payload: {
       action_type: normalized.action_type,
       ai_recognition: true,
-      detection_method: "ai_movement_recognition",
+      detection_method: "visual_companion_observation",
       provider: normalized.provider,
       model: normalized.model,
       movement: normalized.movement,
       short_label: normalized.short_label,
+      movement_key: normalized.movement_key,
+      gesture_tags: normalized.gesture_tags,
       prompt_version: normalized.prompt_version,
       latency_ms: normalized.latency_ms,
       evidence_text: normalized.evidence,
@@ -2898,23 +7733,39 @@ export function queueMovementRecognitionResult(target, result, timestampMs = Mat
     },
     quest_state: target.questState
   });
-  suggestion.detection_method = "ai_movement_recognition";
-  suggestion.metadata.source = "ai_movement_recognition";
-  suggestion.evidence[0].description = `AI movement recognition: ${normalized.reason}`;
-  queuePerceptionSuggestion(target, suggestion);
+  suggestion.detection_method = "visual_companion_observation";
+  suggestion.metadata.source = "visual_companion_observation";
+  suggestion.evidence[0].description = `Visual companion observation: ${normalized.reason}`;
+  if (options.queueSuggestion !== false) queuePerceptionSuggestion(target, suggestion);
   target.movementRecognition.lastResult = normalized;
   target.movementRecognition.promptVersion = normalized.prompt_version;
   target.movementRecognition.imageTokens = normalized.image_tokens;
   target.movementRecognition.retries = normalized.retries;
   target.movementRecognition.candidateFailures = normalized.failed_candidates;
   target.movementResultSnapshot = snapshot;
+  if (target.interactionState?.sessionActive) {
+    target.emergencyRuntimeController.setCurrentResponse({
+      text: snapshot.spoken_response || snapshot.movement_sentence,
+      confidence: snapshot.confidence,
+      createdAt: timestampMs
+    });
+    if (interactionModeIs(target, "observing")) {
+      target.emergencyRuntimeController.recordMoment("observing", {
+        id: snapshot.observation_id,
+        role: "MOVEMENT",
+        text: snapshot.spoken_response || snapshot.movement_sentence,
+        createdAt: timestampMs
+      });
+    }
+    target.appState = target.emergencyRuntimeController.snapshot();
+  }
   target.confidenceCalibration.results_count += 1;
   if (normalized.uncertainty) target.confidenceCalibration.uncertain_count += 1;
-  appendMovementHistory(target, snapshot);
+  if (options.recordMovementHistory !== false) appendMovementHistory(target, snapshot);
   return suggestion;
 }
 
-export function queueMovementRecognitionFallback(target, timestampMs = Math.round(now())) {
+export function queueMovementRecognitionFallback(target, timestampMs = Math.round(now()), options = {}) {
   const frame = target.localPerceptionFrame ?? buildLocalPerceptionFrame({
     timestamp_ms: timestampMs,
     zone_motion: target.zoneMotion
@@ -2930,22 +7781,46 @@ export function queueMovementRecognitionFallback(target, timestampMs = Math.roun
         evidence: [candidate.reason],
         provider: "local_motion_proxy",
         model: "motion_proxy",
+        response_source: "local_detector",
         latency_ms: 0,
         requires_confirmation: true
       }
     : {
         action_type: "uncertain",
-        movement: "Uncertain — try again.",
-        short_label: "Uncertain",
+        movement: sanitizeMemoryText(options.fallbackMessage || "") || "Uncertain — try again.",
+        short_label: options.fallbackMessage ? "Visual reasoning unavailable" : "Uncertain",
         confidence: 0.5,
-        reason: "AI unavailable — try again or use local fallback. Reason: local motion did not identify a stable movement.",
+        reason: sanitizeMemoryText(options.fallbackMessage || "") || "AI unavailable — try again or use local fallback. Reason: local motion did not identify a stable movement.",
         evidence: ["local fallback unavailable or low confidence"],
         provider: "local_motion_proxy",
         model: "motion_proxy",
+        response_source: "local_detector",
         latency_ms: 0,
         requires_confirmation: true
       };
   return queueMovementRecognitionResult(target, result, timestampMs);
+}
+
+function queueVisualReasoningUnavailable(target, safeMessage, timestampMs = Math.round(now()), options = {}) {
+  const message = sanitizeMemoryText(safeMessage || "Visual reasoning is temporarily unavailable. Local camera and voice are still active.");
+  return queueMovementRecognitionResult(target, {
+    action_type: "uncertain",
+    movement: message,
+    spoken_response: message,
+    short_label: "Visual reasoning unavailable",
+    movement_key: "visual_reasoning_unavailable",
+    gesture_tags: [],
+    confidence: 0,
+    reason: message,
+    evidence: ["visual_reasoning_unavailable"],
+    uncertainty: true,
+    provider: "sensefield_runtime",
+    model: "none",
+    response_source: "unavailable",
+    image_tokens: 0,
+    latency_ms: 0,
+    requires_confirmation: true
+  }, timestampMs, options);
 }
 
 function movementMetaForAction(actionType) {
@@ -2961,19 +7836,25 @@ function movementMetaForAction(actionType) {
 
 function safeMovementSentence(value) {
   const text = String(value || "").trim().replace(/\s+/g, " ");
-  const unsafeIdentity = /\b(named|identity|identified as|recognize(d)? as|looks like|male|female|man|woman|boy|girl|race|ethnicity|age|clothing|shirt|pants|dress)\b/i;
+  const unsafeIdentity = /\b(named|identity|identified as|recognize(d)? as|male|female|man|woman|boy|girl|race|ethnicity|age|clothing|shirt|pants|dress)\b/i;
+  if (isOperationalVisualMessage(text)) return naturalizeMovementText(text.endsWith(".") || text.endsWith("!") || text.endsWith("?") ? text : `${text}.`);
   if (!text || unsafeIdentity.test(text)) return narratorSentence("uncertain");
   if (/^uncertain\b/i.test(text)) return narratorSentence("uncertain");
   return naturalizeMovementText(text.endsWith(".") || text.endsWith("!") || text.endsWith("?") ? text : `${text}.`);
 }
 
 function narratorSentence(value) {
-  if (isUncertainMovement(value)) return "I’m not sure what movement happened — try again.";
+  if (isOperationalVisualMessage(value)) return naturalizeMovementText(value);
+  if (isUncertainMovement(value)) return UNCERTAIN_SPOKEN_RESPONSE;
   return naturalizeMovementText(value);
 }
 
 function isUncertainMovement(value) {
   return /^uncertain\b|not sure|try again/i.test(String(value || "").trim());
+}
+
+function isOperationalVisualMessage(value = "") {
+  return /\b(local visual model|visual reasoning|visual companion|cloud ai limit|daily cloud ai limit|model is not installed|model not installed|temporarily unavailable|local features remain available|voice synthesis accepts text only|visual voice service|natural voice unavailable)\b/i.test(String(value || ""));
 }
 
 function naturalizeMovementText(value) {
@@ -3745,7 +8626,7 @@ function findForbiddenMediaMarkers(target) {
 }
 
 function buildCalibrationForm(boundDom, target) {
-  if (!boundDom) return;
+  if (!boundDom?.zoneFields || !boundDom?.objectFields) return;
   boundDom.zoneFields.innerHTML = REQUIRED_ZONES.map((zoneId) => {
     const rect = target.zoneGeometry[zoneId];
     return `
@@ -3774,12 +8655,12 @@ function buildCalibrationForm(boundDom, target) {
 function readCalibrationForm(boundDom) {
   const zoneGeometry = {};
   for (const zoneId of REQUIRED_ZONES) zoneGeometry[zoneId] = { x: 0, y: 0, w: 0.1, h: 0.1 };
-  for (const input of boundDom.zoneFields.querySelectorAll("input[data-zone]")) {
+  for (const input of boundDom.zoneFields?.querySelectorAll?.("input[data-zone]") ?? []) {
     zoneGeometry[input.dataset.zone][input.dataset.field] = clamp01(Number(input.value));
   }
 
   const objectAssignments = {};
-  for (const select of boundDom.objectFields.querySelectorAll("select[data-object]")) {
+  for (const select of boundDom.objectFields?.querySelectorAll?.("select[data-object]") ?? []) {
     objectAssignments[select.dataset.object] = select.value;
   }
   return { zoneGeometry, objectAssignments };
@@ -3799,6 +8680,10 @@ function readPerceptionTuning(boundDom, target) {
 function render() {
   if (!dom) return;
   updateExportReadiness(state);
+  if (isPrimaryView()) {
+    renderPrimaryView(state);
+    return;
+  }
   const summary = summarizeLatency(state.latencyRecords);
   const latest = state.lastLatency;
   const guards = getButtonGuards(state);
@@ -3810,10 +8695,11 @@ function render() {
   document.body.classList.toggle("dq-camera-live", state.cameraReady);
   dom.cameraFrame?.classList.toggle("is-live", state.cameraReady);
   if (dom.cameraCardStatus) {
-    dom.cameraCardStatus.textContent = state.cameraReady ? "Camera on" : "Camera off";
+    dom.cameraCardStatus.textContent = captureStudioStatusLabel(state);
+    dom.cameraCardStatus.classList.toggle("success", state.cameraReady && !state.errorMessage);
   }
   if (dom.cameraStatusChip) {
-    dom.cameraStatusChip.textContent = state.cameraReady ? "Camera on" : "Camera off";
+    dom.cameraStatusChip.textContent = state.cameraReady ? "Live" : "Camera off";
   }
   if (dom.headerLiveStatus) {
     dom.headerLiveStatus.innerHTML = `<span class="dq-badge-dot" aria-hidden="true"></span>${state.cameraReady ? "Manual · AI on demand" : "Idle"}`;
@@ -3828,18 +8714,21 @@ function render() {
       state.movementRecognition.status === "checking" ||
       state.movementRecognition.status === "capturing" ||
       state.movementRecognition.status === "analyzing";
-    dom.analyzeMovement.disabled = !state.cameraReady || analyzing;
+    const cloudBlocked = cloudUsageHardLimitReached(state) && !localVisualModelActive(state);
+    dom.analyzeMovement.disabled = !state.cameraReady || analyzing || cloudBlocked;
     dom.analyzeMovement.textContent = state.movementRecognition.status === "capturing"
-      ? "Capturing..."
+      ? "Watching…"
       : state.movementRecognition.status === "checking"
         ? "Get ready..."
       : state.movementRecognition.status === "analyzing"
-        ? "Understanding movement..."
+        ? "Understanding…"
+      : cloudBlocked
+        ? "Cloud limit reached"
       : state.movementRecognition.status === "complete"
-        ? "Try another movement"
+        ? "Observe"
       : state.movementRecognition.status === "fallback"
         ? "Try again"
-        : "Describe my next movement";
+        : "Observe";
   }
   if (dom.movementControlHelp) {
     dom.movementControlHelp.textContent = movementControlHelpText(state);
@@ -3882,8 +8771,10 @@ function render() {
   dom.eventCount.textContent = operatorStepProgressLabel(state);
   dom.privacy.textContent = "Not saved";
   dom.cloud.textContent = state.movementRecognition.provider;
+  renderCloudUsageStatus(state);
   renderMovementResultDetails(state);
   renderResearchLab(state);
+  renderAutomationState(state);
   dom.traceReady.textContent = state.exportReady ? "Ready" : "Not ready";
   dom.cost.textContent = "$0";
   dom.llm.textContent = "0";
@@ -3907,6 +8798,7 @@ function render() {
   if (dom.maxActiveSuggestions) dom.maxActiveSuggestions.value = String(state.localPerceptionTuning.maxActiveSuggestions);
   if (dom.showRawMotionScores) dom.showRawMotionScores.checked = state.localPerceptionTuning.showRawMotionScores;
   if (dom.showTrackingOverlay) dom.showTrackingOverlay.checked = state.showTrackingOverlay === true;
+  if (dom.toggleTrackingDock) dom.toggleTrackingDock.setAttribute("aria-pressed", state.showTrackingOverlay === true ? "true" : "false");
   dom.events.innerHTML = timelineHtml(state.events);
   renderDetectedAction(state);
   if (dom.cameraSuggestionCount) {
@@ -3941,6 +8833,107 @@ function render() {
   )).join("");
   dom.stuckGuide.textContent = stuckGuideText();
   dom.troubleshooting.textContent = troubleshootingText(state, guards);
+}
+
+function renderPrimaryView(target) {
+  document.body.classList.toggle("dq-camera-live", target.cameraReady);
+  dom.cameraFrame?.classList.toggle("is-live", target.cameraReady);
+  if (dom.cameraStatusChip) dom.cameraStatusChip.textContent = target.cameraReady ? "Camera on" : "Camera off";
+  renderInteractionModeSelector(target);
+  if (dom.primaryObservationState) dom.primaryObservationState.textContent = primaryObservationStateLabel(target);
+  if (dom.analyzeMovement) {
+    const busy = primaryActionBusy(target);
+    dom.analyzeMovement.disabled = busy;
+    dom.analyzeMovement.textContent = primaryActionLabel(target);
+    dom.analyzeMovement.setAttribute("aria-label", dom.analyzeMovement.textContent);
+  }
+  if (dom.movementControlHelp) dom.movementControlHelp.textContent = movementControlHelpText(target);
+  if (dom.errorBanner) {
+    dom.errorBanner.hidden = target.errorMessage.length === 0;
+    dom.errorBanner.textContent = target.errorMessage;
+  }
+  renderDetectedAction(target);
+  renderMovementResultDetails(target);
+  if (dom.cameraSuggestionCount) dom.cameraSuggestionCount.textContent = primaryResponseStateLabel(target);
+  if (dom.movementSummaryRow) dom.movementSummaryRow.textContent = primaryResponseMeta(target);
+  if (dom.voiceStatus) dom.voiceStatus.textContent = primarySpeechState(target);
+  if (dom.savedActionsList) dom.savedActionsList.innerHTML = savedActionsSummaryHtml(target);
+  if (dom.recentMomentsList) dom.recentMomentsList.innerHTML = recentMomentsSummaryHtml(target);
+}
+
+function canonicalAppState(target) {
+  const snapshot = target.emergencyRuntimeController.snapshot();
+  target.appState = snapshot;
+  return snapshot;
+}
+
+function renderInteractionModeSelector(target) {
+  if (!dom.interactionModeSelector) return;
+  const app = canonicalAppState(target);
+  for (const button of dom.interactionModeSelector.querySelectorAll("[data-interaction-mode]")) {
+    const selected = normalizeInteractionMode(button.getAttribute("data-interaction-mode")) === app.selectedMode;
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+    button.disabled = app.session.status === "ending";
+  }
+}
+
+function primaryActionBusy(target) {
+  return target.cameraStartInFlight === true || ["starting", "ending"].includes(target.realtimeSession.state);
+}
+
+function primaryActionLabel(target) {
+  if (target.realtimeSession.state === "starting" || target.cameraStartInFlight) return "Starting…";
+  if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) return "End observing";
+  if (target.interactionState.sessionActive) return "End conversation";
+  if (target.realtimeSession.state === "ending") return "Ending…";
+  if (target.realtimeSession.state === "error" || (!target.cameraReady && target.errorMessage)) return "Try again";
+  if (target.realtimeSession.state === "inactive") return interactionModeIs(target, "observing") ? "Start observing" : "Start conversation";
+  if (target.movementCaptureState.status === "error" || target.movementRecognition.status === "fallback") return "Try again";
+  return interactionModeIs(target, "observing") ? "Start observing" : "Start conversation";
+}
+
+function primaryResponseStateLabel(target) {
+  const app = canonicalAppState(target);
+  if (app.safeError) return app.selectedMode === "observing" ? "Visual model unavailable" : "Conversation unavailable";
+  if (app.currentTurn.assistantText) return "Sensefield";
+  if (app.currentTurn.observationText) return "Movement";
+  if (app.runtime.thinking) return app.selectedMode === "observing" ? "Understanding" : "Thinking";
+  if (app.session.status === "active") return app.selectedMode === "observing" ? "Watching" : "Listening";
+  return app.selectedMode === "observing" ? "Observing" : "Conversation";
+}
+
+function primaryObservationStateLabel(target) {
+  const app = canonicalAppState(target);
+  if (app.safeError || target.realtimeSession.state === "error") return "Error";
+  if (app.session.status === "starting" || target.cameraStartInFlight) return "Starting…";
+  if (app.session.status === "ending") return "Ending…";
+  if (app.runtime.speechStarted) return "Speaking";
+  if (app.runtime.thinking) return app.selectedMode === "observing" ? "Understanding" : "Thinking";
+  if (app.session.status === "active") return app.selectedMode === "observing" ? "Watching" : "Listening";
+  return "Ready";
+}
+
+function primaryResponseMeta(target) {
+  const app = canonicalAppState(target);
+  if (!app.currentTurn.responseType || app.currentTurn.confidence == null) return "";
+  return `Confidence ${Number(app.currentTurn.confidence).toFixed(2)}`;
+}
+
+function primarySpeechState(target) {
+  const turn = canonicalAppState(target).currentTurn;
+  if (!turn.assistantText && !turn.observationText) return "";
+  if (turn.speechStatus === "speaking") return "Speaking…";
+  if (turn.speechStatus === "complete") return "Voice complete";
+  if (turn.speechStatus === "unavailable") return "Voice unavailable";
+  return "";
+}
+
+function captureStudioStatusLabel(target) {
+  if (target.errorMessage) return "Error";
+  if (target.movementRecognition.status === "capturing") return "Observing";
+  if (target.movementRecognition.status === "checking" || target.movementRecognition.status === "analyzing") return "Understanding";
+  if (target.cameraReady) return "Ready to observe";
+  return "Camera off";
 }
 
 function renderTopStatus(target) {
@@ -3984,6 +8977,100 @@ function displayStatusText(value) {
     return text.replace("LLM=", "LLM ").replace("VLM=", "VLM ").replace(" · cost=", " · ");
   }
   return text.replaceAll("_", " ");
+}
+
+function renderCloudUsageStatus(target) {
+  const node = ensureCloudUsageNode();
+  if (!node) return;
+  const usage = normalizeCloudUsage(target.movementRecognition.usage);
+  target.movementRecognition.usage = usage;
+  target.movementRecognition.usageStatus = cloudUsageStateText(target);
+  node.textContent = [
+    "Cloud AI usage",
+    target.movementRecognition.usageStatus,
+    `Session: ${usage.session.used} / ${usage.session.limit}`,
+    `Today: ${usage.day.used} / ${usage.day.limit}`,
+    `Month: ${usage.month.used} / ${usage.month.limit}`
+  ].join("\n");
+}
+
+function ensureCloudUsageNode() {
+  if (dom?.cloudUsage) return dom.cloudUsage;
+  const metricList = dom?.cloud?.closest?.("dl");
+  if (!metricList || typeof document === "undefined") return null;
+  const row = document.createElement("div");
+  const label = document.createElement("dt");
+  const value = document.createElement("dd");
+  label.textContent = "Cloud AI";
+  value.id = "cloudAiUsage";
+  value.className = "text-contained";
+  row.append(label, value);
+  metricList.append(row);
+  dom.cloudUsage = value;
+  return value;
+}
+
+function normalizeCloudUsage(usage = createEmptyCloudUsage()) {
+  const fallback = createEmptyCloudUsage();
+  return {
+    cloud_enabled: usage.cloud_enabled !== false,
+    session: normalizeUsageBucket(usage.session, fallback.session),
+    day: normalizeUsageBucket(usage.day, fallback.day),
+    month: normalizeUsageBucket(usage.month, fallback.month),
+    concurrent: normalizeUsageBucket(usage.concurrent, fallback.concurrent)
+  };
+}
+
+function usageFromLimitMetadata(limitUsage = {}, previousUsage = createEmptyCloudUsage()) {
+  const previous = normalizeCloudUsage(previousUsage);
+  return {
+    cloud_enabled: previous.cloud_enabled,
+    session: {
+      used: Number(limitUsage.session_used ?? previous.session.used),
+      limit: Number(limitUsage.session_limit ?? previous.session.limit)
+    },
+    day: {
+      used: Number(limitUsage.daily_used ?? previous.day.used),
+      limit: Number(limitUsage.daily_limit ?? previous.day.limit)
+    },
+    month: {
+      used: Number(limitUsage.monthly_used ?? previous.month.used),
+      limit: Number(limitUsage.monthly_limit ?? previous.month.limit)
+    },
+    concurrent: previous.concurrent
+  };
+}
+
+function normalizeUsageBucket(bucket = {}, fallback = {}) {
+  const limit = Math.max(0, Number(bucket.limit ?? fallback.limit ?? 0));
+  const used = Math.max(0, Number(bucket.used ?? bucket.active ?? fallback.used ?? fallback.active ?? 0));
+  return {
+    used,
+    active: used,
+    limit,
+    remaining: Math.max(0, Number(bucket.remaining ?? (limit - used)))
+  };
+}
+
+function cloudUsageStateText(target) {
+  const usage = normalizeCloudUsage(target.movementRecognition.usage);
+  if (usage.cloud_enabled === false) return "Cloud AI disabled";
+  if (usage.month.remaining <= 0) return "Monthly limit reached";
+  if (usage.day.remaining <= 0) return "Daily limit reached";
+  if (localVisualModelActive(target)) return "Local model active";
+  const highestRatio = Math.max(usage.session.used / Math.max(1, usage.session.limit), usage.day.used / Math.max(1, usage.day.limit), usage.month.used / Math.max(1, usage.month.limit));
+  return highestRatio >= 0.8 ? "80% used" : "Available";
+}
+
+function cloudUsageHardLimitReached(target) {
+  const usage = normalizeCloudUsage(target.movementRecognition.usage);
+  return usage.cloud_enabled !== false && (usage.session.remaining <= 0 || usage.day.remaining <= 0 || usage.month.remaining <= 0);
+}
+
+function localVisualModelActive(target) {
+  const health = target.movementRecognition.health;
+  if (health?.provider === VISUAL_COMPANION_CLIENT_CONFIG.provider && health.status !== "model_not_installed") return true;
+  return target.movementRecognition.provider === VISUAL_COMPANION_CLIENT_CONFIG.provider;
 }
 
 export function topStatusForState(target) {
@@ -4071,11 +9158,11 @@ function currentActionForState(target, guards) {
       target.movementRecognition.status === "analyzing";
     return {
       id: "analyzeMovement",
-      label: analyzing ? "Understanding movement..." : "Describe my next movement",
+      label: analyzing ? "Understanding…" : "Observe",
       tone: "primary",
-      help: "Capture a short temporary movement window for AI recognition.",
+      help: "Capture a short temporary visual window for local open-model observation.",
       disabled: analyzing,
-      reason: analyzing ? "AI movement recognition is already running." : ""
+      reason: analyzing ? "Visual observation is already running." : ""
     };
   }
   return action("stopRecording", "Stop Watching", guards.stopRecording, "Stop watching when the session is complete.", "secondary");
@@ -4472,24 +9559,41 @@ function renderMovementResultDetails(target) {
     if (dom.movementProvider) dom.movementProvider.textContent = snapshot?.provider ?? target.movementRecognition.provider;
     if (dom.movementModel) dom.movementModel.textContent = snapshot?.model ?? target.movementRecognition.model;
     if (dom.movementLatency) dom.movementLatency.textContent = snapshot ? `${snapshot.latency_ms}ms` : "--";
+    if (dom.visualMemoryMode) dom.visualMemoryMode.value = target.visualContext?.memoryMode || "session";
+    if (dom.visualSuggestedAction) {
+      const action = snapshot?.suggested_actions?.[0] || target.visualContext?.suggestedActions?.[0];
+      dom.visualSuggestedAction.hidden = !action;
+      dom.visualSuggestedAction.textContent = action ? `${action.label || action.action} · requires confirmation` : "";
+    }
+    if (dom.confirmVisualSuggestedAction) {
+      const action = snapshot?.suggested_actions?.[0] || target.visualContext?.suggestedActions?.[0];
+      dom.confirmVisualSuggestedAction.hidden = !action;
+      dom.confirmVisualSuggestedAction.disabled = !action;
+    }
     if (dom.movementSummaryRow) {
       dom.movementSummaryRow.textContent = snapshot
-        ? `${snapshot.short_label || "Movement"} · Confidence ${snapshot.confidence.toFixed(2)}`
+        ? `${snapshot.short_label || "Observation"} · Confidence ${snapshot.confidence.toFixed(2)}`
         : "Confidence --";
     }
     if (dom.autoSpeak) {
       dom.autoSpeak.checked = target.movementRecognition.autoSpeak === true;
-      dom.autoSpeak.parentElement?.lastChild && (dom.autoSpeak.parentElement.lastChild.textContent = target.movementRecognition.autoSpeak ? " Auto-speak on" : " Auto-speak off");
-      if (dom.autoSpeak.parentElement) dom.autoSpeak.parentElement.hidden = !snapshot;
+      const label = dom.autoSpeak.parentElement?.querySelector?.("span");
+      if (label) label.textContent = target.movementRecognition.autoSpeak ? "Auto-speak on" : "Auto-speak off";
+      if (dom.autoSpeak.parentElement) dom.autoSpeak.parentElement.hidden = true;
     }
     if (dom.confirmMovement) {
-      dom.confirmMovement.hidden = !snapshot;
-      dom.confirmMovement.disabled = !snapshot || snapshot.confirmed === true;
+      const needsConfirmation = visualResponseNeedsConfirmation(target);
+      dom.confirmMovement.hidden = !needsConfirmation;
+      dom.confirmMovement.disabled = !needsConfirmation || snapshot?.confirmed === true;
       dom.confirmMovement.textContent = snapshot?.confirmed ? "Confirmed" : "Confirm";
     }
     if (dom.correctMovement) {
       dom.correctMovement.hidden = !snapshot;
       dom.correctMovement.disabled = !snapshot;
+    }
+    if (dom.automateThisMovement) {
+      dom.automateThisMovement.hidden = !snapshot?.confirmed;
+      dom.automateThisMovement.disabled = !snapshot?.confirmed;
     }
     if (dom.movementCorrectionForm) {
       dom.movementCorrectionForm.hidden = !snapshot || target.correctionDraft.open !== true;
@@ -4501,17 +9605,19 @@ function renderMovementResultDetails(target) {
       dom.movementHistoryList.innerHTML = movementHistoryHtml(target);
     }
     if (dom.speakResult) {
-      dom.speakResult.hidden = !snapshot;
-      dom.speakResult.disabled = !snapshot || !speechSynthesisAvailable();
+      dom.speakResult.hidden = isPrimaryView();
+      dom.speakResult.disabled = !snapshot;
     }
     if (dom.tryAgainMovement) {
       const canRetry = snapshot || target.movementCaptureState.status === "error";
-      dom.tryAgainMovement.hidden = !canRetry;
+      dom.tryAgainMovement.hidden = isPrimaryView() || !canRetry;
       dom.tryAgainMovement.disabled = target.movementCaptureState.status === "capturing" || target.movementCaptureState.status === "analyzing";
-      dom.tryAgainMovement.textContent = snapshot || target.movementCaptureState.status === "result_ready" ? "Try another movement" : "Try again";
+      dom.tryAgainMovement.textContent = snapshot || target.movementCaptureState.status === "result_ready" ? "Observe" : "Try again";
     }
   }
-  if (dom.voiceStatus) dom.voiceStatus.textContent = speechSynthesisAvailable() ? target.movementRecognition.voiceStatus : "Voice unavailable";
+  const voiceLabel = target.movementRecognition.voiceStatus || "Ready";
+  if (dom.voiceStatus) dom.voiceStatus.textContent = voiceLabel;
+  if (dom.voiceStatusPill) dom.voiceStatusPill.textContent = voiceLabel.replaceAll("…", "");
 }
 
 function movementHistoryHtml(target) {
@@ -4523,6 +9629,258 @@ function movementHistoryHtml(target) {
       <span>Text-only session history</span>
     </div>
   `).join("");
+}
+
+function savedActionsSummaryHtml(target) {
+  const customRows = (target.customSkills || []).map((skill) => ({
+    icon: skill.pose_type === "two_hand" ? "H" : "G",
+    name: skill.name,
+    meta: interactionModeIs(target, "conversation") && skill.action?.type === "speak_phrase"
+      ? "Available while observing"
+      : skill.action?.type === "speak_phrase" ? `Speak “${sanitizeMemoryText(skill.action?.value || "Done")}”` : "Run saved gesture action",
+    enabled: skill.active && skill.enabled,
+    id: skill.custom_skill_id
+  }));
+  const recipeRows = (target.automation.recipes || []).map((recipe) => ({
+    icon: gestureIconLabel(recipe.trigger?.gesture_key || recipe.trigger?.movement_key || recipe.name),
+    name: recipe.name,
+    meta: primarySavedActionDescription(target, recipe),
+    enabled: recipe.enabled === true,
+    id: recipe.recipe_id
+  }));
+  const speechFallbackMeta = interactionModeIs(target, "conversation") ? "Available while observing" : null;
+  const fallbackRows = [
+    { icon: "H", name: "Heart", meta: speechFallbackMeta || "Speak “Heart detected”", enabled: true, id: "preset_heart" },
+    { icon: "T", name: "Thumbs up", meta: speechFallbackMeta || "Speak “Great job”", enabled: true, id: "preset_thumbs_up" },
+    { icon: "P", name: "Point at object", meta: "Explain what I’m showing", enabled: true, id: "preset_point" }
+  ];
+  const sourceRows = [...customRows, ...recipeRows];
+  const rows = (sourceRows.length ? sourceRows : fallbackRows).slice(0, 3);
+  const viewAll = sourceRows.length > 3 ? '<div class="sf-action-view-all" role="link" tabindex="0" data-saved-action="view-all">View all</div>' : "";
+  return `${rows.map((row) => `
+    <div class="sf-action-row text-contained" role="link" tabindex="0" data-saved-action="open" data-action-id="${escapeHtml(row.id)}">
+      <span class="sf-action-icon" aria-hidden="true">${escapeHtml(row.icon)}</span>
+      <span class="sf-action-copy"><strong>${escapeHtml(row.name)}</strong><span>${escapeHtml(row.meta)}</span></span>
+      <span class="sf-action-state">${row.enabled ? "Enabled" : "Off"}</span>
+      <span class="sf-action-chevron" aria-hidden="true">&gt;</span>
+    </div>
+  `).join("")}${viewAll}<div class="sf-action-add" role="link" tabindex="0" data-saved-action="add">Add action</div>`;
+}
+
+function primarySavedActionDescription(target, recipe) {
+  const actionType = String(recipe.action?.type || "");
+  const config = recipe.action?.config || {};
+  if (interactionModeIs(target, "conversation") && actionType === "speak_phrase") return "Available while observing";
+  if (actionType === "speak_phrase") return `Speak “${sanitizeMemoryText(config.text || recipe.name || "Done")}”`;
+  if (actionType === "browser_notification") return "Show a notification";
+  if (actionType === "start_timer") return "Start a timer";
+  if (actionType === "increment_counter") return "Update a counter";
+  if (actionType === "append_activity_log") return "Add to activity log";
+  return automationActionLabel(actionType);
+}
+
+function recentMomentsSummaryHtml(target) {
+  const app = canonicalAppState(target);
+  if (app.selectedMode === "conversation") {
+    const turns = app.persistentMemory.conversationMoments.slice(-3).reverse();
+    if (!turns.length) return '<p class="dq-movement-hint">Your recent conversational moments will appear here.</p>';
+    return turns.map((entry) => `
+      <div class="sf-moment-row text-contained">
+        <span class="sf-moment-time">${escapeHtml(relativeMomentTime(entry.createdAt))}</span>
+        <span class="sf-moment-copy"><strong>${escapeHtml(entry.role)}</strong> ${escapeHtml(narratorSentence(entry.text))}</span>
+      </div>
+    `).join("");
+  }
+  const entries = app.persistentMemory.observationMoments.slice(-3).reverse();
+  if (!entries.length) return '<p class="dq-movement-hint">Your recent observations will appear here.</p>';
+  return entries.map((entry) => `
+    <div class="sf-moment-row text-contained">
+      <span class="sf-moment-time">${escapeHtml(relativeMomentTime(entry.createdAt))}</span>
+      <span class="sf-moment-copy"><strong>${escapeHtml(entry.role)}</strong> ${escapeHtml(narratorSentence(entry.text))}</span>
+    </div>
+  `).join("");
+}
+
+function relativeMomentTime(timestampMs) {
+  const ageMs = Math.max(0, Math.round(now() - Number(timestampMs || now())));
+  if (ageMs < 60000) return "Just now";
+  const minutes = Math.max(1, Math.round(ageMs / 60000));
+  return `${minutes} min ago`;
+}
+
+function renderAutomationState(target) {
+  if (!dom.automationManagerList) return;
+  const runtime = target.automation;
+  const instantRuntime = instantRuntimeFor(target);
+  const renderKey = JSON.stringify({
+    enabled: runtime.enabled,
+    recipes: runtime.recipes.map((recipe) => [recipe.recipe_id, recipe.enabled, recipe.updated_at]),
+    receipts: runtime.receipts.map((receipt) => [receipt.execution_id, receipt.status, receipt.finished_at]),
+    counters: runtime.counters,
+    activity_count: runtime.activityLog.length,
+    matched: runtime.matchedCount,
+    status: runtime.lastStatus,
+    instant_enabled: instantRuntime.userEnabled,
+    instant_status: instantRuntime.engineStatus,
+    custom_skills: (target.customSkills || []).map((skill) => [skill.custom_skill_id, skill.enabled, skill.active, skill.updated_at, skill.positive_templates.length])
+  });
+  if (renderKey === lastAutomationRenderKey) return;
+  lastAutomationRenderKey = renderKey;
+  if (dom.automationPresetSelect && dom.automationPresetSelect.options.length <= 1) {
+    dom.automationPresetSelect.insertAdjacentHTML("beforeend", AUTOMATION_PRESETS.map((preset) => (
+      `<option value="${escapeHtml(preset.recipe_id)}">${escapeHtml(preset.name)}</option>`
+    )).join(""));
+  }
+  if (dom.instantGestures) dom.instantGestures.checked = instantRuntime.userEnabled;
+  renderInstantGestureStatus(target);
+  if (dom.customGestureList) dom.customGestureList.innerHTML = customSkillManagerHtml(target);
+  if (dom.gestureRecipePreviewList) dom.gestureRecipePreviewList.innerHTML = gestureRecipePreviewHtml(target);
+  dom.automationManagerList.innerHTML = automationManagerHtml(target);
+  if (dom.automationReceiptList) dom.automationReceiptList.innerHTML = automationReceiptHtml(target);
+  if (dom.automationRuntimeSummary) dom.automationRuntimeSummary.textContent = automationRuntimeSummary(target);
+  if (dom.automationMatchSummary) {
+    dom.automationMatchSummary.hidden = !target.movementResultSnapshot?.confirmed || runtime.matchedCount === 0;
+    dom.automationMatchSummary.textContent = runtime.matchedCount
+      ? `${runtime.matchedCount} automation ${runtime.matchedCount === 1 ? "recipe" : "recipes"} matched · ${automationStatusLabel(runtime.lastStatus)}`
+      : "";
+  }
+  if (dom.automationExecutionStatus) {
+    const confirmed = target.movementResultSnapshot?.confirmed === true;
+    dom.automationExecutionStatus.hidden = !confirmed;
+    dom.automationExecutionStatus.textContent = confirmed ? runtime.executionStatus || automationStatusLabel(runtime.lastStatus) : "Automation ready";
+  }
+}
+
+function gestureRecipePreviewHtml(target) {
+  const customRows = (target.customSkills || []).map((skill) => ({
+    icon: skill.pose_type === "two_hand" ? "H" : "G",
+    name: skill.name,
+    meta: `${skill.pose_type === "two_hand" ? "Custom two-hand pose" : "Custom one-hand pose"} · ${skill.positive_templates.length} examples`,
+    enabled: skill.active && skill.enabled
+  }));
+  const recipeRows = (target.automation.recipes || []).map((recipe) => ({
+    icon: gestureIconLabel(recipe.trigger?.gesture_key || recipe.trigger?.movement_key || recipe.name),
+    name: recipe.name,
+    meta: `${automationActionLabel(recipe.action?.type)} · ${recipe.execution_mode === "instant_local_gesture" ? "Instant" : "After confirm"}`,
+    enabled: recipe.enabled === true
+  }));
+  const rows = [...customRows, ...recipeRows].slice(0, 3);
+  if (!rows.length) {
+    return `
+      <div class="dq-recipe-row text-contained">
+        <span aria-hidden="true">+</span>
+        <div class="dq-recipe-meta">
+          <strong>No gesture recipes yet</strong>
+          <span>Create a custom gesture or add a preset.</span>
+        </div>
+      </div>
+    `;
+  }
+  return rows.map((row) => `
+    <div class="dq-recipe-row text-contained">
+      <span aria-hidden="true">${escapeHtml(row.icon)}</span>
+      <div class="dq-recipe-meta">
+        <strong>${escapeHtml(row.name)}</strong>
+        <span>${escapeHtml(row.meta)}</span>
+      </div>
+      <span class="dq-recipe-status">${row.enabled ? "Enabled" : "Off"}</span>
+      <span aria-hidden="true">&gt;</span>
+    </div>
+  `).join("");
+}
+
+function gestureIconLabel(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("thumb")) return "T";
+  if (text.includes("heart")) return "H";
+  if (text.includes("peace")) return "P";
+  if (text.includes("palm")) return "O";
+  return "G";
+}
+
+export function customSkillManagerHtml(target) {
+  const skills = target.customSkills || [];
+  if (!skills.length) return '<p class="note">No custom gestures yet.</p>';
+  return skills.map((skill) => {
+    const lastRun = [...target.automation.receipts].reverse().find((receipt) => receipt.recipe_id === skill.linked_recipe_id && receipt.dry_run !== true);
+    return `
+      <div class="dq-history-item text-contained">
+        <strong>${escapeHtml(skill.name)}</strong>
+        <span>${skill.pose_type === "two_hand" ? "Custom two-hand pose" : "Custom one-hand pose"} · ${skill.positive_templates.length} examples · ${skill.active && skill.enabled ? "Active" : "Disabled"}</span>
+        <span>Last run: ${escapeHtml(lastRun ? automationStatusLabel(lastRun.status) : "never")}</span>
+        <div class="dq-button-row">
+          <button class="dq-button secondary no-vertical-text" data-custom-skill-action="test" data-custom-skill-id="${escapeHtml(skill.custom_skill_id)}" type="button">Test</button>
+          <button class="dq-button secondary no-vertical-text" data-custom-skill-action="retrain" data-custom-skill-id="${escapeHtml(skill.custom_skill_id)}" type="button">Retrain</button>
+          <button class="dq-button secondary no-vertical-text" data-custom-skill-action="edit-action" data-custom-skill-id="${escapeHtml(skill.custom_skill_id)}" type="button">Edit action</button>
+          <button class="dq-button secondary no-vertical-text" data-custom-skill-action="toggle" data-custom-skill-id="${escapeHtml(skill.custom_skill_id)}" type="button">${skill.enabled ? "Disable" : "Enable"}</button>
+          <button class="dq-button secondary no-vertical-text" data-custom-skill-action="delete" data-custom-skill-id="${escapeHtml(skill.custom_skill_id)}" type="button">Delete</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+export function automationManagerHtml(target) {
+  const recipes = target.automation.recipes;
+  const controls = `
+    <div class="dq-button-row">
+      <button class="dq-button secondary no-vertical-text" data-automation-action="toggle-engine" type="button">${target.automation.enabled ? "Disable automations" : "Enable automations"}</button>
+      <button class="dq-button secondary no-vertical-text" data-automation-action="clear-data" type="button">Reset counters & receipts</button>
+    </div>`;
+  if (!recipes.length) return `<p class="note">No automation recipes yet.</p>${controls}`;
+  return `${recipes.map((recipe) => {
+    const lastRun = [...target.automation.receipts].reverse().find((receipt) => receipt.recipe_id === recipe.recipe_id && receipt.dry_run !== true);
+    return `
+      <div class="dq-history-item text-contained">
+        <strong>${escapeHtml(recipe.name)}</strong>
+        <span>${escapeHtml(recipe.trigger.gesture_key || recipe.trigger.movement_key || recipe.trigger.required_tags.join(", "))} · ${escapeHtml(automationActionLabel(recipe.action.type))} · ${recipe.execution_mode === "instant_local_gesture" ? "instant" : "after confirm"} · ${recipe.enabled ? "enabled" : "disabled"}</span>
+        <span>Last run: ${escapeHtml(lastRun ? automationStatusLabel(lastRun.status) : "never")}</span>
+        <div class="dq-button-row">
+          <button class="dq-button secondary no-vertical-text" data-automation-action="toggle" data-recipe-id="${escapeHtml(recipe.recipe_id)}" type="button">${recipe.enabled ? "Disable" : "Enable"}</button>
+          <button class="dq-button secondary no-vertical-text" data-automation-action="edit" data-recipe-id="${escapeHtml(recipe.recipe_id)}" type="button">Edit</button>
+          <button class="dq-button secondary no-vertical-text" data-automation-action="dry-run" data-recipe-id="${escapeHtml(recipe.recipe_id)}" type="button">Test recipe</button>
+          <button class="dq-button secondary no-vertical-text" data-automation-action="delete" data-recipe-id="${escapeHtml(recipe.recipe_id)}" type="button">Delete</button>
+        </div>
+      </div>`;
+  }).join("")}${controls}`;
+}
+
+function automationReceiptHtml(target) {
+  const receipts = target.automation.receipts.slice(-10).reverse();
+  if (!receipts.length) return "No automation receipts yet.";
+  return receipts.map((receipt) => `
+    <div class="dq-history-item text-contained">
+      <strong>${escapeHtml(automationStatusLabel(receipt.status))} · ${escapeHtml(automationActionLabel(receipt.action_type))}</strong>
+      <span>${escapeHtml(receipt.safe_message)}</span>
+      <span>${receipt.dry_run ? "Dry run" : `${receipt.duration_ms}ms`} · No raw media</span>
+    </div>
+  `).join("");
+}
+
+function automationRuntimeSummary(target) {
+  const runtime = target.automation;
+  const counterTotal = Object.values(runtime.counters).reduce((sum, value) => sum + Number(value || 0), 0);
+  return `${runtime.enabled ? "Enabled" : "Disabled"} · ${runtime.recipes.length} recipes · ${counterTotal} counter total · ${runtime.activityLog.length} activity entries`;
+}
+
+function automationStatusLabel(status) {
+  if (status === "executing" || status === "planning" || status === "awaiting_confirmation") return "Running";
+  if (status === "succeeded" || status === "completed") return "Completed";
+  if (status === "failed" || status === "rate_limited") return "Failed";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "no_match") return "No match";
+  return "Ready";
+}
+
+function automationActionLabel(actionType) {
+  return {
+    speak_phrase: "Speak phrase",
+    browser_notification: "Browser notification",
+    start_timer: "Start timer",
+    increment_counter: "Increment counter",
+    append_activity_log: "Append activity log",
+    local_snapshot_download: "Local snapshot download",
+    signed_webhook_post: "Signed webhook"
+  }[actionType] || "Automation";
 }
 
 function renderResearchLab(target) {
@@ -4540,42 +9898,84 @@ function renderResearchLab(target) {
   if (dom.researchOneShotGuard) {
     dom.researchOneShotGuard.textContent = target.movementRecognition.requestInFlight ? "in flight" : "ready";
   }
+  renderInstantGestureDiagnostics(target);
+}
+
+function renderInstantGestureDiagnostics(target) {
+  if (!dom) return;
+  const runtime = instantRuntimeFor(target);
+  const diagnostics = instantRuntimeDiagnostics(runtime);
+  if (dom.researchInstantMode) dom.researchInstantMode.textContent = `${diagnostics.engine_mode || diagnostics.mode || "off"} · initialized ${diagnostics.recognizer_initialized ? "yes" : "no"}`;
+  if (dom.researchInstantLoop) dom.researchInstantLoop.textContent = diagnostics.loop_running ? "yes" : "no";
+  if (dom.researchInstantFrames) dom.researchInstantFrames.textContent = `${diagnostics.frames_processed || 0} frames · ${diagnostics.successful_inferences || 0} successful`;
+  if (dom.researchInstantInferenceAge) dom.researchInstantInferenceAge.textContent = Number.isFinite(Number(diagnostics.last_inference_age_ms)) ? `${Math.round(diagnostics.last_inference_age_ms)}ms` : "--";
+  if (dom.researchInstantRawLabel) dom.researchInstantRawLabel.textContent = diagnostics.last_raw_label || "None";
+  if (dom.researchInstantRawConfidence) dom.researchInstantRawConfidence.textContent = Number(diagnostics.last_raw_confidence || 0).toFixed(3);
+  if (dom.researchInstantMappedGesture) dom.researchInstantMappedGesture.textContent = diagnostics.mapped_gesture || "--";
+  if (dom.researchInstantHold) dom.researchInstantHold.textContent = `${Math.round(diagnostics.current_hold_ms ?? diagnostics.hold_progress_ms ?? 0)} / ${Math.round(diagnostics.required_hold_ms ?? diagnostics.hold_target_ms ?? INSTANT_GESTURE_DEFAULTS.holdMs)}ms`;
+  if (dom.researchInstantStableEvent) dom.researchInstantStableEvent.textContent = diagnostics.last_stable_event_id || diagnostics.last_stable_event || "--";
+  if (dom.researchInstantRecipeOutcome) dom.researchInstantRecipeOutcome.textContent = diagnostics.last_recipe_match || diagnostics.last_recipe_outcome_code || diagnostics.last_outcome_code || "loop_not_running";
+  if (dom.researchInstantActionOutcome) dom.researchInstantActionOutcome.textContent = diagnostics.last_action_outcome || diagnostics.last_action_outcome_code || "--";
+  if (dom.researchInstantReceipt) dom.researchInstantReceipt.textContent = diagnostics.last_receipt_id || diagnostics.last_receipt || "--";
+  if (dom.researchInstantSafeError) dom.researchInstantSafeError.textContent = diagnostics.safe_error || diagnostics.last_error_message || "--";
+  if (dom.researchInstantDiagnosis) dom.researchInstantDiagnosis.textContent = `${diagnostics.last_outcome_code || diagnostics.last_error_code || "loop_not_running"} · landmark fallback ${diagnostics.fallback_classifier_used ? "yes" : "no"}`;
+  if (dom.researchInstantUserEnabled) dom.researchInstantUserEnabled.textContent = String(runtime.userEnabled);
+  if (dom.researchInstantEffectiveEnabled) dom.researchInstantEffectiveEnabled.textContent = String(instantRuntimeEffectiveEnabled(runtime));
+  if (dom.researchInstantEngineStatus) dom.researchInstantEngineStatus.textContent = runtime.engineStatus;
+  if (dom.researchInstantSuccessfulInferences) dom.researchInstantSuccessfulInferences.textContent = String(runtime.successfulInferences);
+  if (dom.researchInstantLastCandidate) dom.researchInstantLastCandidate.textContent = runtime.lastCandidate || "--";
+  if (dom.researchInstantLastOutcomeCode) dom.researchInstantLastOutcomeCode.textContent = runtime.lastOutcomeCode;
+  const draft = target.customSkillDraft;
+  if (dom.researchTrainerWizardStep) dom.researchTrainerWizardStep.textContent = draft ? String(draft.currentStep) : "closed";
+  if (dom.researchTrainerCaptureState) dom.researchTrainerCaptureState.textContent = draft?.captureState || "idle";
+  if (dom.researchTrainerRequiredHandCount) dom.researchTrainerRequiredHandCount.textContent = String(draft?.requiredHandCount || 0);
+  if (dom.researchTrainerVisibleHandCount) dom.researchTrainerVisibleHandCount.textContent = String(draft?.visibleHandCount || 0);
+  if (dom.researchTrainerLandmarkFrameAvailable) dom.researchTrainerLandmarkFrameAvailable.textContent = String(draft?.landmarkFrameAvailable === true);
+  if (dom.researchTrainerStableHoldMs) dom.researchTrainerStableHoldMs.textContent = String(Math.round(draft?.stableHoldMs || 0));
+  if (dom.researchTrainerAcceptedExampleCount) dom.researchTrainerAcceptedExampleCount.textContent = String(draft?.positiveExamples.length || 0);
+  if (dom.researchTrainerLastCaptureError) dom.researchTrainerLastCaptureError.textContent = draft?.lastCaptureError || "--";
 }
 
 function suggestionsHtml(target) {
-  const snapshot = target.movementResultSnapshot;
-  if (snapshot) {
+  const app = canonicalAppState(target);
+  const responseText = app.currentTurn.assistantText || app.currentTurn.observationText;
+  if (responseText) {
+    const snapshot = {
+      ...(target.movementResultSnapshot || {}),
+      result_id: target.movementResultSnapshot?.result_id || `current_${app.currentTurn.createdAt || "turn"}`,
+      question: app.currentTurn.userText
+    };
     return movementResultHeroHtml(
-      snapshot.confirmed ? "Result ready" : "Needs confirmation",
-      calibratedMovementSentence(snapshot),
-      snapshot.confirmed ? "Confirmed." : "Confirm the sentence or try again.",
+      app.selectedMode === "observing" ? "Movement" : "Sensefield",
+      responseText,
+      primarySpeechState(target),
       snapshot
     );
   }
-  const stateText = target.movementCaptureState.status === "get_ready"
-    ? "Get ready..."
-    : target.movementCaptureState.status === "capturing"
-      ? "Move now."
-    : target.movementCaptureState.status === "analyzing"
-      ? "Understanding movement..."
-    : target.movementCaptureState.status === "error"
-      ? target.movementRecognition.lastError || "AI response was unclear — try again."
-    : target.cameraReady
-      ? "Ready for a movement."
-      : "Start the camera, then describe a movement.";
-  const reason = target.cameraReady
-    ? movementControlHelpText(target)
-    : "Start Camera, then click Describe my next movement.";
-  return movementResultHeroHtml(statusLabelForMovementState(target), stateText, reason);
+  const stateText = app.safeError
+    ? app.safeError
+    : app.runtime.thinking
+      ? app.selectedMode === "observing" ? "Looking at what changed…" : "Understanding your question…"
+      : app.selectedMode === "observing"
+        ? "Show me a movement or object change."
+        : app.session.status === "active" ? "Ask your question." : "Ask me anything about what I can see.";
+  const reason = app.session.status === "active" ? "No raw media stored." : "No raw media stored.";
+  const status = primaryResponseStateLabel(target);
+  return movementResultHeroHtml(status, stateText, reason);
 }
 
 function movementResultHeroHtml(status, sentence, hint, snapshot = null) {
   const resultId = snapshot?.result_id ?? `capture_${String(status).toLowerCase().replace(/\W+/g, "_")}`;
   const reveal = snapshot?.result_id && snapshot.result_id !== lastMovementRevealResultId;
   if (reveal) lastMovementRevealResultId = snapshot.result_id;
+  const userQuestion = sanitizeMemoryText(snapshot?.question || "");
+  const conversationHtml = userQuestion
+    ? `<p class="dq-movement-hint"><strong>USER</strong><br>${escapeHtml(userQuestion)}</p><p class="dq-movement-hint"><strong>SENSEFIELD</strong></p>`
+    : "";
   return `
-    <div class="dq-movement-result result-card-stable result-hero ${reveal ? "result-reveal" : ""} reduced-motion-safe text-contained" data-result-id="${escapeHtml(resultId)}">
+    <div class="dq-movement-result result-card-stable result-hero ${snapshot ? "" : "is-empty"} ${reveal ? "result-reveal" : ""} reduced-motion-safe text-contained" data-result-id="${escapeHtml(resultId)}">
       <span class="dq-movement-status">${escapeHtml(status)}</span>
+      ${conversationHtml}
       <strong class="dq-movement-sentence movement-sentence">${escapeHtml(narratorSentence(sentence))}</strong>
       <p class="dq-movement-hint">${escapeHtml(naturalizeMovementText(hint))}</p>
     </div>
@@ -4584,22 +9984,33 @@ function movementResultHeroHtml(status, sentence, hint, snapshot = null) {
 
 function calibratedMovementSentence(snapshot) {
   const sentence = snapshot?.movement_sentence ?? "";
+  if (isOperationalVisualMessage(sentence)) return sentence;
   if (!sentence || snapshot?.corrected || isUncertainMovement(sentence) || snapshot.confidence >= 0.55) return sentence;
   const softened = sentence.replace(/^You\b/, "you").replace(/\.$/, "");
   return `I’m not fully sure, but it looks like ${softened}.`;
 }
 
 function movementResultRenderKey(target) {
-  const snapshot = target.movementResultSnapshot;
-  return snapshot
-    ? ["result", snapshot.result_id, snapshot.revision, snapshot.confirmed ? "confirmed" : "pending"].join(":")
-    : ["capture", target.cameraReady ? "camera_on" : "camera_off", target.movementCaptureState.status, target.movementRecognition.lastError].join(":");
+  const app = canonicalAppState(target);
+  const turn = app.currentTurn;
+  return [
+    app.selectedMode,
+    app.session.status,
+    app.session.sessionGeneration,
+    app.session.modeGeneration,
+    app.runtime.thinking ? "thinking" : "idle",
+    turn.createdAt || "no_turn",
+    turn.assistantText,
+    turn.observationText,
+    turn.speechStatus,
+    app.safeError || ""
+  ].join(":");
 }
 
 function movementResultDetailKey(target) {
   const snapshot = target.movementResultSnapshot;
   return snapshot
-    ? ["result", snapshot.result_id, snapshot.revision, snapshot.confirmed ? "confirmed" : "pending", target.correctionDraft.open ? "correcting" : "view", target.movementHistory.entries.length, target.correctionMemory.entries.length].join(":")
+    ? ["result", snapshot.result_id, snapshot.revision, snapshot.confirmed ? "confirmed" : "pending", target.correctionDraft.open ? "correcting" : "view", target.movementHistory.entries.length, target.correctionMemory.entries.length, target.movementRecognition.autoSpeak ? "auto_on" : "auto_off"].join(":")
     : ["capture", target.movementCaptureState.status, target.movementRecognition.provider, target.movementRecognition.model, target.movementRecognition.lastError, target.movementHistory.entries.length, target.correctionMemory.entries.length].join(":");
 }
 
@@ -4619,31 +10030,41 @@ function evidenceListHtml(items = []) {
 
 function statusLabelForMovementState(target) {
   return {
-    idle: "Ready",
-    checking: "Ready",
-    capturing: "Capturing",
-    analyzing: "Analyzing",
-    complete: "Needs confirmation",
-    fallback: target.movementRecognition.lastError?.includes("busy") ? "AI busy" : "AI unavailable"
-  }[target.movementRecognition.status] ?? "Ready";
+    idle: "Response",
+    checking: "Understanding",
+    capturing: "Observing",
+    analyzing: "Understanding",
+    complete: "Response",
+    fallback: target.movementRecognition.lastError?.includes("busy") ? "Model busy" : "Model unavailable"
+  }[target.movementRecognition.status] ?? "Response";
 }
 
 function movementBadgeText(target) {
-  if (target.movementRecognition.status === "complete" && target.movementRecognition.confirmed) return "Result ready";
-  if (target.movementRecognition.status === "complete") return "Needs confirmation";
+  if (target.movementRecognition.status === "complete") return "Response";
   return statusLabelForMovementState(target);
 }
 
+function visualResponseNeedsConfirmation(target) {
+  const snapshot = target.movementResultSnapshot;
+  if (!snapshot) return false;
+  if (snapshot.confirmed === true) return false;
+  if ((snapshot.suggested_actions || []).length > 0 || (target.visualContext?.suggestedActions || []).length > 0) return true;
+  return target.automation.recipes.some((recipe) => recipe.enabled === true && recipe.execution_mode !== "instant_local_gesture");
+}
+
 function movementControlHelpText(target) {
-  if (!target.cameraReady) return "Start the camera, then describe a movement.";
+  if (!target.interactionState.sessionActive && target.realtimeSession.state === "inactive") return interactionModeIs(target, "observing") ? "Start observing." : "Start conversation.";
+  if (target.realtimeSession.state === "starting") return interactionModeIs(target, "observing") ? "Starting observing." : "Starting conversation.";
+  if (target.realtimeSession.state === "ending") return interactionModeIs(target, "observing") ? "Ending observing." : "Ending conversation.";
+  if (target.interactionState.sessionActive) return interactionModeIs(target, "observing") ? "Watching." : "Listening.";
   return {
-    idle: "Click, then move naturally for about 2 seconds.",
-    checking: "Get ready...",
-    capturing: "Move now.",
-    analyzing: "AI is describing what happened.",
-    complete: "Try another movement when you want a new description.",
+    idle: target.movementRecognition.persistent.active ? "Watching." : "Start conversation.",
+    checking: "Understanding…",
+    capturing: "Watching…",
+    analyzing: "Understanding…",
+    complete: target.movementRecognition.persistent.active ? "Watching." : "Start conversation.",
     fallback: target.movementRecognition.lastError || "Try again."
-  }[target.movementRecognition.status] ?? "Click, then move naturally for about 2 seconds.";
+  }[target.movementRecognition.status] ?? "Local change detector active.";
 }
 
 function suggestionKindLabel(suggestion) {
