@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import base64
+import builtins
 import io
 import json
 import os
@@ -10,7 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+from spatial_runtime import run_spatial_observations, spatial_runtime_health
 
 try:
     from voice_runtime import SensefieldVoiceRuntime, synthesis_result_headers
@@ -73,6 +75,14 @@ class SpeakInput(BaseModel):
     contains_raw_media: bool = False
 
 
+class SpatialInput(BaseModel):
+    frames: List[FrameInput] = Field(default_factory=list)
+    timestamps: List[int] = Field(default_factory=list)
+    query: Optional[str] = None
+    mode: str = "observing"
+    contains_raw_media: bool = True
+
+
 @app.get("/health")
 def health():
     ensure_model_loaded(lazy=True)
@@ -111,6 +121,40 @@ def models():
             "selected": True,
         }]
     }
+
+
+@app.get("/spatial-health")
+def spatial_health():
+    return spatial_runtime_health(runtime, MODEL_ID, MODEL_DIR)
+
+
+@app.post("/spatial-observations")
+def spatial_observations(payload: SpatialInput):
+    if not payload.frames:
+        raise HTTPException(status_code=400, detail="No spatial frames supplied.")
+    if len(payload.frames) > MAX_FRAMES:
+        raise HTTPException(status_code=413, detail="Too many spatial frames supplied.")
+    if payload.mode not in {"conversation", "observing"}:
+        raise HTTPException(status_code=400, detail="Invalid spatial mode.")
+    timestamps = payload.timestamps or [frame.captured_at_ms for frame in payload.frames]
+    if len(timestamps) != len(payload.frames) or any(timestamps[index] <= timestamps[index - 1] for index in range(1, len(timestamps))):
+        raise HTTPException(status_code=400, detail="Spatial timestamps must be ordered.")
+    images: List[Image.Image] = []
+    try:
+        for frame in payload.frames:
+            images.append(decode_frame(frame))
+        ensure_model_loaded(lazy=False)
+        if runtime["model"] is None or runtime["processor"] is None:
+            raise HTTPException(status_code=503, detail="Spatial model unavailable.")
+        return run_spatial_observations(images, timestamps, payload.query, payload.mode, runtime)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Spatial precision is temporarily unavailable.")
+    finally:
+        for image in images:
+            image.close()
+        images.clear()
 
 
 @app.get("/voices")
@@ -237,6 +281,10 @@ def ensure_model_loaded(lazy: bool):
         return
     started = time.time()
     try:
+        builtins.Image = Image
+        builtins.ImageDraw = ImageDraw
+        builtins.ImageFont = ImageFont
+        builtins.ImageOps = ImageOps
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
