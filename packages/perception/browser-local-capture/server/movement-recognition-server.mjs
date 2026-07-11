@@ -14,6 +14,12 @@ import {
   executeSignedAutomationWebhook as executeWebhook,
   validateAutomationWebhookDestination as validateWebhookDestination
 } from "./automation-server.mjs";
+import {
+  SPATIAL_ANALYZE_ROUTE,
+  SPATIAL_HEALTH_ROUTE,
+  spatialAwarenessHealth,
+  spatialAwarenessResponseForRequest
+} from "./spatial-awareness-provider.mjs";
 
 const ANALYZE_ROUTE = "/api/movement-recognition/analyze";
 const HEALTH_ROUTE = "/api/movement-recognition/health";
@@ -119,6 +125,36 @@ export function createMovementRecognitionServer(options = {}) {
     }
     if (request.method === "GET" && request.url === VISUAL_HEALTH_ROUTE) {
       writeJson(response, 200, await visualCompanionHealth(options.env, options));
+      return;
+    }
+    if (request.method === "GET" && request.url === SPATIAL_HEALTH_ROUTE) {
+      writeJson(response, 200, await spatialAwarenessHealth(options.env, options));
+      return;
+    }
+    if (request.method === "POST" && request.url === SPATIAL_ANALYZE_ROUTE) {
+      const spatialController = new AbortController();
+      const abortSpatialRequest = () => spatialController.abort("client_abort");
+      request.once("aborted", abortSpatialRequest);
+      try {
+        const body = await readJsonBody(request);
+        const result = await spatialAwarenessResponseForRequest(body, options.env, {
+          ...options,
+          sessionId: darkQuestSessionId(request),
+          bodyBytes: body.__body_bytes,
+          signal: spatialController.signal
+        });
+        writeJson(response, result.status, result.json);
+      } catch {
+        writeJson(response, 400, {
+          ok: false,
+          code: "spatial_request_invalid",
+          message: "Spatial analysis could not read this request.",
+          source: "unavailable",
+          contains_raw_media: false
+        });
+      } finally {
+        request.off("aborted", abortSpatialRequest);
+      }
       return;
     }
     if (request.method === "POST" && [VISUAL_OBSERVE_ROUTE, VISUAL_CONVERSATION_ROUTE].includes(request.url)) {
