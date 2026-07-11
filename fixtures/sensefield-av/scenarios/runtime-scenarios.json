@@ -1,0 +1,33 @@
+{
+  "conversation_holding_mug": {
+    "mode": "conversation",
+    "video": "pick_up_mug",
+    "audio": "what_am_i_holding",
+    "answer_concepts": ["mug", "cup"],
+    "automatic_speech": true,
+    "proactive_movement_narration": false
+  },
+  "conversation_follow_up_color": {
+    "mode": "conversation",
+    "previous_context": "mug",
+    "video": "repeated_unchanged_pose",
+    "audio": "what_color_is_it",
+    "answer_concepts": ["dark", "black"],
+    "context_retained": true
+  },
+  "observing_three_movements": {
+    "mode": "observing",
+    "video": "three_distinct_movements",
+    "audio": null,
+    "expected_observations": 3,
+    "expected_stt_calls": 0
+  },
+  "barge_in": {
+    "mode": "conversation",
+    "video": "static_person",
+    "audio": "speech_while_assistant_speaks",
+    "expected_prior_tts_cancellation": true,
+    "expected_new_user_turn": true,
+    "expected_new_answers": 1
+  }
+}

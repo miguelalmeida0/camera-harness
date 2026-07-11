@@ -1,13 +1,43 @@
 {
-  "name": "darkquest-camera-harness",
+  "name": "sensefield-camera-harness",
   "version": "0.1.0",
+  "description": "Sensefield local camera observation harness.",
   "private": true,
   "type": "module",
   "scripts": {
+    "emergency:doctor": "node packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs doctor",
+    "emergency:providers": "node packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs providers",
+    "emergency:voice": "node packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs voice",
+    "emergency:conversation": "node packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs conversation",
+    "emergency:observing": "node packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs observing",
+    "emergency:media": "node packages/perception/browser-local-capture/test/emergency-media.e2e.mjs",
+    "emergency:sensefield": "npm run emergency:doctor && npm run emergency:providers && npm run emergency:voice && npm run emergency:conversation && npm run emergency:observing && npm run emergency:media && npm run test:p0-live-runtime && npm run test:visual-companion && npm run test:movement-recognition && npm run voice:test && npm run typecheck && git diff --check",
     "test:adapter": "node --experimental-strip-types packages/perception/live-perception-adapter/test/gate1a-live-adapter.test.ts && node --experimental-strip-types packages/perception/live-perception-adapter/test/gate1b-live-adapter.test.ts && node --experimental-strip-types packages/perception/browser-local-capture/test/browser-local-capture.test.ts && node packages/perception/browser-local-capture/test/prototype-flow.test.mjs",
     "test:recorder": "node --experimental-strip-types packages/replay/live-trace-recorder/test/live-trace-recorder.test.ts && node --experimental-strip-types packages/replay/live-trace-recorder/test/live-trace-recorder-gate1b.test.ts",
     "test:movement-recognition": "node packages/perception/browser-local-capture/test/movement-recognition.test.mjs",
     "test:movement-recognition:live": "node packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs",
+    "test:automation-recipes": "node packages/perception/browser-local-capture/test/automation-recipes.test.mjs",
+    "test:instant-gestures": "node packages/perception/browser-local-capture/test/instant-gesture-automation.test.mjs",
+    "test:dual-mode": "node packages/perception/browser-local-capture/test/dual-mode-runtime.test.mjs",
+    "test:core-lifecycle": "node packages/perception/browser-local-capture/test/core-lifecycle.test.mjs && node packages/perception/browser-local-capture/test/emergency-media.e2e.mjs",
+    "test:single-voice": "node packages/perception/browser-local-capture/test/single-voice-lifecycle.test.mjs",
+    "test:custom-skills": "node packages/perception/browser-local-capture/test/custom-movement-skills.test.mjs",
+    "test:visual-companion": "node packages/perception/browser-local-capture/test/visual-companion.test.mjs",
+    "test:p0-runtime": "node packages/perception/browser-local-capture/test/p0-runtime.test.mjs",
+    "test:p0-live-runtime": "node packages/perception/browser-local-capture/test/p0-live-runtime.test.mjs",
+    "test:premium-redesign": "node packages/perception/browser-local-capture/test/premium-redesign.test.mjs",
+    "test:responsive": "node packages/perception/browser-local-capture/test/responsive-layout.test.mjs",
+    "visual:hardware": "node packages/perception/browser-local-capture/scripts/visual-hardware.mjs",
+    "visual:setup": "node packages/perception/browser-local-capture/scripts/visual-setup.mjs",
+    "visual:serve": "python3 services/visual-companion/app.py",
+    "visual:test": "node services/visual-companion/test/visual-companion-contract.test.mjs && node packages/perception/browser-local-capture/test/visual-companion.test.mjs",
+    "visual:benchmark": "node packages/perception/browser-local-capture/scripts/visual-benchmark.mjs",
+    "voice:hardware": "node packages/perception/browser-local-capture/scripts/voice-hardware.mjs",
+    "voice:setup": "node packages/perception/browser-local-capture/scripts/voice-setup.mjs",
+    "voice:benchmark": "node packages/perception/browser-local-capture/scripts/voice-benchmark.mjs",
+    "voice:serve": ".venv-voice/bin/python services/visual-companion/app.py",
+    "voice:test": "node services/visual-companion/test/voice-service.test.mjs && node packages/perception/browser-local-capture/test/visual-companion.test.mjs",
+    "benchmark:visual-models": "node services/visual-companion/bin/benchmark-visual-models.mjs",
     "gate:0b": "node packages/evals/bin/darkquest-eval.mjs gate-0b fixtures/replay/gate_0b_manifest.json",
     "gate:1a": "node packages/evals/bin/darkquest-eval.mjs gate-1a fixtures/replay/gate_1a_manifest.json",
     "gate:1b": "node packages/evals/bin/darkquest-eval.mjs gate-1b fixtures/replay/gate_1b_manifest.json",
@@ -22,6 +52,11 @@
     "gate:4a:engine": "node packages/evals/bin/gate-4a-engine-check.mjs",
     "gate:v1": "node packages/evals/bin/gate-v1-product-freeze-check.mjs",
     "gate:v1:research": "node packages/evals/bin/gate-v1-research-layer-check.mjs",
+    "gate:v1:automation": "node packages/evals/bin/gate-v1-automation-check.mjs",
+    "gate:v1:instant-automation": "node packages/evals/bin/gate-v1-instant-automation-check.mjs",
+    "gate:v1:custom-skills": "node packages/evals/bin/gate-v1-custom-skills-check.mjs",
+    "gate:v1:ui-integrity": "node packages/evals/bin/gate-v1-ui-integrity-check.mjs",
+    "gate:v2:visual-companion": "node packages/evals/bin/gate-v2-visual-companion-check.mjs",
     "suggestions:validate": "node packages/evals/bin/gate-3b-live-check.mjs --present-only",
     "suggestions:report": "node packages/evals/bin/suggestions-report.mjs",
     "suggestions:bundle:validate": "node packages/evals/bin/suggestions-bundle-validate.mjs",
@@ -31,10 +66,21 @@
     "physical:export": "node packages/replay/live-trace-recorder/scripts/export-physical-trace.mjs --operator-confirmed",
     "physical:validate": "node packages/replay/live-trace-recorder/scripts/validate-physical-trace.mjs fixtures/replay/live/live_physical_focus_ritual_001.v0.json",
     "verify:physical": "npm run physical:validate && node packages/evals/bin/darkquest-eval.mjs replay --repeat 3 fixtures/replay/live/live_physical_focus_ritual_001.v0.json && npm run gate:0b && npm run gate:1a && npm run gate:1b && npm run gate:1c && npm run test:adapter && npm run test:recorder && npm run typecheck",
-    "typecheck": "node --check packages/evals/bin/darkquest-eval.mjs && node --check packages/evals/bin/gate-1d-check.mjs && node --check packages/evals/bin/gate-1e-check.mjs && node --check packages/evals/bin/gate-1f-check.mjs && node --check packages/evals/bin/gate-2a-check.mjs && node --check packages/evals/bin/gate-3b-check.mjs && node --check packages/evals/bin/gate-3b-live-check.mjs && node --check packages/evals/bin/gate-4a-check.mjs && node --check packages/evals/bin/gate-4a-engine-check.mjs && node --check packages/evals/bin/gate-v1-product-freeze-check.mjs && node --check packages/evals/bin/gate-v1-research-layer-check.mjs && node --check packages/evals/bin/suggestions-report.mjs && node --check packages/evals/bin/suggestions-bundle-validate.mjs && node --check packages/evals/bin/suggestions-bundle-split.mjs && node --check packages/evals/bin/dev-trace-validate.mjs && node --check packages/replay/live-trace-recorder/bin/darkquest-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/export-physical-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/validate-physical-trace.mjs && node --check packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs && node --check packages/perception/browser-local-capture/prototype/local-capture.js && node --check packages/perception/browser-local-capture/server/movement-recognition-provider.mjs && node --check packages/perception/browser-local-capture/server/movement-recognition-server.mjs && node --check packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs"
+    "typecheck": "node --check packages/evals/bin/darkquest-eval.mjs && node --check packages/evals/bin/gate-1d-check.mjs && node --check packages/evals/bin/gate-1e-check.mjs && node --check packages/evals/bin/gate-1f-check.mjs && node --check packages/evals/bin/gate-2a-check.mjs && node --check packages/evals/bin/gate-3b-check.mjs && node --check packages/evals/bin/gate-3b-live-check.mjs && node --check packages/evals/bin/gate-4a-check.mjs && node --check packages/evals/bin/gate-4a-engine-check.mjs && node --check packages/evals/bin/gate-v1-product-freeze-check.mjs && node --check packages/evals/bin/gate-v1-research-layer-check.mjs && node --check packages/evals/bin/gate-v1-automation-check.mjs && node --check packages/evals/bin/gate-v1-instant-automation-check.mjs && node --check packages/evals/bin/gate-v1-custom-skills-check.mjs && node --check packages/evals/bin/gate-v1-ui-integrity-check.mjs && node --check packages/evals/bin/gate-v2-visual-companion-check.mjs && node --check packages/evals/bin/suggestions-report.mjs && node --check packages/evals/bin/suggestions-bundle-validate.mjs && node --check packages/evals/bin/suggestions-bundle-split.mjs && node --check packages/evals/bin/dev-trace-validate.mjs && node --check packages/replay/live-trace-recorder/bin/darkquest-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/export-physical-trace.mjs && node --check packages/replay/live-trace-recorder/scripts/validate-physical-trace.mjs && node --check packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs && node --check packages/perception/browser-local-capture/scripts/visual-hardware.mjs && node --check packages/perception/browser-local-capture/scripts/visual-setup.mjs && node --check packages/perception/browser-local-capture/scripts/visual-benchmark.mjs && node --check services/visual-companion/bin/benchmark-visual-models.mjs && node --check packages/perception/browser-local-capture/prototype/local-capture.js && node --check packages/perception/browser-local-capture/prototype/perception/local-gesture-engine.js && node --check packages/perception/browser-local-capture/prototype/perception/gesture-stabilizer.js && node --check packages/perception/browser-local-capture/prototype/perception/gesture-recognizer-worker.js && node --check packages/perception/browser-local-capture/prototype/automation/index.js && node --check packages/perception/browser-local-capture/prototype/automation/recipe-store.js && node --check packages/perception/browser-local-capture/prototype/automation/recipe-matcher.js && node --check packages/perception/browser-local-capture/prototype/automation/automation-engine.js && node --check packages/perception/browser-local-capture/prototype/automation/local-action-adapters.js && node --check packages/perception/browser-local-capture/prototype/automation/automation-receipts.js && node --check packages/perception/browser-local-capture/server/visual-companion-provider.mjs && node --check packages/perception/browser-local-capture/server/hf-usage-limiter.mjs && node --check packages/perception/browser-local-capture/server/movement-recognition-provider.mjs && node --check packages/perception/browser-local-capture/server/movement-recognition-server.mjs && node --check packages/perception/browser-local-capture/server/automation/index.mjs && node --check packages/perception/browser-local-capture/server/automation-server.mjs && node --check packages/perception/browser-local-capture/server/webhook-policy.mjs && node --check packages/perception/browser-local-capture/server/webhook-action-adapter.mjs && node --check packages/perception/browser-local-capture/test/visual-companion.test.mjs && node --check services/visual-companion/test/visual-companion-contract.test.mjs && node --check services/visual-companion/index.mjs && node --check services/visual-companion/observation-window.mjs && node --check services/visual-companion/provider-contract.mjs && node --check services/visual-companion/response-schema.mjs && node --check services/visual-companion/response-policy.mjs && node --check services/visual-companion/tts.mjs && node --check services/visual-companion/memory.mjs && node --check services/visual-companion/quality-metrics.mjs && node --check packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs && node --check packages/perception/browser-local-capture/test/automation-recipes.test.mjs && node --check packages/perception/browser-local-capture/test/instant-gesture-automation.test.mjs && node --check packages/perception/browser-local-capture/test/custom-movement-skills.test.mjs"
   },
   "movementRecognitionRecommendedEnv": {
     "MOVEMENT_RECOGNITION_MODEL": "google/gemma-4-31B-it:cerebras",
     "MOVEMENT_RECOGNITION_MODEL_CANDIDATES": "google/gemma-4-31B-it:cerebras,meta-llama/Llama-4-Scout-17B-16E-Instruct:groq,CohereLabs/aya-vision-32b:cohere,zai-org/GLM-4.5V:zai-org,MiniMaxAI/MiniMax-M3:together"
+  },
+  "automationRecommendedEnv": {
+    "DARKQUEST_AUTOMATION_WEBHOOK_ALLOWLIST": "https://hooks.example.com,https://hook.eu2.make.com",
+    "DARKQUEST_WEBHOOK_SECRET_PRESENTATION": "set-server-side-only",
+    "ALLOW_LOCAL_AUTOMATION_WEBHOOKS": "false"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.22-rc.20250304"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

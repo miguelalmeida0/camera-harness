@@ -89,3 +89,8 @@ These may exist only as hidden developer/QA tooling if still needed.
 
 If a change does not improve reliability, loading/error clarity, result reveal, voice response, one-shot cost guard, mirrored preview, or hidden diagnostics, it is out of scope for this pass.
 
+## Required Maintenance Exception
+
+Responsive repairs, accessibility repairs, overflow and text-containment fixes, reachable modal-action fixes, and conditional-form corrections are required maintenance of the approved design. They are not unauthorized redesigns when they preserve the product hierarchy, design tokens, visual intent, and feature scope.
+
+Desktop design freeze never permits broken mobile behavior. Required maintenance must support the complete primary flow at 390px without horizontal overflow, container/text escape, unreachable controls, or product-state resets. These repairs must not introduce new main-product panels or change Camera -> Describe my next movement -> Big result.

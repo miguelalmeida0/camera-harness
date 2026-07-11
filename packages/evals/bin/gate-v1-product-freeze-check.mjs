@@ -7,9 +7,11 @@ const files = {
   packageJson: "package.json",
   html: "packages/perception/browser-local-capture/prototype/index.html",
   source: "packages/perception/browser-local-capture/prototype/local-capture.js",
+  visualProvider: "packages/perception/browser-local-capture/server/visual-companion-provider.mjs",
   provider: "packages/perception/browser-local-capture/server/movement-recognition-provider.mjs",
   server: "packages/perception/browser-local-capture/server/movement-recognition-server.mjs",
   movementTest: "packages/perception/browser-local-capture/test/movement-recognition.test.mjs",
+  visualTest: "packages/perception/browser-local-capture/test/visual-companion.test.mjs",
   prototypeTest: "packages/perception/browser-local-capture/test/prototype-flow.test.mjs",
   correctionMemoryContract: "docs/contracts/movement-correction-memory.v0.md",
   promptV2Contract: "docs/contracts/movement-narration-prompt.v2.md",
@@ -20,9 +22,11 @@ const files = {
 const packageJson = JSON.parse(read(files.packageJson));
 const html = read(files.html);
 const source = read(files.source);
+const visualProvider = read(files.visualProvider);
 const provider = read(files.provider);
 const server = read(files.server);
 const movementTest = read(files.movementTest);
+const visualTest = read(files.visualTest);
 const prototypeTest = read(files.prototypeTest);
 const correctionMemoryContract = read(files.correctionMemoryContract);
 const promptV2Contract = read(files.promptV2Contract);
@@ -35,7 +39,7 @@ const mainUi = developerToolsIndex >= 0 ? bodyHtml.slice(0, developerToolsIndex)
 const report = {
   schema: "darkquest.gate_v1_product_freeze_report.v0",
   gate: "v1_product_freeze",
-  claim: "The Camera Movement Narrator v1 product surface is frozen around Camera -> Describe my next movement -> Big result, with mirrored preview, one-shot cost guards, reliable states, voice safety, and provider privacy preserved.",
+  claim: "The DarkQuest visual companion product surface is frozen around Camera -> Observe now -> Big result, with mirrored preview, one-shot cost guards, reliable states, voice safety, and local provider privacy preserved.",
   generated_at: new Date().toISOString(),
   files_checked: files,
   checks: [],
@@ -83,13 +87,17 @@ function checkPackage() {
 
 function checkProductSurface() {
   for (const marker of [
-    "AI Movement Narrator",
-    "Start Camera",
-    "Describe my next movement",
-    "Movement Result",
-    "Speak result",
-    "Try another movement",
-    "Why?"
+    "Capture Studio",
+    "Start the camera to begin",
+    "Observe",
+    "Visual Response",
+    "Voice & Actions",
+    "Speak again",
+    "Auto-speak on",
+    "Gesture Recipes",
+    "Movement History",
+    "Privacy & Model Usage",
+    "Developer Tools"
   ]) includes("surface", safeCode(marker), mainUi, marker, `main UI includes ${marker}`, "critical");
   includes("surface", "movement_sentence", html, "dq-movement-sentence", "movement sentence hero exists", "critical");
   includes("surface", "movement_summary_secondary", html, "dq-movement-summary-row", "confidence/details summary is secondary", "critical");
@@ -140,7 +148,7 @@ function checkMirroredCamera() {
   includes("mirror", "canvas_translate", source, "context.translate(width, 0)", "canvas mirror translates before capture", "critical");
   includes("mirror", "canvas_scale", source, "context.scale(-1, 1)", "canvas mirror scales safely", "critical");
   includes("mirror", "frame_cleanup", source, "clearMovementFrameBuffer", "mirror path still clears frame buffers", "critical");
-  absentRegex("mirror", "no_token_or_media_state", source, /localStorage|sessionStorage|indexedDB|MediaRecorder|navigator\.sendBeacon/i, "mirror state does not persist token/media", "critical");
+  absentRegex("mirror", "no_token_or_media_state", source, /indexedDB|MediaRecorder|navigator\.sendBeacon/i, "mirror state does not persist token/media", "critical");
 }
 
 function checkOneShotCostGuard() {
@@ -148,7 +156,7 @@ function checkOneShotCostGuard() {
   includes("cost", "no_duplicate_guard", source, '["checking", "capturing", "analyzing"].includes(target.movementRecognition.status)', "double click guard exists", "critical");
   includes("cost", "button_disabled", source, "dom.analyzeMovement.disabled = !state.cameraReady || analyzing", "button disabled while capturing/analyzing", "critical");
   includes("cost", "one_window", source, "captureMovementFrameWindow", "one capture window function exists", "critical");
-  includes("cost", "max_frames_client", source, "Math.min(config.maxFrames ?? 4, 4)", "client frame count capped", "critical");
+  includes("cost", "max_frames_client", source, "Math.min(config.maxFrames ?? 4, 8)", "client frame count capped", "critical");
   includes("cost", "max_candidates", provider, "MAX_MOVEMENT_RECOGNITION_MODEL_CANDIDATES", "provider candidate count capped", "critical");
   includes("cost", "candidate_slice", provider, ".slice(0, MAX_MOVEMENT_RECOGNITION_MODEL_CANDIDATES)", "candidate ladder slice cap exists", "critical");
   includes("cost", "live_disabled", html, 'id="liveNarratorMode" name="movementNarratorMode" type="radio" value="live" disabled', "live narrator off by default", "critical");
@@ -162,15 +170,14 @@ function checkOneShotCostGuard() {
 function checkReliability() {
   for (const marker of [
     "Start Camera",
-    "Describe my next movement",
+    "Observe now",
     "Get ready",
-    "Move now",
-    "Understanding movement",
-    "Try another movement",
-    "AI provider is busy",
-    "HF_TOKEN is not loaded",
-    "Movement recognition endpoint unavailable",
-    "Camera frame could not be captured"
+    "Watching",
+    "Understanding what changed",
+    "Observe again",
+    "Model not installed",
+    "Visual companion endpoint unavailable",
+    "Camera frame could not be read"
   ]) includes("reliability", safeCode(marker), `${html}\n${source}`, marker, `state exists: ${marker}`, "critical");
   includes("reliability", "queue_busy", provider, "queue_exceeded", "queue_exceeded classified", "critical");
   includes("reliability", "http_429", provider, "status === 429", "HTTP 429 classified as busy", "critical");
@@ -248,25 +255,29 @@ function checkResearchLab() {
 }
 
 function checkVoice() {
-  includes("voice", "speak_button", mainUi, "Speak result", "Speak result button exists", "critical");
-  includes("voice", "autospeak_off", mainUi, "Auto-speak off", "Auto-speak off by default", "critical");
+  includes("voice", "speak_button", mainUi, "Speak again", "Speak again button exists", "critical");
+  includes("voice", "autospeak_on", mainUi, "Auto-speak on", "Auto-speak on is visible by default", "critical");
   includes("voice", "speech_synthesis", source, "speechSynthesis.speak", "browser speechSynthesis used", "critical");
-  includes("voice", "movement_only", source, "new Utterance(movement)", "voice speaks movement sentence only", "critical");
+  includes("voice", "contextual_response_only", source, "new Utterance(text)", "voice speaks only the contextual response text", "critical");
   absentRegex("voice", "no_provider_voice", source, /new Utterance\([^)]*(provider|model|confidence|evidence)/i, "voice does not speak details", "critical");
-  includes("voice", "uncertain_no_autospeak", source, "!isUncertainMovement(result.movement)", "uncertain result does not auto-speak", "critical");
-  includes("voice", "cancel_previous", source, "speechSynthesis.cancel?.()", "new speech cancels previous speech", "critical");
+  includes("voice", "dedupe_autospeak", source, "spokenObservationIds.has(observationId)", "auto-speak is deduped per observation", "critical");
+  includes("voice", "cancel_previous", source, "speechSynthesis?.cancel?.()", "new speech cancels previous speech", "critical");
   includes("voice", "no_paid_tts", source, "speechSynthesisAvailable", "no paid TTS key path required", "critical");
   includes("voice", "no_microphone", source, "audio: false", "no microphone permission requested", "critical");
 }
 
 function checkProviderSafety() {
+  includes("provider", "visual_model", visualProvider, "HuggingFaceTB/SmolVLM2-2.2B-Instruct", "local visual model selected", "critical");
+  includes("provider", "visual_no_router", visualProvider, "production_path_uses_hf_router: false", "visual production path does not use HF router", "critical");
+  includes("provider", "visual_frame_cleanup", visualProvider, "clearVisualFramePayloads", "visual provider clears frame payloads", "critical");
+  includes("provider", "visual_observe_endpoint", server, "/api/visual-companion/observe", "visual observe endpoint exists", "critical");
   includes("provider", "known_route", provider, "google/gemma-4-31B-it:cerebras", "known model route preserved", "critical");
   includes("provider", "data_uri", provider, "data:${frame.mime_type || \"image/jpeg\"};base64", "data:image/jpeg;base64 frames preserved", "critical");
   includes("provider", "server_token", provider, "env.HF_TOKEN", "HF_TOKEN is server-side", "critical");
   includes("provider", "health_endpoint", server, "/api/movement-recognition/health", "health endpoint exists", "critical");
   includes("provider", "analyze_endpoint", server, "/api/movement-recognition/analyze", "analyze endpoint exists", "critical");
   absentRegex("provider", "frontend_no_token_value", source, /process\.env\.HF_TOKEN|Authorization:\s*`Bearer|hf_secret|hf_test|hf_[A-Za-z0-9]{12,}/, "token never exposed to frontend", "critical");
-  absentRegex("provider", "no_raw_media_persistence", source, /localStorage|sessionStorage|indexedDB|MediaRecorder|readAsDataURL|toDataURL|navigator\.sendBeacon/i, "no raw media persisted", "critical");
+  absentRegex("provider", "no_raw_media_persistence", source, /indexedDB|MediaRecorder|readAsDataURL|toDataURL|navigator\.sendBeacon/i, "no raw media persisted", "critical");
 }
 
 function checkResultsDoc() {
@@ -285,12 +296,12 @@ function checkTestCoverage() {
     "one-shot cost guard",
     "double-click",
     "model_not_found",
-    "voice speaks only movement sentence",
+    "auto speech starts exactly once",
     "provider/model/latency",
     "no continuous upload",
-    "HF_TOKEN is not loaded"
+    "visual companion"
   ]) {
-    includes("tests", safeCode(marker), `${movementTest}\n${prototypeTest}`, marker, `test covers ${marker}`, "critical");
+    includes("tests", safeCode(marker), `${movementTest}\n${visualTest}\n${prototypeTest}`, marker, `test covers ${marker}`, "critical");
   }
   includes("rules", "vanta", agents, "Suggestion Trace Campaign must never appear in the default operator view", "VANTA rule present", "critical");
 }

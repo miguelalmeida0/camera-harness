@@ -1,26 +1,25 @@
-.env
-
 # local secrets
 .env
 .env.*
 !.env.example
+.darkquest/
 
 # dependencies / generated
 node_modules/
 runs/
-.DS_Store
-
-# local secrets
-.env
-.env.*
-!.env.example
-
-# dependencies / generated
-node_modules/
-runs/
+.models/
+.venv*/
+__pycache__/
+*.py[cod]
+.browser-profile/
+browser-profile/
 .DS_Store
 
 # local temp/imported design artifacts
 .tmp/
 *.zip
 Camera Console.zip
+
+# deterministic Sensefield sensor-lab media (regenerated in CI)
+fixtures/sensefield-av/video/*.y4m
+fixtures/sensefield-av/audio/*.wav

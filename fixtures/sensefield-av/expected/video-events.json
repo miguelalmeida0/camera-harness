@@ -1,0 +1,21 @@
+{
+  "static_empty_scene": 0,
+  "static_person": 0,
+  "thumbs_up": 1,
+  "neutral_then_thumbs_up": 1,
+  "neutral_peace_neutral_thumbs": 2,
+  "thumbs_up_then_neutral_then_heart": 2,
+  "heart_shape": 1,
+  "raise_cup": 1,
+  "lower_cup": 1,
+  "pick_up_mug": 1,
+  "put_down_mug": 1,
+  "enter_frame": 1,
+  "leave_frame": 1,
+  "no_meaningful_change": 0,
+  "low_light_movement": 1,
+  "partial_object": 1,
+  "camera_bump": 1,
+  "repeated_unchanged_pose": 1,
+  "three_distinct_movements": 3
+}

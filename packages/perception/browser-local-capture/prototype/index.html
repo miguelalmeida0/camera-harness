@@ -2,8 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DarkQuest Local Capture HUD</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <link rel="icon" type="image/svg+xml" href="./favicon.ico">
+    <title>Sensefield Visual Companion</title>
     <link rel="stylesheet" href="./darkquest-elite.css">
     <style id="dqPremiumCompression">
       :root {
@@ -2424,6 +2425,102 @@
         font-size: 12px;
       }
 
+      .dq-automation-dialog {
+        width: min(640px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+        max-height: calc(100dvh - 24px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border: 1px solid var(--dq-border);
+        border-radius: 12px;
+        background: var(--dq-surface);
+        color: var(--dq-text);
+        padding: 20px 20px max(20px, env(safe-area-inset-bottom));
+      }
+
+      .dq-automation-dialog::backdrop {
+        background: rgba(8, 12, 18, 0.62);
+      }
+
+      .dq-automation-form,
+      .dq-automation-fields {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .dq-automation-fields > section {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .dq-automation-fields > section[hidden] {
+        display: none;
+      }
+
+      .dq-automation-fields label {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .dq-automation-fields input,
+      .dq-automation-fields select {
+        min-width: 0;
+        width: 100%;
+        border: 1px solid var(--dq-border);
+        border-radius: 10px;
+        background: var(--dq-surface);
+        color: var(--dq-text);
+        padding: 10px;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-automation-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        margin: 0 -2px -2px;
+        border-top: 1px solid var(--dq-border);
+        background: var(--dq-surface);
+        padding: 12px 2px max(2px, env(safe-area-inset-bottom));
+      }
+
+      .dq-form-error {
+        margin: 0;
+        border: 1px solid var(--dq-red);
+        border-radius: 8px;
+        background: var(--dq-red-soft);
+        color: #9e2430;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-automation-fields [aria-invalid="true"] {
+        border-color: var(--dq-red);
+        outline: 2px solid color-mix(in srgb, var(--dq-red) 24%, transparent);
+        outline-offset: 1px;
+      }
+
+      .dq-automation-form-error {
+        margin: 0;
+        border: 1px solid var(--dq-border);
+        border-radius: 10px;
+        background: var(--dq-surface-soft);
+        color: var(--dq-text);
+        padding: 10px;
+        overflow-wrap: anywhere;
+      }
+
       [data-product-card="detected-action"] .dq-metric-list dd {
         overflow: visible;
         text-overflow: clip;
@@ -2791,37 +2888,3109 @@
         .dq-suggestion-row {
           grid-template-columns: 1fr;
         }
+
+        .dq-automation-dialog {
+          box-sizing: border-box;
+          width: min(640px, calc(100vw - 24px));
+          max-width: calc(100vw - 24px);
+          max-height: calc(100dvh - 24px);
+          margin: auto;
+          padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+        }
+
+        .dq-automation-dialog .dq-button-row {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: clip;
+      }
+
+      .dq-app,
+      .dq-page,
+      .dq-dashboard-grid,
+      .dq-main-column,
+      .dq-flow-column,
+      .dq-lower-grid,
+      .dq-card,
+      .dq-card-head,
+      .dq-card-actions,
+      .dq-button-row,
+      .dq-automation-dialog,
+      .dq-automation-dialog form,
+      .dq-automation-fields,
+      .dq-automation-fields label {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      video,
+      canvas,
+      img,
+      svg,
+      input,
+      select,
+      button {
+        max-width: 100%;
+      }
+
+      @media (max-width: 760px) {
+        .dq-page {
+          width: 100%;
+          padding: 16px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        }
+
+        .dq-dashboard-grid {
+          display: flex !important;
+          width: 100%;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .dq-main-column,
+        .dq-flow-column,
+        .dq-lower-grid {
+          display: contents;
+        }
+
+        .dq-camera-card { order: 1; }
+        #operatorCommandsCard { order: 2; }
+        .dq-privacy-card { order: 3; }
+        #objectiveCard { order: 4; }
+        #flowCard { order: 5; }
+        #progressCard { order: 6; }
+        #developerTools { order: 20; }
+
+        .dq-card,
+        .dq-dev-tools,
+        .dq-camera-frame,
+        .dq-primary-action-region {
+          width: 100%;
+          max-width: 100%;
+        }
+
+        .dq-card-actions,
+        .dq-button-row {
+          width: 100%;
+          flex-wrap: wrap;
+        }
+
+        .dq-card-actions .dq-button,
+        .dq-button-row .dq-button {
+          width: 100%;
+          min-height: 44px;
+          white-space: normal;
+        }
+
+        .dq-automation-dialog {
+          width: min(640px, calc(100vw - 24px));
+          max-height: calc(100dvh - 24px);
+          margin: auto;
+          padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+        }
+
+        .dq-automation-dialog input,
+        .dq-automation-dialog select,
+        .dq-automation-dialog button {
+          min-height: 44px;
+        }
+
+        .dq-automation-dialog label,
+        .dq-automation-dialog button,
+        .dq-automation-dialog input,
+        .dq-automation-dialog select {
+          word-break: normal;
+          overflow-wrap: break-word;
+        }
+      }
+      /* Reference redesign layer: matches the supplied Sensefield After mockup. */
+      :root {
+        --dq-page-bg: #fbfaf7;
+        --dq-app-surface: #fffefa;
+        --dq-surface-elevated: #ffffff;
+        --dq-surface-subtle: #f6f3ed;
+        --dq-surface-muted: #f1eee8;
+        --dq-text-primary: #111827;
+        --dq-text-secondary: #667085;
+        --dq-text-tertiary: #8a837a;
+        --dq-border-subtle: #ebe5dc;
+        --dq-border-strong: #ddd5ca;
+        --dq-accent: #7257f6;
+        --dq-accent-hover: #6448ed;
+        --dq-accent-soft: #f0eaff;
+        --dq-success: #18a86b;
+        --dq-success-soft: #e8f8ef;
+        --dq-warning: #b7791f;
+        --dq-warning-soft: #fff4d8;
+        --dq-danger: #c2414b;
+        --dq-danger-soft: #ffe8ea;
+        --dq-camera-bg: #111317;
+        --dq-camera-bg-2: #1d2026;
+        --dq-shadow-reference: 0 1px 2px rgba(17, 24, 39, 0.04), 0 20px 44px rgba(17, 24, 39, 0.07);
+        --dq-shadow-control: 0 10px 28px rgba(69, 48, 180, 0.28);
+        --dq-radius-control: 10px;
+        --dq-radius-card: 16px;
+        --dq-radius-camera: 18px;
+        --dq-space-1: 4px;
+        --dq-space-2: 8px;
+        --dq-space-3: 12px;
+        --dq-space-4: 16px;
+        --dq-space-5: 20px;
+        --dq-space-6: 24px;
+        --dq-space-8: 32px;
+        --dq-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --dq-transition: 180ms ease-out;
+      }
+
+      html {
+        background: var(--dq-page-bg);
+      }
+
+      body {
+        margin: 0;
+        min-width: 0;
+        font-family: var(--dq-font-sans);
+        color: var(--dq-text-primary);
+        background: var(--dq-page-bg);
+        overflow-x: clip;
+        letter-spacing: 0;
+      }
+
+      body *,
+      body *::before,
+      body *::after {
+        box-sizing: border-box;
+      }
+
+      .dq-app {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 0;
+        background: var(--dq-page-bg);
+      }
+
+      .dq-product-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        min-width: 0;
+        border-bottom: 1px solid var(--dq-border-subtle);
+        background: rgba(255, 254, 250, 0.94);
+        backdrop-filter: blur(16px);
+      }
+
+      .dq-product-header-inner {
+        width: min(1440px, 100%);
+        min-height: 68px;
+        margin: 0 auto;
+        padding: 0 clamp(16px, 2vw, 32px);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        gap: var(--dq-space-4);
+      }
+
+      .dq-wordmark,
+      .dq-header-actions,
+      .dq-segmented,
+      .dq-card-head,
+      .dq-section-title-row,
+      .dq-utility-strip,
+      .dq-recipe-row,
+      .dq-voice-row {
+        min-width: 0;
+      }
+
+      .dq-wordmark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--dq-text-primary);
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .dq-logo-mark {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--dq-border-strong);
+        border-radius: 999px;
+        background: var(--dq-surface-elevated);
+        box-shadow: inset 0 0 0 5px #f4f1ea;
+        color: var(--dq-text-primary);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .dq-segmented {
+        display: inline-grid;
+        grid-template-columns: repeat(2, minmax(86px, 1fr));
+        align-items: center;
+        gap: 2px;
+        min-height: 38px;
+        padding: 3px;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 10px;
+        background: var(--dq-surface-muted);
+      }
+
+      .dq-segmented button {
+        min-height: 30px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dq-text-secondary);
+        font: 650 13px/18px var(--dq-font-sans);
+        transition: background var(--dq-transition), color var(--dq-transition), box-shadow var(--dq-transition);
+      }
+
+      .dq-segmented button[aria-pressed="true"] {
+        color: var(--dq-accent);
+        background: var(--dq-surface-elevated);
+        box-shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+      }
+
+      .dq-header-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .dq-icon-button {
+        width: 40px;
+        height: 40px;
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--dq-text-secondary);
+        font: 700 14px/1 var(--dq-font-sans);
+        transition: background var(--dq-transition), border-color var(--dq-transition), transform var(--dq-transition);
+      }
+
+      .dq-icon-button:hover {
+        border-color: var(--dq-border-subtle);
+        background: var(--dq-surface-subtle);
+      }
+
+      .dq-icon-button:active,
+      .dq-button:active {
+        transform: scale(0.98);
+      }
+
+      .dq-account-button {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        overflow: hidden;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 999px;
+        background: linear-gradient(180deg, #f8f5ef, #ffffff);
+        color: var(--dq-text-primary);
+        font: 700 13px/1 var(--dq-font-sans);
+        white-space: nowrap;
+      }
+
+      .dq-account-button::after {
+        content: "";
+        position: absolute;
+        right: 2px;
+        bottom: 3px;
+        width: 10px;
+        height: 10px;
+        border: 2px solid var(--dq-surface-elevated);
+        border-radius: 999px;
+        background: var(--dq-success);
+      }
+
+      .dq-page {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        padding: clamp(18px, 2vw, 28px) clamp(16px, 2vw, 32px) 28px;
+      }
+
+      .dq-brand-row,
+      .dq-top-status,
+      #movementPrivacyDisclosure,
+      #topStatusBar,
+      #objectiveCard,
+      #flowCard,
+      #progressCard,
+      .dq-movement-control-help,
+      .dq-mode-control,
+      .dq-live-narrator-note {
+        display: none !important;
+      }
+
+      .dq-dashboard-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(332px, 0.42fr);
+        grid-template-areas: "camera rail";
+        gap: clamp(18px, 1.8vw, 24px);
+        align-items: start;
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+      }
+
+      .dq-main-column {
+        grid-area: camera;
+        min-width: 0;
+      }
+
+      .dq-flow-column {
+        grid-area: rail;
+        display: grid;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .dq-lower-grid {
+        display: contents;
+      }
+
+      .dq-card,
+      .dq-dev-tools,
+      .dq-utility-panel,
+      .dq-recipe-manager-dialog,
+      .dq-automation-dialog {
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: var(--dq-radius-card);
+        background: var(--dq-surface-elevated);
+        box-shadow: var(--dq-shadow-reference);
+        color: var(--dq-text-primary);
+      }
+
+      .dq-card {
+        padding: 18px !important;
+      }
+
+      .dq-card h1,
+      .dq-card h2,
+      .dq-card h3,
+      .dq-card p,
+      .dq-card label,
+      .dq-card span,
+      .dq-card strong,
+      .dq-card small,
+      .dq-card button,
+      .dq-card select,
+      .dq-card input,
+      .dq-dev-tools,
+      .dq-utility-panel {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .dq-card h2,
+      .dq-section-title-row h2 {
+        margin: 0;
+        color: var(--dq-text-primary);
+        font: 680 16px/22px var(--dq-font-sans);
+        letter-spacing: 0;
+      }
+
+      .dq-card-subtitle,
+      .note,
+      .dq-movement-hint,
+      .dq-section-subtitle {
+        margin: 0;
+        color: var(--dq-text-secondary);
+        font: 450 14px/20px var(--dq-font-sans);
+        letter-spacing: 0;
+      }
+
+      .dq-card-head,
+      .dq-section-title-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--dq-space-4);
+      }
+
+      .dq-title-stack {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .dq-pill,
+      .dq-badge,
+      .dq-status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: fit-content;
+        max-width: 100%;
+        min-height: 30px;
+        padding: 6px 11px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: var(--dq-surface-subtle);
+        color: var(--dq-text-secondary);
+        font: 700 12px/16px var(--dq-font-sans);
+        white-space: nowrap;
+      }
+
+      .dq-status-pill.success,
+      .dq-badge-success {
+        color: #117d50;
+        background: var(--dq-success-soft);
+      }
+
+      .dq-status-pill.accent,
+      .dq-badge-info {
+        color: var(--dq-accent);
+        background: var(--dq-accent-soft);
+      }
+
+      .dq-camera-card {
+        position: relative;
+        padding: var(--dq-space-5);
+      }
+
+      .dq-camera-card .dq-card-head {
+        margin-bottom: var(--dq-space-4);
+      }
+
+      .dq-camera-card .dq-card-actions {
+        align-items: center;
+      }
+
+      .dq-camera-frame {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        min-height: clamp(320px, 33vw, 470px);
+        max-height: min(54vh, 500px);
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: var(--dq-radius-camera);
+        background:
+          radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.08), transparent 26%),
+          linear-gradient(145deg, var(--dq-camera-bg), var(--dq-camera-bg-2));
+        box-shadow: inset 0 -44px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+
+      .dq-camera-frame::before {
+        content: none !important;
+      }
+
+      #preview {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+        opacity: 0;
+        transition: opacity var(--dq-transition);
+      }
+
+      .dq-camera-frame.is-live #preview {
+        opacity: 1;
+      }
+
+      .dq-camera-empty {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        place-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.9);
+        text-align: center;
+        padding: var(--dq-space-6);
+      }
+
+      .dq-camera-frame.is-live .dq-camera-empty {
+        display: none;
+      }
+
+      .dq-camera-empty strong {
+        color: #ffffff;
+        font: 700 16px/22px var(--dq-font-sans);
+      }
+
+      .dq-camera-empty span {
+        color: rgba(255, 255, 255, 0.74);
+        font: 450 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-camera-status-chip {
+        position: absolute;
+        z-index: 3;
+        top: 16px;
+        left: 16px;
+        min-height: 34px;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        backdrop-filter: blur(18px);
+        font: 700 12px/16px var(--dq-font-sans);
+      }
+
+      .dq-camera-live .dq-camera-status-chip {
+        color: #0f6f4c;
+        background: rgba(235, 255, 244, 0.94);
+      }
+
+      .dq-preview-live-chip {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        display: none;
+        z-index: 3;
+        align-items: center;
+        gap: 7px;
+        min-height: 34px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(20, 20, 20, 0.64);
+        color: #ffffff;
+        font: 800 12px/16px var(--dq-font-sans);
+      }
+
+      .dq-camera-frame.is-live .dq-preview-live-chip {
+        display: inline-flex;
+      }
+
+      .dq-preview-live-chip span,
+      .dq-badge-dot,
+      .dq-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--dq-success);
+      }
+
+      .dq-preview-chips {
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        z-index: 4;
+        display: flex;
+        gap: 8px;
+        max-width: calc(100% - 32px);
+      }
+
+      .dq-preview-chips span {
+        display: inline-flex;
+        min-height: 28px;
+        align-items: center;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.54);
+        color: #ffffff;
+        padding: 6px 10px;
+        font: 700 12px/16px var(--dq-font-sans);
+        white-space: nowrap;
+      }
+
+      .dq-camera-control-dock {
+        position: absolute;
+        z-index: 5;
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+        display: grid;
+        grid-template-columns: auto minmax(210px, 320px) auto;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(35, 37, 42, 0.88), rgba(23, 25, 30, 0.9));
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(20px);
+      }
+
+      .dq-dock-side {
+        display: flex;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-camera-control-dock .dq-icon-button {
+        width: 64px;
+        height: 44px;
+        border-color: rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+      }
+
+      .dq-button,
+      button,
+      select,
+      input {
+        font-family: var(--dq-font-sans);
+      }
+
+      .dq-button,
+      .dq-button-row .dq-button {
+        min-height: 42px;
+        min-width: 0;
+        border-radius: var(--dq-radius-control);
+        border: 1px solid var(--dq-border-subtle);
+        padding: 10px 15px;
+        font: 700 13px/18px var(--dq-font-sans);
+        white-space: normal;
+        transition: background var(--dq-transition), border-color var(--dq-transition), transform var(--dq-transition), box-shadow var(--dq-transition);
+      }
+
+      .dq-button.primary,
+      #analyzeMovement {
+        border-color: transparent;
+        color: #ffffff;
+        background: linear-gradient(135deg, #8063ff 0%, #6c45e8 100%);
+        box-shadow: var(--dq-shadow-control);
+      }
+
+      #analyzeMovement {
+        width: 100%;
+        min-height: 56px;
+        border-radius: 999px;
+        display: inline-grid;
+        place-items: center;
+        padding: 9px 18px;
+        font-size: 14px;
+      }
+
+      #analyzeMovement::after {
+        content: "Start capturing";
+        display: block;
+        margin-top: 1px;
+        color: rgba(255, 255, 255, 0.75);
+        font: 600 11px/14px var(--dq-font-sans);
+      }
+
+      #analyzeMovement:disabled {
+        opacity: 0.64;
+        box-shadow: none;
+      }
+
+      .dq-button.secondary,
+      .dq-button-row .dq-button.secondary {
+        color: var(--dq-text-primary);
+        background: var(--dq-surface-elevated);
+      }
+
+      .dq-button.ghost {
+        background: var(--dq-surface-subtle);
+        color: var(--dq-text-secondary);
+      }
+
+      .dq-tracking-toggle {
+        margin-top: var(--dq-space-4);
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--dq-space-4);
+        width: 100%;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 14px;
+        background: var(--dq-surface-subtle);
+        padding: 10px 12px 10px 16px;
+        color: var(--dq-text-primary);
+        font: 650 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-tracking-toggle input,
+      .dq-auto-speak-toggle input {
+        appearance: none;
+        width: 44px;
+        height: 26px;
+        flex: 0 0 auto;
+        border: 1px solid var(--dq-border-strong);
+        border-radius: 999px;
+        background: #d7d3cc;
+        transition: background var(--dq-transition), border-color var(--dq-transition);
+      }
+
+      .dq-tracking-toggle input::before,
+      .dq-auto-speak-toggle input::before {
+        content: "";
+        display: block;
+        width: 20px;
+        height: 20px;
+        margin: 2px;
+        border-radius: 999px;
+        background: #ffffff;
+        box-shadow: 0 1px 2px rgba(17, 24, 39, 0.18);
+        transition: transform var(--dq-transition);
+      }
+
+      .dq-tracking-toggle input:checked,
+      .dq-auto-speak-toggle input:checked {
+        border-color: var(--dq-accent);
+        background: var(--dq-accent);
+      }
+
+      .dq-tracking-toggle input:checked::before,
+      .dq-auto-speak-toggle input:checked::before {
+        transform: translateX(18px);
+      }
+
+      .dq-suggestion-panel {
+        display: grid;
+        gap: var(--dq-space-4);
+      }
+
+      .dq-suggestion-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--dq-space-3);
+      }
+
+      .dq-card-icon-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-card-icon-title .dq-ref-icon {
+        color: var(--dq-accent);
+      }
+
+      .dq-movement-result {
+        display: grid;
+        gap: 10px;
+        min-height: 0;
+        border: 1px solid rgba(114, 87, 246, 0.18);
+        border-radius: 14px;
+        background: linear-gradient(180deg, #ffffff, #fffefa);
+        padding: 18px;
+      }
+
+      .dq-movement-status {
+        color: var(--dq-text-secondary);
+        font: 800 11px/15px var(--dq-font-sans);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .dq-movement-sentence {
+        display: block;
+        color: var(--dq-text-primary);
+        font: 720 22px/29px var(--dq-font-sans);
+        letter-spacing: 0;
+        overflow-wrap: anywhere;
+        word-break: normal;
+        white-space: normal;
+      }
+
+      .dq-movement-summary-row {
+        margin-top: 2px;
+        color: var(--dq-text-secondary);
+        font: 700 12px/18px var(--dq-font-sans);
+        text-transform: none;
+      }
+
+      .dq-voice-actions-card,
+      .dq-gesture-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .dq-voice-row,
+      .dq-button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .dq-voice-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
+        align-items: stretch;
+      }
+
+      .dq-voice-row > * {
+        min-width: 0;
+      }
+
+      .dq-auto-speak-toggle {
+        min-height: 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        border-radius: var(--dq-radius-control);
+        border: 1px solid transparent;
+        padding: 8px 13px;
+        color: #ffffff;
+        background: linear-gradient(135deg, #8063ff, #6c45e8);
+        box-shadow: var(--dq-shadow-control);
+        font: 750 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-auto-speak-toggle span,
+      .dq-voice-row .dq-button,
+      .dq-voice-row .dq-button span {
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        hyphens: none;
+      }
+
+      .dq-auto-speak-toggle span {
+        flex: 0 1 auto;
+        min-width: max-content;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .dq-auto-speak-toggle input {
+        flex: 0 0 auto;
+        width: 34px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.35);
+        border-color: rgba(255, 255, 255, 0.28);
+      }
+
+      .dq-auto-speak-toggle input::before {
+        width: 16px;
+        height: 16px;
+        margin: 1px;
+      }
+
+      .dq-auto-speak-toggle input:checked::before {
+        transform: translateX(14px);
+      }
+
+      .dq-readable-detail {
+        min-width: 0;
+      }
+
+      .dq-readable-detail > summary {
+        cursor: pointer;
+        list-style: none;
+        color: var(--dq-text-primary);
+        font: 700 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-readable-detail > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .dq-readable-detail > summary::before {
+        content: ">";
+        display: inline-block;
+        margin-right: 7px;
+        transition: transform var(--dq-transition);
+      }
+
+      .dq-readable-detail[open] > summary::before {
+        transform: rotate(90deg);
+      }
+
+      .dq-metric-list,
+      .dq-mini-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .dq-metric-list div,
+      .dq-mini-metrics div,
+      .metric {
+        min-width: 0;
+        border-radius: 10px;
+        background: var(--dq-surface-subtle);
+        padding: 10px;
+      }
+
+      .dq-metric-list dt,
+      .dq-mini-metrics dt {
+        color: var(--dq-text-secondary);
+        font: 700 11px/15px var(--dq-font-sans);
+      }
+
+      .dq-metric-list dd,
+      .dq-mini-metrics dd {
+        margin: 3px 0 0;
+        color: var(--dq-text-primary);
+        font: 600 12px/17px var(--dq-font-sans);
+        overflow-wrap: anywhere;
+      }
+
+      .dq-recipe-preview-list,
+      .dq-history-list {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .dq-recipe-row,
+      .dq-history-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 12px;
+        background: #fffefa;
+        padding: 10px 12px;
+      }
+
+      .dq-recipe-row strong,
+      .dq-history-item strong {
+        color: var(--dq-text-primary);
+        font: 700 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-recipe-row span,
+      .dq-history-item span {
+        color: var(--dq-text-secondary);
+        font: 500 12px/16px var(--dq-font-sans);
+      }
+
+      .dq-recipe-meta {
+        display: grid;
+        min-width: 0;
+      }
+
+      .dq-recipe-status {
+        min-height: 24px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: var(--dq-success-soft);
+        color: #127a50;
+        font: 750 11px/15px var(--dq-font-sans);
+        white-space: nowrap;
+      }
+
+      .dq-create-gesture-row {
+        width: 100%;
+        justify-content: flex-start;
+        border-style: dashed;
+      }
+
+      .dq-utility-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: var(--dq-space-4);
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 14px;
+        background: var(--dq-surface-elevated);
+        box-shadow: var(--dq-shadow-reference);
+        overflow: hidden;
+      }
+
+      .dq-utility-panel {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: transparent;
+      }
+
+      .dq-utility-panel + .dq-utility-panel {
+        border-left: 1px solid var(--dq-border-subtle);
+      }
+
+      .dq-utility-panel > summary,
+      #developerTools > summary {
+        min-height: 58px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) 14px;
+        align-items: center;
+        gap: 10px;
+        padding: 0 18px;
+        cursor: pointer;
+        list-style: none;
+        text-align: left;
+        color: var(--dq-text-primary);
+        font: 700 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-utility-panel > summary::-webkit-details-marker,
+      #developerTools > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .dq-utility-panel > summary::before,
+      #developerTools > summary::before {
+        content: "";
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--dq-text-secondary);
+        border-radius: 999px;
+        opacity: 0.72;
+      }
+
+      .dq-utility-panel > summary::after,
+      #developerTools > summary::after {
+        content: ">";
+        justify-self: end;
+        color: var(--dq-text-secondary);
+        font: 800 12px/1 var(--dq-font-sans);
+      }
+
+      .dq-utility-panel > summary span,
+      #developerTools > summary span {
+        justify-self: start;
+        min-width: 0;
+      }
+
+      .dq-utility-strip > .dq-utility-panel.dq-card {
+        padding: 0 !important;
+      }
+
+      .dq-utility-strip > .dq-utility-panel > summary {
+        display: grid !important;
+        grid-template-columns: 18px minmax(0, 1fr) 14px !important;
+        justify-content: normal !important;
+        padding: 0 18px !important;
+        text-align: left !important;
+      }
+
+      .dq-utility-strip > .dq-utility-panel > summary span {
+        justify-self: start !important;
+        text-align: left !important;
+      }
+
+      .dq-utility-body,
+      .dq-dev-body {
+        padding: 0 18px 18px;
+        min-width: 0;
+      }
+
+      #developerTools {
+        display: block !important;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: transparent;
+      }
+
+      #developerTools .dq-dev-body {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+        align-items: start;
+        gap: 12px;
+        max-height: min(72vh, 720px);
+        overflow: auto;
+      }
+
+      #developerTools .dq-dev-body > .dq-card,
+      #developerTools .dq-dev-body > .dq-technical-card {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      #developerTools .dq-dev-body details.dq-card > summary {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 10px 12px !important;
+        justify-content: normal !important;
+      }
+
+      #developerTools .dq-dev-body details.dq-card > summary span,
+      #developerTools .dq-dev-body details.dq-card > summary small,
+      #developerTools .dq-dev-body .dq-card h2,
+      #developerTools .dq-dev-body .dq-card h3,
+      #developerTools .dq-dev-body .dq-card strong {
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        hyphens: none;
+      }
+
+      #developerTools .dq-dev-body details.dq-card > summary span {
+        white-space: normal;
+        line-height: 1.2;
+      }
+
+      #developerTools .dq-dev-body details.dq-card > summary small {
+        max-width: 12ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      #developerTools:not([open]) .dq-dev-body,
+      .dq-utility-panel:not([open]) .dq-utility-body {
+        display: none;
+      }
+
+      .dq-recipe-manager-dialog,
+      .dq-automation-dialog {
+        width: min(640px, calc(100vw - 24px));
+        max-height: calc(100dvh - 24px);
+        overflow: auto;
+        padding: 0;
+      }
+
+      .dq-recipe-manager-dialog .dq-button,
+      .dq-automation-dialog .dq-button,
+      .dq-dialog-footer .dq-button,
+      .dq-automation-footer .dq-button {
+        min-height: 44px;
+      }
+
+      .dq-recipe-manager-dialog::backdrop,
+      .dq-automation-dialog::backdrop {
+        background: rgba(15, 17, 21, 0.36);
+        backdrop-filter: blur(8px);
+      }
+
+      .dq-dialog-shell,
+      .dq-automation-form {
+        display: grid;
+        gap: var(--dq-space-4);
+        padding: 20px;
+      }
+
+      .dq-dialog-footer,
+      .dq-automation-footer {
+        position: sticky;
+        bottom: 0;
+        padding-top: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), #ffffff 40%);
+      }
+
+      .dq-automation-fields {
+        display: grid;
+        gap: 12px;
+      }
+
+      .dq-automation-fields input,
+      .dq-automation-fields select,
+      .dq-automation-fields button,
+      .dq-automation-fields label {
+        min-width: 0;
+      }
+
+      .dq-form-error,
+      .error-banner,
+      .dq-inline-error {
+        border-radius: 10px;
+        background: var(--dq-danger-soft);
+        color: var(--dq-danger);
+        padding: 10px 12px;
+        font: 650 13px/18px var(--dq-font-sans);
+      }
+
+      .dq-sr-status {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+      }
+
+      #mainWorkspace {
+        width: 100% !important;
+        grid-template-columns: minmax(0, 8fr) minmax(332px, 4fr) !important;
+        grid-template-areas:
+          "camera rail"
+          "utilities utilities" !important;
+        gap: 16px 24px !important;
+        align-items: start;
+      }
+
+      .dq-main-column {
+        grid-area: camera !important;
+        display: block !important;
+        min-width: 0;
+      }
+
+      .dq-flow-column {
+        grid-area: rail !important;
+        display: grid !important;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      #operatorCommandsCard {
+        display: contents;
+      }
+
+      .dq-camera-card {
+        grid-area: auto !important;
+        grid-column: auto;
+        grid-row: auto;
+      }
+
+      #cameraSuggestionsPanel {
+        grid-column: auto;
+        grid-row: auto;
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: var(--dq-radius-card);
+        background: var(--dq-surface-elevated);
+        box-shadow: var(--dq-shadow-reference);
+        padding: var(--dq-space-5);
+      }
+
+      #cameraSuggestionsPanel .dq-suggestion-list {
+        min-height: 0 !important;
+      }
+
+      #cameraSuggestionsPanel .dq-movement-result {
+        padding: 16px;
+      }
+
+      #cameraSuggestionsPanel > div:first-child {
+        display: grid;
+        gap: 6px;
+      }
+
+      #cameraSuggestionsPanel .note {
+        display: none;
+      }
+
+      #voiceActionsCard {
+        grid-column: auto;
+        grid-row: auto;
+      }
+
+      #gestureRecipesCard {
+        grid-column: auto;
+        grid-row: auto;
+      }
+
+      .dq-utility-strip {
+        grid-area: utilities !important;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--dq-border-subtle);
+        border-radius: 14px;
+        background: var(--dq-surface-elevated);
+        box-shadow: var(--dq-shadow-reference);
+      }
+
+      #movementHistoryPanel,
+      .dq-privacy-card,
+      #developerTools {
+        grid-area: auto !important;
+        grid-column: auto;
+        grid-row: auto;
+        align-self: stretch;
+        min-width: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      #movementHistoryPanel + .dq-privacy-card,
+      .dq-privacy-card + #developerTools {
+        border-left: 1px solid var(--dq-border-subtle);
+      }
+
+      #operatorCommandsCard {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      #movementWhy {
+        border-top: 1px solid var(--dq-border-subtle);
+        padding-top: var(--dq-space-3);
+      }
+
+      #automateMovement,
+      #confirmMovement {
+        flex: 1 1 100%;
+      }
+
+      .dq-auto-speak-toggle {
+        order: -3;
+      }
+
+      #speakResult {
+        order: -2;
+      }
+
+      #tryAgainMovement {
+        order: 10;
+      }
+
+      :focus-visible {
+        outline: 3px solid rgba(114, 87, 246, 0.35);
+        outline-offset: 2px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (max-width: 1180px) {
+        #mainWorkspace,
+        .dq-dashboard-grid {
+          grid-template-columns: minmax(0, 1fr) !important;
+          grid-template-areas:
+            "camera"
+            "rail"
+            "utilities" !important;
+        }
+
+        .dq-main-column {
+          grid-area: camera !important;
+          width: 100%;
+        }
+
+        .dq-flow-column {
+          grid-area: rail !important;
+          width: 100%;
+        }
+
+        .dq-utility-strip {
+          grid-area: utilities !important;
+          width: 100%;
+        }
+
+        .dq-camera-card,
+        #cameraSuggestionsPanel,
+        #voiceActionsCard,
+        #gestureRecipesCard {
+          border-radius: var(--dq-radius-card);
+        }
+
+        #operatorCommandsCard,
+        #voiceActionsCard,
+        #gestureRecipesCard {
+          min-width: 0;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .dq-product-header-inner {
+          min-height: 92px;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "brand actions"
+            "segments segments";
+          padding: 10px 14px 12px;
+          gap: 10px;
+          overflow: hidden;
+        }
+
+        .dq-wordmark { grid-area: brand; }
+        .dq-header-actions {
+          grid-area: actions;
+          gap: 8px;
+        }
+
+        .dq-header-actions .dq-icon-button:not(.dq-account-button) {
+          display: none !important;
+        }
+
+        .dq-segmented {
+          grid-area: segments;
+          width: min(100%, max(338px, calc(100vw - 180px)));
+          min-width: 0;
+          justify-self: start;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .dq-segmented button {
+          min-width: 0;
+        }
+
+        .dq-page {
+          padding: 14px max(12px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        }
+
+        .dq-dashboard-grid {
+          display: grid !important;
+          grid-template-columns: minmax(0, 1fr) !important;
+          grid-template-areas:
+            "camera"
+            "rail"
+            "utilities" !important;
+          gap: 12px;
+        }
+
+        .dq-main-column {
+          display: block !important;
+        }
+
+        .dq-flow-column {
+          display: grid !important;
+          gap: 12px;
+        }
+
+        #operatorCommandsCard {
+          display: contents !important;
+        }
+
+        .dq-card {
+          padding: 14px !important;
+          border-radius: 14px;
+        }
+
+        .dq-camera-frame {
+          justify-self: start;
+          width: min(100%, max(338px, calc(100vw - 180px))) !important;
+          min-height: 0;
+          aspect-ratio: 1 / 1.12;
+          max-height: none;
+          border-radius: 14px;
+        }
+
+        .dq-camera-empty {
+          width: 100%;
+          max-width: 100%;
+          padding: 20px 16px 142px;
+          transform: translateY(-34px);
+        }
+
+        .dq-camera-empty span {
+          max-width: 28ch;
+          overflow-wrap: normal;
+          word-break: normal;
+        }
+
+        .dq-camera-control-dock {
+          left: 8px;
+          right: 8px;
+          bottom: 10px;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 10px;
+          padding: 10px;
+          width: auto !important;
+          max-width: calc(100% - 16px) !important;
+        }
+
+        .dq-dock-side {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          justify-content: stretch;
+          width: 100%;
+        }
+
+        .dq-dock-side .dq-icon-button {
+          width: 100%;
+        }
+
+        #analyzeMovement {
+          order: -1;
+          min-height: 54px;
+          width: 100%;
+          max-width: 100%;
+        }
+
+        .dq-preview-chips {
+          display: none;
+        }
+
+        .dq-movement-sentence {
+          font-size: 17px;
+          line-height: 23px;
+        }
+
+        .dq-voice-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .dq-voice-row > *,
+        .dq-auto-speak-toggle,
+        .dq-voice-row .dq-button {
+          width: 100%;
+        }
+
+        .dq-auto-speak-toggle span {
+          min-width: 0;
+        }
+
+        .dq-utility-strip {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .dq-utility-panel + .dq-utility-panel,
+        #movementHistoryPanel + .dq-privacy-card,
+        .dq-privacy-card + #developerTools {
+          border-left: 0;
+          border-top: 1px solid var(--dq-border-subtle);
+        }
+
+        .dq-metric-list,
+        .dq-mini-metrics,
+        .dq-recipe-row,
+        .dq-history-item {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .dq-button,
+        .dq-icon-button,
+        input,
+        select,
+        button {
+          min-height: 44px;
+        }
+
+        .dq-card-head,
+        .dq-section-title-row {
+          align-items: flex-start;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .dq-account-button {
+          width: 44px;
+          height: 44px;
+          min-width: 44px;
+          min-height: 44px;
+        }
+
+        .dq-card-head,
+        .dq-suggestion-title-row {
+          gap: 10px;
+        }
+
+        .dq-pill,
+        .dq-badge,
+        .dq-status-pill {
+          padding-inline: 9px;
+          font-size: 11px;
+        }
+      }
+
+      /* Sensefield primary mode: camera, one action, visual response. */
+      .sf-primary-page {
+        width: 100%;
+        min-width: 0;
+        padding: clamp(12px, 2vw, 28px);
+      }
+
+      .sf-primary-workspace {
+        --sf-camera-box-height: calc(clamp(500px, 68vh, 720px) + (clamp(12px, 1.6vw, 20px) * 2));
+        display: grid !important;
+        width: 100% !important;
+        max-width: 1280px;
+        min-width: 0;
+        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr) !important;
+        gap: clamp(16px, 2vw, 28px);
+        align-items: stretch;
+        margin: 0 auto;
+      }
+
+      body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
+        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr) !important;
+      }
+
+      body[data-view="primary"] #mainWorkspace.sf-primary-workspace > .sf-camera-stage {
+        grid-area: auto !important;
+        grid-column: auto !important;
+        grid-row: auto !important;
+        order: 1 !important;
+      }
+
+      body[data-view="primary"] #mainWorkspace.sf-primary-workspace > .sf-insight-rail {
+        grid-area: auto !important;
+        grid-column: auto !important;
+        grid-row: auto !important;
+        order: 2 !important;
+      }
+
+      .sf-primary-page .dq-card {
+        min-width: 0;
+      }
+
+      .sf-camera-stage,
+      .sf-response-card,
+      .sf-compact-card {
+        display: grid;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .sf-camera-stage {
+        padding: clamp(12px, 1.6vw, 20px);
+      }
+
+      .sf-camera-frame {
+        min-height: clamp(500px, 68vh, 720px);
+        aspect-ratio: 16 / 10;
+      }
+
+      .sf-primary-page .dq-camera-empty {
+        padding-bottom: 116px;
+      }
+
+      .sf-primary-page .dq-preview-chips {
+        left: 18px;
+        right: auto;
+        bottom: 18px;
+        max-width: calc(100% - 210px);
+      }
+
+      .sf-primary-page .dq-camera-status-chip {
+        top: 18px;
+        left: 18px;
+      }
+
+      .sf-primary-page .dq-preview-live-chip {
+        top: 18px;
+        right: 18px;
+      }
+
+      .sf-camera-state {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        z-index: 3;
+        max-width: calc(100% - 220px);
+        transform: translateX(-50%);
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .sf-insight-rail {
+        display: grid;
+        min-width: 0;
+        gap: clamp(14px, 1.6vw, 20px);
+        height: var(--sf-camera-box-height);
+        max-height: var(--sf-camera-box-height);
+        grid-template-rows: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 0.65fr);
+        align-self: start;
+      }
+
+      .sf-insight-rail > #operatorCommandsCard {
+        order: 1 !important;
+      }
+
+      .sf-insight-rail > #savedActionsCard {
+        order: 2 !important;
+      }
+
+      .sf-insight-rail > #recentMomentsCard {
+        order: 3 !important;
+      }
+
+      .sf-primary-action {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        z-index: 4;
+        min-width: min(260px, calc(100% - 36px));
+        min-height: 54px;
+        transform: translateX(-50%);
+        padding-inline: 28px;
+      }
+
+      .sf-primary-page #analyzeMovement.sf-primary-action {
+        width: calc(100% - 36px);
+        max-width: calc(100% - 36px);
+        transform: translateX(-50%) !important;
+      }
+
+      .sf-primary-page #analyzeMovement.sf-primary-action:hover,
+      .sf-primary-page #analyzeMovement.sf-primary-action:focus-visible,
+      .sf-primary-page #analyzeMovement.sf-primary-action:active,
+      .sf-primary-page #analyzeMovement.sf-primary-action:disabled {
+        transform: translateX(-50%) !important;
+      }
+
+      .sf-primary-action:disabled {
+        cursor: wait;
+      }
+
+      .sf-primary-page #analyzeMovement::after {
+        content: none !important;
+        display: none !important;
+      }
+
+      .sf-response-card,
+      .sf-compact-card {
+        align-content: center;
+        gap: 14px;
+        padding: clamp(18px, 2vw, 28px);
+      }
+
+      .sf-primary-page #operatorCommandsCard.sf-response-card {
+        display: flex !important;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        min-height: 0;
+        overflow: hidden;
+        grid-area: auto !important;
+        grid-column: auto !important;
+        grid-row: auto !important;
+        border-color: #e7e0d5;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 1px 2px rgba(30, 20, 10, 0.03), 0 16px 38px -28px rgba(30, 20, 10, 0.25);
+      }
+
+      .sf-primary-page .dq-camera-card {
+        grid-area: auto !important;
+        grid-column: auto !important;
+        grid-row: auto !important;
+      }
+
+      .sf-response-state,
+      .sf-speech-state,
+      .sf-response-meta {
+        min-width: 0;
+        color: var(--dq-text-muted);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .sf-response-state {
+        text-transform: uppercase;
+      }
+
+      .sf-mode-selector {
+        flex: 0 0 auto;
+        width: min(100%, 236px);
+        min-height: 34px;
+        align-self: flex-start;
+        box-shadow: none;
+      }
+
+      .sf-mode-selector button {
+        min-height: 28px;
+        font-size: 12px;
+      }
+
+      .sf-response-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: min(34vh, 320px);
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+
+      .sf-response-state,
+      .sf-response-meta,
+      .sf-speech-state {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+
+      .sf-response-card .dq-movement-result {
+        min-height: 0;
+        gap: 8px;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      .sf-response-card .dq-movement-status {
+        display: none !important;
+      }
+
+      .sf-response-card .dq-movement-sentence {
+        font-size: clamp(28px, 2.6vw, 38px);
+        line-height: 1.08;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+        white-space: normal;
+      }
+
+      .sf-response-card .dq-movement-result.is-empty .dq-movement-sentence {
+        font-size: clamp(24px, 2vw, 32px);
+        line-height: 1.1;
+      }
+
+      .sf-response-card .dq-movement-hint {
+        margin: 0;
+        color: var(--dq-text-muted);
+        font-size: 13px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .sf-compact-card {
+        align-content: start;
+        border-color: #e7e0d5;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 1px 2px rgba(30, 20, 10, 0.03), 0 16px 38px -28px rgba(30, 20, 10, 0.2);
+      }
+
+      .sf-card-title {
+        margin: 0;
+        color: #5f564d;
+        font-size: 12px;
+        font-weight: 900;
+        line-height: 1.2;
+        text-transform: uppercase;
+      }
+
+      .sf-action-list,
+      .sf-moment-list {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .sf-action-row,
+      .sf-moment-row {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+        border-radius: 12px;
+        color: #111827;
+        overflow-wrap: anywhere;
+      }
+
+      .sf-action-row {
+        grid-template-columns: 24px minmax(0, 1fr) auto auto;
+        align-items: center;
+        cursor: pointer;
+      }
+
+      .sf-action-row:focus-visible {
+        outline: 2px solid rgba(108, 69, 232, 0.45);
+        outline-offset: 3px;
+      }
+
+      .sf-action-icon {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border-radius: 999px;
+        background: rgba(108, 69, 232, 0.1);
+        color: #6c45e8;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .sf-action-copy,
+      .sf-moment-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .sf-action-copy strong,
+      .sf-moment-copy strong {
+        min-width: 0;
+        font-size: 13px;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+
+      .sf-action-copy span,
+      .sf-moment-copy span,
+      .sf-action-state,
+      .sf-action-chevron {
+        min-width: 0;
+        color: var(--dq-text-muted);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .sf-action-state {
+        color: #187453;
+        white-space: nowrap;
+      }
+
+      .sf-action-add,
+      .sf-action-view-all {
+        margin-top: 0;
+        color: #6c45e8;
+        font-size: 12px;
+        font-weight: 900;
+        line-height: 1.3;
+        cursor: pointer;
+      }
+
+      .sf-moment-row {
+        gap: 3px;
+      }
+
+      .sf-moment-time {
+        color: var(--dq-text-muted);
+        font-size: 11px;
+        font-weight: 900;
+        line-height: 1.25;
+      }
+
+      body[data-view="advanced"] .sf-primary-page {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+
+        .sf-insight-rail {
+          height: auto;
+          max-height: none;
+          grid-template-rows: none;
+        }
+
+        .sf-camera-frame {
+          min-height: min(62vh, 520px);
+          aspect-ratio: 4 / 3;
+        }
+      }
+
+      @media (max-width: 460px) {
+        .sf-primary-page {
+          padding: 10px;
+        }
+
+        .sf-primary-workspace {
+          gap: 12px;
+        }
+
+        .sf-camera-stage,
+        .sf-response-card,
+        .sf-compact-card {
+          padding: 14px !important;
+        }
+
+        .sf-camera-frame {
+          min-height: 420px;
+          aspect-ratio: 1 / 1.14;
+        }
+
+        .sf-primary-page .dq-preview-chips {
+          max-width: calc(100% - 36px);
+        }
+
+        .sf-response-card .dq-movement-sentence {
+          font-size: 30px;
+          line-height: 1.1;
+        }
+      }
+    </style>
+    <style id="sensefieldPremiumRedesign">
+      :root {
+        --sf-page-bg: #f8f7f4;
+        --sf-surface: #ffffff;
+        --sf-surface-elevated: rgba(255, 255, 255, 0.96);
+        --sf-surface-subtle: #f7f7f8;
+        --sf-surface-lavender: #f7f5ff;
+        --sf-text-primary: #111944;
+        --sf-text-secondary: #465077;
+        --sf-text-tertiary: #7b84a5;
+        --sf-border-subtle: rgba(28, 36, 78, 0.09);
+        --sf-border-emphasized: rgba(105, 76, 255, 0.24);
+        --sf-accent-violet: #6d4aff;
+        --sf-accent-indigo: #3157ee;
+        --sf-accent-soft: #f0edff;
+        --sf-success: #00866c;
+        --sf-warning: #ba7a13;
+        --sf-danger: #d74452;
+        --sf-shadow-small: 0 2px 8px rgba(29, 33, 65, 0.04);
+        --sf-shadow-medium: 0 12px 30px rgba(29, 33, 65, 0.07);
+        --sf-shadow-large: 0 20px 50px rgba(29, 33, 65, 0.09);
+        --sf-radius-small: 10px;
+        --sf-radius-medium: 18px;
+        --sf-radius-large: 30px;
+        --sf-radius-pill: 999px;
+        --sf-space-1: 4px;
+        --sf-space-2: 8px;
+        --sf-space-3: 12px;
+        --sf-space-4: 16px;
+        --sf-space-5: 20px;
+        --sf-space-6: 24px;
+        --sf-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --sf-motion: 180ms ease-out;
+      }
+
+      body[data-view="primary"] {
+        min-width: 0;
+        overflow-x: clip;
+        background: var(--sf-page-bg);
+        color: var(--sf-text-primary);
+        font-family: var(--sf-font);
+      }
+
+      body[data-view="primary"] .dq-app,
+      body[data-view="primary"] .sf-primary-page {
+        width: 100%;
+        min-width: 0;
+      }
+
+      body[data-view="primary"] .sf-primary-page {
+        padding: clamp(20px, 1.55vw, 28px) clamp(18px, 2.1vw, 36px) !important;
+      }
+
+      body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
+        display: grid !important;
+        width: 100% !important;
+        max-width: 1660px !important;
+        grid-template-columns: minmax(0, 2.06fr) minmax(390px, 1fr) !important;
+        gap: clamp(18px, 1.35vw, 24px) !important;
+        align-items: start !important;
+        margin: 0 auto;
+      }
+
+      .sf-left-column,
+      .sf-insight-rail,
+      .sf-left-column > *,
+      .sf-insight-rail > * {
+        min-width: 0;
+      }
+
+      .sf-left-column {
+        display: grid;
+        gap: clamp(16px, 1.2vw, 20px);
+      }
+
+      body[data-view="primary"] .sf-insight-rail {
+        display: grid !important;
+        height: auto !important;
+        max-height: none !important;
+        grid-template-rows: auto !important;
+        gap: clamp(14px, 1vw, 18px) !important;
+        align-content: start;
+      }
+
+      body[data-view="primary"] .dq-card {
+        min-width: 0;
+        border: 1px solid var(--sf-border-subtle);
+        background: var(--sf-surface-elevated);
+        box-shadow: var(--sf-shadow-medium);
+      }
+
+      body[data-view="primary"] .sf-camera-stage {
+        display: block !important;
+        padding: clamp(16px, 1.45vw, 24px) !important;
+        overflow: visible;
+        border-radius: var(--sf-radius-large) !important;
+        box-shadow: var(--sf-shadow-large);
+      }
+
+      body[data-view="primary"] .sf-camera-frame {
+        width: 100%;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        aspect-ratio: 1.415 / 1 !important;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.52);
+        border-radius: 24px !important;
+        background: #111629;
+      }
+
+      body[data-view="primary"] .sf-camera-frame #preview {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      body[data-view="primary"] .dq-camera-empty {
+        gap: 10px;
+        max-width: 340px;
+        padding: 24px 24px 112px !important;
+        color: rgba(255, 255, 255, 0.84);
+        text-align: center;
+      }
+
+      body[data-view="primary"] .dq-camera-empty svg {
+        width: 28px;
+        height: 28px;
+      }
+
+      body[data-view="primary"] .dq-camera-empty strong {
+        color: #ffffff;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      body[data-view="primary"] .dq-camera-empty span {
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      body[data-view="primary"] .dq-camera-status-chip,
+      body[data-view="primary"] .dq-preview-live-chip,
+      body[data-view="primary"] .dq-preview-chips,
+      body[data-view="primary"] .sf-camera-state {
+        z-index: 5;
+        font-family: var(--sf-font);
+      }
+
+      body[data-view="primary"] .dq-camera-status-chip {
+        top: 20px !important;
+        left: 20px !important;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 46px;
+        padding: 0 18px;
+        border: 1px solid rgba(255, 255, 255, 0.78);
+        border-radius: var(--sf-radius-pill);
+        background: rgba(255, 255, 255, 0.91);
+        box-shadow: var(--sf-shadow-small);
+        color: var(--sf-text-primary);
+        font-size: 14px;
+        font-weight: 650;
+        backdrop-filter: blur(10px);
+      }
+
+      body[data-view="primary"] .dq-camera-status-chip svg {
+        width: 18px;
+        height: 18px;
+        color: #20bd72;
+        stroke-width: 1.9;
+      }
+
+      body[data-view="primary"] .dq-preview-live-chip {
+        top: 20px !important;
+        right: 20px !important;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 42px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: var(--sf-radius-pill);
+        background: rgba(17, 25, 61, 0.92);
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity var(--sf-motion), visibility var(--sf-motion);
+      }
+
+      body[data-view="primary"] .dq-camera-frame.is-live .dq-preview-live-chip {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      body[data-view="primary"] .dq-preview-live-chip span {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ff4059;
+      }
+
+      body[data-view="primary"] .dq-camera-frame.is-live .dq-preview-live-chip span {
+        animation: sf-live-pulse 1.8s ease-in-out infinite;
+      }
+
+      body[data-view="primary"] .dq-preview-chips {
+        left: 22px !important;
+        bottom: 106px !important;
+        max-width: min(220px, calc(100% - 44px)) !important;
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 11px;
+        opacity: 0.86;
+      }
+
+      body[data-view="primary"] .sf-camera-state {
+        top: 22px !important;
+        max-width: calc(100% - 300px) !important;
+        padding: 8px 12px;
+        border-radius: var(--sf-radius-pill);
+        background: rgba(17, 25, 61, 0.72);
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0;
+        transition: opacity var(--sf-motion);
+        backdrop-filter: blur(8px);
+      }
+
+      body[data-view="primary"] .sf-camera-state[hidden] {
+        display: none !important;
+      }
+
+      body[data-view="primary"] #analyzeMovement.sf-primary-action {
+        left: 50%;
+        bottom: 30px;
+        display: inline-flex;
+        width: calc(100% - 76px);
+        max-width: calc(100% - 76px);
+        min-height: 64px;
+        align-items: center;
+        justify-content: center;
+        gap: 11px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: var(--sf-radius-pill) !important;
+        padding: 0 28px;
+        background: linear-gradient(100deg, #a43ff2 0%, var(--sf-accent-violet) 44%, var(--sf-accent-indigo) 100%);
+        box-shadow: 0 12px 28px rgba(74, 59, 236, 0.28);
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1;
+        transform: translateX(-50%) !important;
+        transition: filter var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
+      }
+
+      body[data-view="primary"] #analyzeMovement.sf-primary-action svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+        stroke-width: 1.9;
+      }
+
+      body[data-view="primary"] #analyzeMovement.sf-primary-action:hover,
+      body[data-view="primary"] #analyzeMovement.sf-primary-action:focus-visible {
+        filter: saturate(1.05) brightness(1.03);
+        box-shadow: 0 15px 32px rgba(74, 59, 236, 0.34);
+        transform: translateX(-50%) !important;
+      }
+
+      body[data-view="primary"] #analyzeMovement.sf-primary-action:active {
+        transform: translateX(-50%) scale(0.98) !important;
+      }
+
+      body[data-view="primary"] #analyzeMovement.sf-primary-action:disabled {
+        opacity: 0.66;
+        transform: translateX(-50%) !important;
+      }
+
+      body[data-view="primary"] .sf-mode-selector {
+        display: grid !important;
+        width: 100% !important;
+        min-height: 64px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        align-self: stretch;
+        padding: 7px;
+        border: 1px solid var(--sf-border-subtle);
+        border-radius: 20px;
+        background: rgba(245, 245, 247, 0.92);
+        box-shadow: var(--sf-shadow-small);
+      }
+
+      body[data-view="primary"] .sf-mode-selector button {
+        display: inline-flex;
+        min-width: 0;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        border: 1px solid transparent;
+        border-radius: 15px;
+        background: transparent;
+        color: var(--sf-text-secondary);
+        font-size: 13px;
+        font-weight: 650;
+        transition: color var(--sf-motion), background var(--sf-motion), border-color var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
+      }
+
+      body[data-view="primary"] .sf-mode-selector button svg {
+        width: 17px;
+        height: 17px;
+        flex: 0 0 auto;
+        stroke-width: 1.8;
+      }
+
+      body[data-view="primary"] .sf-mode-selector button[aria-pressed="true"] {
+        border-color: rgba(118, 83, 255, 0.28);
+        background: #ffffff;
+        box-shadow: 0 0 0 2px rgba(118, 83, 255, 0.13), var(--sf-shadow-small);
+        color: #4f34ef;
+      }
+
+      body[data-view="primary"] .sf-mode-selector button:active {
+        transform: scale(0.98);
+      }
+
+      body[data-view="primary"] #operatorCommandsCard.sf-response-card,
+      body[data-view="primary"] .sf-compact-card {
+        border-radius: 22px !important;
+        box-shadow: var(--sf-shadow-medium);
+      }
+
+      body[data-view="primary"] #operatorCommandsCard.sf-response-card {
+        position: relative;
+        display: flex !important;
+        min-height: clamp(230px, 22vw, 292px);
+        flex-direction: column;
+        gap: 12px;
+        padding: clamp(22px, 1.8vw, 30px) !important;
+        overflow: hidden;
+        border-color: var(--sf-border-emphasized);
+        background:
+          radial-gradient(circle at 88% 78%, rgba(113, 83, 255, 0.08) 0 1px, transparent 1.5px) 0 0 / 8px 8px,
+          linear-gradient(145deg, #ffffff 0%, var(--sf-surface-lavender) 100%);
+      }
+
+      body[data-view="primary"] #operatorCommandsCard.sf-response-card:has(.dq-movement-result.is-empty) {
+        min-height: 160px;
+      }
+
+      body[data-view="primary"] .sf-response-state,
+      body[data-view="primary"] .sf-card-title,
+      body[data-view="primary"] .sf-roadmap-heading h2 {
+        margin: 0;
+        color: var(--sf-text-primary);
+        font-size: 11px;
+        font-weight: 750;
+        line-height: 1.2;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      body[data-view="primary"] .sf-response-state {
+        color: #5538ef;
+      }
+
+      body[data-view="primary"] .sf-response-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: 220px !important;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-width: thin;
+      }
+
+      body[data-view="primary"] .sf-response-card .dq-movement-result {
+        display: grid;
+        gap: 10px;
+        min-height: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      body[data-view="primary"] .sf-response-card .dq-movement-sentence {
+        display: block;
+        max-width: 100%;
+        color: var(--sf-text-primary);
+        font-size: clamp(26px, 2vw, 34px);
+        font-weight: 680;
+        line-height: 1.14;
+        letter-spacing: 0;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+      }
+
+      body[data-view="primary"] .sf-response-card .dq-movement-result.is-empty .dq-movement-sentence {
+        font-size: clamp(24px, 1.8vw, 30px);
+      }
+
+      body[data-view="primary"] .sf-response-card .dq-movement-hint {
+        margin: 0;
+        color: var(--sf-text-secondary);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      body[data-view="primary"] .sf-response-meta {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 9px;
+        margin: 4px -30px -30px !important;
+        padding: 16px 30px;
+        border-top: 1px solid var(--sf-border-subtle);
+        color: var(--sf-text-secondary);
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      body[data-view="primary"] .sf-response-meta:empty,
+      body[data-view="primary"] .sf-speech-state:empty {
+        display: none;
+      }
+
+      body[data-view="primary"] .sf-response-meta svg {
+        width: 17px;
+        height: 17px;
+        color: var(--sf-accent-violet);
+      }
+
+      body[data-view="primary"] .sf-confidence-value {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
+      body[data-view="primary"] .sf-confidence-dots {
+        display: inline-flex;
+        gap: 5px;
+      }
+
+      body[data-view="primary"] .sf-confidence-dots i {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #d8d2fb;
+      }
+
+      body[data-view="primary"] .sf-confidence-dots i.is-active {
+        background: var(--sf-accent-violet);
+      }
+
+      body[data-view="primary"] .sf-speech-state {
+        margin: 0;
+        color: var(--sf-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+
+      body[data-view="primary"] .sf-compact-card {
+        display: grid !important;
+        align-content: start;
+        gap: 14px;
+        padding: clamp(18px, 1.45vw, 24px) !important;
+        background: var(--sf-surface-elevated);
+      }
+
+      body[data-view="primary"] .sf-action-list,
+      body[data-view="primary"] .sf-moment-list {
+        display: grid;
+        min-width: 0;
+        gap: 0;
+      }
+
+      body[data-view="primary"] .sf-action-row {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+        gap: 11px;
+        align-items: center;
+        min-height: 58px;
+        border-radius: 12px;
+        padding: 7px 0;
+        color: var(--sf-text-primary);
+        cursor: pointer;
+        transition: background var(--sf-motion), transform var(--sf-motion);
+      }
+
+      body[data-view="primary"] .sf-action-row:hover {
+        background: var(--sf-surface-subtle);
+      }
+
+      body[data-view="primary"] .sf-action-row:active {
+        transform: scale(0.99);
+      }
+
+      body[data-view="primary"] .sf-action-icon {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border-radius: 12px;
+        background: var(--sf-accent-soft);
+        color: var(--sf-accent-violet);
+        font-size: 0;
+      }
+
+      body[data-view="primary"] .sf-action-icon svg {
+        width: 21px;
+        height: 21px;
+        stroke-width: 1.75;
+      }
+
+      body[data-view="primary"] .sf-action-copy,
+      body[data-view="primary"] .sf-moment-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      body[data-view="primary"] .sf-action-copy strong {
+        color: var(--sf-text-primary);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+
+      body[data-view="primary"] .sf-action-copy span {
+        color: var(--sf-text-secondary);
+        font-size: 11px;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      body[data-view="primary"] .sf-action-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--sf-success);
+        font-size: 11px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      body[data-view="primary"] .sf-status-toggle {
+        position: relative;
+        display: inline-block;
+        width: 28px;
+        height: 16px;
+        flex: 0 0 auto;
+        border-radius: var(--sf-radius-pill);
+        background: #c8c9d8;
+      }
+
+      body[data-view="primary"] .sf-status-toggle::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 1px 3px rgba(17, 25, 68, 0.2);
+      }
+
+      body[data-view="primary"] .sf-action-state[data-enabled="true"] .sf-status-toggle {
+        background: #6352ed;
+      }
+
+      body[data-view="primary"] .sf-action-state[data-enabled="true"] .sf-status-toggle::after {
+        left: 14px;
+      }
+
+      body[data-view="primary"] .sf-action-chevron {
+        display: none;
+      }
+
+      body[data-view="primary"] .sf-action-chevron svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      body[data-view="primary"] .sf-action-add,
+      body[data-view="primary"] .sf-action-view-all {
+        display: flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 3px;
+        border-top: 1px solid var(--sf-border-subtle);
+        color: #5138ef;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      body[data-view="primary"] .sf-action-view-all svg,
+      body[data-view="primary"] .sf-card-footer-link svg {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+      }
+
+      body[data-view="primary"] .sf-card-footer-link {
+        display: flex;
+        min-width: 0;
+        min-height: 38px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 2px;
+        border-top: 1px solid var(--sf-border-subtle);
+        color: #5138ef;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.3;
+        text-decoration: none;
+      }
+
+      body[data-view="primary"] .sf-moment-list {
+        position: relative;
+        gap: 8px;
+      }
+
+      body[data-view="primary"] .sf-moment-list:has(.sf-moment-row)::before {
+        content: "";
+        position: absolute;
+        top: 12px;
+        bottom: 12px;
+        left: 5px;
+        width: 1px;
+        background: #dfe1ed;
+      }
+
+      body[data-view="primary"] .sf-moment-row {
+        position: relative;
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+        padding-left: 22px;
+        color: var(--sf-text-secondary);
+      }
+
+      body[data-view="primary"] .sf-moment-row::before {
+        content: "";
+        position: absolute;
+        top: 7px;
+        left: 2px;
+        width: 7px;
+        height: 7px;
+        border: 2px solid #ffffff;
+        border-radius: 50%;
+        background: #7a80a0;
+      }
+
+      body[data-view="primary"] .sf-moment-time {
+        color: var(--sf-text-tertiary);
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      body[data-view="primary"] .sf-moment-copy {
+        display: block;
+        color: var(--sf-text-secondary);
+        font-size: 11px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      body[data-view="primary"] .sf-moment-copy strong {
+        display: inline-block;
+        margin-right: 8px;
+        border-radius: var(--sf-radius-pill);
+        padding: 3px 9px;
+        background: var(--sf-accent-soft);
+        color: #5543da;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      body[data-view="primary"] .sf-roadmap-card {
+        display: grid;
+        gap: 16px;
+        padding: clamp(18px, 1.45vw, 24px) !important;
+        border-radius: 28px !important;
+      }
+
+      body[data-view="primary"] .sf-roadmap-heading {
+        display: grid;
+        gap: 5px;
+      }
+
+      body[data-view="primary"] .sf-roadmap-heading p {
+        margin: 0;
+        color: var(--sf-text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      body[data-view="primary"] .sf-roadmap-grid {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      body[data-view="primary"] .sf-roadmap-tile {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: 40px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        min-height: 88px;
+        border: 1px solid var(--sf-border-subtle);
+        border-radius: 15px;
+        padding: 12px;
+        background: #ffffff;
+        box-shadow: var(--sf-shadow-small);
+        transition: border-color var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
+      }
+
+      body[data-view="primary"] .sf-roadmap-tile:hover {
+        border-color: rgba(105, 76, 255, 0.18);
+        box-shadow: 0 8px 18px rgba(29, 33, 65, 0.07);
+        transform: translateY(-2px);
+      }
+
+      body[data-view="primary"] .sf-roadmap-icon {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border-radius: 11px;
+        background: var(--sf-accent-soft);
+        color: var(--sf-accent-violet);
+      }
+
+      body[data-view="primary"] .sf-roadmap-icon svg {
+        width: 21px;
+        height: 21px;
+        stroke-width: 1.7;
+      }
+
+      body[data-view="primary"] .sf-roadmap-tile > span:last-child {
+        display: grid;
+        min-width: 0;
+        gap: 3px;
+      }
+
+      body[data-view="primary"] .sf-roadmap-tile strong {
+        color: var(--sf-text-primary);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.25;
+        overflow-wrap: normal;
+      }
+
+      body[data-view="primary"] .sf-roadmap-tile small {
+        color: var(--sf-text-secondary);
+        font-size: 10px;
+        line-height: 1.45;
+        overflow-wrap: normal;
+      }
+
+      body[data-view="primary"] :where(button, [role="link"]):focus-visible {
+        outline: 3px solid rgba(105, 76, 255, 0.28);
+        outline-offset: 3px;
+      }
+
+      @keyframes sf-live-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 64, 89, 0.35); }
+        50% { box-shadow: 0 0 0 6px rgba(255, 64, 89, 0); }
+      }
+
+      @media (max-width: 1120px) {
+        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
+          display: flex !important;
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 16px !important;
+        }
+
+        body[data-view="primary"] .sf-left-column,
+        body[data-view="primary"] .sf-insight-rail {
+          display: contents !important;
+        }
+
+        body[data-view="primary"] .sf-camera-stage { order: 1 !important; }
+        body[data-view="primary"] .sf-mode-selector { order: 2 !important; }
+        body[data-view="primary"] #operatorCommandsCard { order: 3 !important; }
+        body[data-view="primary"] #savedActionsCard { order: 4 !important; }
+        body[data-view="primary"] #recentMomentsCard { order: 5 !important; }
+        body[data-view="primary"] .sf-roadmap-card { order: 6 !important; }
+
+        body[data-view="primary"] :is(.sf-camera-stage, .sf-mode-selector, #operatorCommandsCard, #savedActionsCard, #recentMomentsCard, .sf-roadmap-card) {
+          width: 100% !important;
+          max-width: none !important;
+          align-self: stretch !important;
+        }
+
+        body[data-view="primary"] .sf-camera-frame {
+          aspect-ratio: 16 / 10 !important;
+        }
+
+        body[data-view="primary"] .sf-roadmap-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (min-width: 1121px) and (max-height: 950px) {
+        body[data-view="primary"] .sf-camera-frame {
+          aspect-ratio: 16 / 10 !important;
+        }
+      }
+
+      @media (max-width: 600px) {
+        body[data-view="primary"] .sf-primary-page {
+          padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important;
+        }
+
+        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
+          gap: 12px !important;
+        }
+
+        body[data-view="primary"] .sf-mode-selector { order: 1 !important; }
+        body[data-view="primary"] .sf-camera-stage { order: 2 !important; }
+
+        body[data-view="primary"] .sf-mode-selector {
+          min-height: 58px;
+          padding: 6px;
+          border-radius: 17px;
+        }
+
+        body[data-view="primary"] .sf-mode-selector button {
+          min-height: 46px;
+          gap: 7px;
+          padding: 0 8px;
+          font-size: 12px;
+        }
+
+        body[data-view="primary"] .sf-camera-stage,
+        body[data-view="primary"] .sf-roadmap-card,
+        body[data-view="primary"] #operatorCommandsCard.sf-response-card,
+        body[data-view="primary"] .sf-compact-card {
+          border-radius: 20px !important;
+        }
+
+        body[data-view="primary"] .sf-camera-stage {
+          padding: 10px !important;
+        }
+
+        body[data-view="primary"] .sf-camera-frame {
+          aspect-ratio: 4 / 5 !important;
+          border-radius: 15px !important;
+        }
+
+        body[data-view="primary"] .dq-camera-status-chip {
+          top: 12px !important;
+          left: 12px !important;
+          min-height: 40px;
+          padding: 0 13px;
+          font-size: 12px;
+        }
+
+        body[data-view="primary"] .dq-preview-live-chip {
+          top: 12px !important;
+          right: 12px !important;
+          min-height: 38px;
+          padding: 0 12px;
+          font-size: 11px;
+        }
+
+        body[data-view="primary"] .sf-camera-state {
+          top: 58px !important;
+          max-width: calc(100% - 24px) !important;
+        }
+
+        body[data-view="primary"] #analyzeMovement.sf-primary-action {
+          bottom: 18px;
+          width: calc(100% - 28px);
+          max-width: calc(100% - 28px);
+          min-height: 56px;
+          padding: 0 18px;
+        }
+
+        body[data-view="primary"] .dq-preview-chips {
+          bottom: 84px !important;
+          left: 16px !important;
+          max-width: calc(100% - 32px) !important;
+        }
+
+        body[data-view="primary"] #operatorCommandsCard.sf-response-card {
+          min-height: 248px;
+          padding: 20px !important;
+        }
+
+        body[data-view="primary"] .sf-response-meta {
+          margin: 4px -20px -20px !important;
+          padding: 14px 20px;
+        }
+
+        body[data-view="primary"] .sf-action-row {
+          grid-template-columns: 40px minmax(0, 1fr) auto;
+          gap: 9px;
+        }
+
+        body[data-view="primary"] .sf-roadmap-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        body[data-view="primary"] .sf-roadmap-tile {
+          min-height: 76px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        body[data-view="primary"] *,
+        body[data-view="primary"] *::before,
+        body[data-view="primary"] *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
       }
     </style>
   </head>
   <body>
     <main class="dq-app">
-      <div class="dq-top-status" aria-label="Runtime status">
-        <span id="topLiveDot" class="dq-live-led" aria-hidden="true"></span>
-        <span class="dq-top-status-text">Local console</span>
+      <div id="dashboard" class="dq-page sf-primary-page" data-primary-view aria-label="Sensefield visual companion">
+        <section id="mainWorkspace" class="sf-primary-workspace" aria-label="Sensefield workspace">
+          <div class="sf-left-column">
+          <section class="dq-card dq-camera-card sf-camera-stage card-contained" aria-labelledby="cameraTitle">
+            <h1 id="cameraTitle" class="sr-only">Sensefield camera</h1>
+            <div class="dq-camera-frame sf-camera-frame preview-wrap">
+              <video id="preview" autoplay playsinline muted aria-label="Sensefield local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
+              <div class="dq-camera-empty" aria-hidden="true">
+                <i data-lucide="camera" aria-hidden="true"></i>
+                <strong>Camera is off</strong>
+                <span>Start a mode to begin. No raw media stored.</span>
+              </div>
+              <div class="dq-camera-status-chip" aria-label="Camera status">
+                <i data-lucide="video" aria-hidden="true"></i>
+                <span id="cameraStatusChip">Camera off</span>
+              </div>
+              <span id="primaryObservationState" class="sf-camera-state">Ready</span>
+              <div class="dq-preview-live-chip" aria-hidden="true">
+                <span></span>
+                LIVE
+              </div>
+              <div class="dq-preview-chips" aria-label="Preview privacy">
+                <span>No raw media stored</span>
+              </div>
+              <button id="analyzeMovement" class="dq-button primary sf-primary-action" type="button" aria-label="Start conversation"><i data-lucide="sparkles" aria-hidden="true"></i><span>Start conversation</span></button>
+            </div>
+            <p id="movementControlHelp" class="sr-only">Start conversation.</p>
+            <div id="errorBanner" class="error-banner" hidden></div>
+          </section>
+
+          <section id="whatsNextPanel" class="dq-card sf-roadmap-card card-contained" aria-labelledby="whatsNextTitle">
+            <div class="sf-roadmap-heading">
+              <h2 id="whatsNextTitle">What's next</h2>
+              <p>Future capabilities we're building for you.</p>
+            </div>
+            <div class="sf-roadmap-grid" aria-label="Future capabilities">
+              <article class="sf-roadmap-tile">
+                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="box"></i></span>
+                <span><strong>Spatial Awareness</strong><small>Understand 3D space and distances.</small></span>
+              </article>
+              <article class="sf-roadmap-tile">
+                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="hand"></i></span>
+                <span><strong>Hand Motion</strong><small>Understand gestures and fine movements.</small></span>
+              </article>
+              <article class="sf-roadmap-tile">
+                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="languages"></i></span>
+                <span><strong>Live Translation</strong><small>Real-time translation across languages.</small></span>
+              </article>
+              <article class="sf-roadmap-tile">
+                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="scan-line"></i></span>
+                <span><strong>Scene Mapping</strong><small>Build maps of your environment.</small></span>
+              </article>
+              <article class="sf-roadmap-tile">
+                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="shield-check"></i></span>
+                <span><strong>Graceful Fallback</strong><small>Stay useful even when uncertain.</small></span>
+              </article>
+            </div>
+          </section>
+          </div>
+
+          <aside class="sf-insight-rail" aria-label="Observation summary">
+            <div id="interactionModeSelector" class="dq-segmented sf-mode-selector" role="group" aria-label="Interaction mode">
+              <button type="button" data-interaction-mode="conversation" aria-pressed="true"><i data-lucide="message-circle" aria-hidden="true"></i><span>Conversation</span></button>
+              <button type="button" data-interaction-mode="observing" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i><span>Observing</span></button>
+            </div>
+            <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained" data-product-card="visual-response" aria-labelledby="movementResultTitle">
+              <span id="cameraSuggestionCount" class="sf-response-state">Response</span>
+              <h2 id="movementResultTitle" class="sr-only">Visual Response</h2>
+              <div id="cameraSuggestions" class="dq-suggestion-list sf-response-body" aria-live="polite">
+                <div class="dq-movement-result result-card-stable result-hero is-empty text-contained">
+                  <span class="dq-movement-status">Response</span>
+                  <strong class="dq-movement-sentence movement-sentence">Start the conversation, then ask or show something.</strong>
+                  <p class="dq-movement-hint">No raw media stored.</p>
+                </div>
+              </div>
+              <p id="movementSummaryRow" class="dq-movement-summary-row sf-response-meta">Ready</p>
+              <p id="voiceStatus" class="sf-speech-state">Voice unavailable</p>
+            </section>
+
+            <section id="savedActionsCard" class="dq-card sf-compact-card card-contained" aria-labelledby="savedActionsTitle">
+              <h2 id="savedActionsTitle" class="sf-card-title">Saved actions</h2>
+              <div id="savedActionsList" class="sf-action-list" aria-label="Saved actions summary"></div>
+            </section>
+
+            <section id="recentMomentsCard" class="dq-card sf-compact-card card-contained" aria-labelledby="recentMomentsTitle">
+              <h2 id="recentMomentsTitle" class="sf-card-title">Recent moments</h2>
+              <div id="recentMomentsList" class="sf-moment-list" aria-label="Recent moments summary">Your recent observations will appear here.</div>
+              <a class="sf-card-footer-link" href="?advanced=1#movementHistoryPanel">View all moments <i data-lucide="chevron-right" aria-hidden="true"></i></a>
+            </section>
+          </aside>
+        </section>
       </div>
+
+      <template id="advancedViewTemplate">
+      <header class="dq-product-header" aria-label="Sensefield product header">
+        <div class="dq-product-header-inner">
+          <div class="dq-wordmark">
+            <span class="dq-logo-mark" aria-hidden="true">DQ</span>
+            <span>Sensefield</span>
+          </div>
+          <nav class="dq-segmented" aria-label="Mode">
+            <button type="button" aria-pressed="true">Capture</button>
+            <button type="button" aria-pressed="false">Observe</button>
+          </nav>
+          <div class="dq-header-actions" aria-label="Status and account">
+            <span id="topLiveDot" class="dq-status-dot" aria-hidden="true"></span>
+            <span id="headerModelStatus" class="sr-only">LLM 0 · VLM 0 · $0</span>
+            <span id="headerLiveStatus" class="sr-only">Idle</span>
+            <button class="dq-icon-button" type="button" aria-label="Notifications">A</button>
+            <button class="dq-icon-button" type="button" aria-label="Settings">S</button>
+            <button class="dq-icon-button dq-account-button" type="button" aria-label="Account">MI</button>
+          </div>
+        </div>
+      </header>
       <div id="dashboard" class="dq-page">
-        <header class="dq-brand-row" aria-label="DarkQuest local capture console">
+        <header class="dq-brand-row" aria-label="Sensefield local capture console">
           <div class="dq-brand-lockup">
             <div class="dq-logo" aria-hidden="true">DQ</div>
             <div class="dq-brand-copy">
-              <strong>DarkQuest</strong>
-              <span>AI Movement Narrator</span>
-              <small>Show a movement. Let AI describe what happened.</small>
+              <strong>Sensefield</strong>
+              <span>Visual Companion</span>
+              <small>Show an action, object, or change. Let the local model respond.</small>
             </div>
           </div>
           <div class="dq-header-badges" aria-label="Local capture status">
             <span class="dq-badge">Manual confirmation</span>
             <span class="dq-badge">No raw media stored</span>
-            <span id="headerModelStatus" class="dq-badge dq-badge-mono">LLM 0 · VLM 0 · $0</span>
-            <span id="headerLiveStatus" class="dq-badge dq-badge-live"><span class="dq-badge-dot" aria-hidden="true"></span> Idle</span>
+            <span class="dq-badge dq-badge-mono" data-legacy-header-model-status>LLM 0 · VLM 0 · $0</span>
+            <span class="dq-badge dq-badge-live" data-legacy-header-live-status><span class="dq-badge-dot" aria-hidden="true"></span> Idle</span>
           </div>
         </header>
 
         <section id="movementPrivacyDisclosure" class="dq-disclosure-bar" aria-label="Movement privacy disclosure">
           <p class="dq-disclosure">
-            <span class="dq-disclosure-chip">Manual local confirmation — not automatic vision.</span>
-            <span class="dq-disclosure-chip">Describe my next movement sends a short temporary frame window only after you click.</span>
+            <span class="dq-disclosure-chip">Local open visual model — user triggered only.</span>
+            <span class="dq-disclosure-chip">Observe sends a short temporary frame window only after you click.</span>
             <span class="dq-disclosure-chip">No continuous upload.</span>
             <span class="dq-disclosure-chip">No raw media is saved by this app.</span>
           </p>
@@ -2867,21 +6036,18 @@
           <div class="dq-main-column">
             <section class="dq-card dq-camera-card card-contained" aria-labelledby="cameraTitle">
               <div class="dq-card-head">
-                <div class="text-contained">
-                  <h2 id="cameraTitle">Live camera preview</h2>
-                  <p class="dq-card-subtitle">Local preview · <span id="calibrationStatusHero">One movement at a time</span></p>
+                <div class="dq-title-stack text-contained">
+                  <h2 id="cameraTitle">Capture Studio</h2>
+                  <p class="dq-card-subtitle"><span id="calibrationStatusHero">One movement at a time.</span></p>
                 </div>
                 <div class="dq-card-actions">
-                  <span id="cameraCardStatus" class="dq-pill no-vertical-text">Camera off</span>
-                  <button id="startCamera" class="dq-button primary" type="button">Start Camera</button>
-                  <button id="stopCamera" class="dq-button secondary" type="button">Stop Camera</button>
-                  <button id="analyzeMovement" class="dq-button primary" type="button">Describe my next movement</button>
+                  <span id="cameraCardStatus" class="dq-status-pill no-vertical-text">Camera off</span>
                   <button id="resetSession" class="dq-button secondary" type="button" hidden>Reset Session</button>
                 </div>
-                <p id="movementControlHelp" class="dq-movement-control-help">Start the camera, then describe a movement.</p>
-                <span class="sr-only">Movement states: Start Camera. Get ready. Move now. Understanding movement. Try another movement.</span>
+                <p id="movementControlHelp" class="dq-movement-control-help">Start the camera, then observe.</p>
+                <span class="sr-only">Visual companion states: Ready. Camera off. Looking. Thinking. Speaking. Error. Starting. End conversation. Try again.</span>
               </div>
-              <p class="sr-only">Manual confirmation - not automatic vision. Describe my next movement sends a short temporary frame window only when clicked; nothing is saved by this app.</p>
+              <p class="sr-only">Observe sends a short temporary frame window only when clicked; nothing is saved by this app.</p>
               <div class="dq-calibration-ribbon" aria-label="Calibration status" hidden>
                 <div>
                   <span>Calibration status</span>
@@ -2890,9 +6056,13 @@
                 <button id="editZones" class="dq-button secondary" type="button" hidden>Edit Zones</button>
               </div>
               <div class="dq-camera-frame preview-wrap">
-                <img class="dq-camera-reference" src="./assets/desk-preview.jpg" alt="Desk preview for local camera framing; live video appears after camera permission">
                 <video id="preview" autoplay playsinline muted aria-label="Local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
                 <div id="zoneOverlay" class="zone-overlay" aria-hidden="true"></div>
+                <div class="dq-camera-empty" aria-hidden="true">
+                  <span class="dq-ref-icon">C</span>
+                  <strong>Start the camera to begin</strong>
+                  <span>Capture a gesture, expression, object, or action.</span>
+                </div>
                 <div class="dq-camera-status-chip" aria-label="Camera status">
                   <span class="dq-camera-icon" aria-hidden="true"></span>
                   <span id="cameraStatusChip">Camera off</span>
@@ -2905,10 +6075,22 @@
                   <span>Local preview</span>
                   <span>No raw media stored</span>
                 </div>
+                <div class="dq-camera-control-dock" aria-label="Camera controls">
+                  <div class="dq-dock-side">
+                    <button id="startCamera" class="dq-icon-button" type="button" aria-label="Start camera">Cam</button>
+                    <button id="stopCamera" class="dq-icon-button" type="button" aria-label="Stop camera">Stop</button>
+                    <button id="toggleTrackingDock" class="dq-icon-button" type="button" aria-label="Toggle tracking overlay">Grid</button>
+                  </div>
+                  <button id="analyzeMovement" class="dq-button primary" type="button">Observe</button>
+                  <div class="dq-dock-side">
+                    <button id="stageVoiceShortcut" class="dq-icon-button" type="button" aria-label="Open voice controls">Mic</button>
+                    <button id="stageOptionsShortcut" class="dq-icon-button" type="button" aria-label="Open options">More</button>
+                  </div>
+                </div>
               </div>
               <label class="confirm dq-tracking-toggle">
-                <input id="showTrackingOverlay" type="checkbox">
-                Show tracking overlay
+                <span>Show tracking overlay</span>
+                <input id="showTrackingOverlay" type="checkbox" role="switch" aria-label="Show tracking overlay">
               </label>
               <div class="dq-mode-control" aria-label="Movement narrator mode">
                 <span>Mode</span>
@@ -2918,27 +6100,6 @@
               <p class="dq-live-narrator-note">Live narrator is disabled in this version. No background movement calls run.</p>
               <div id="errorBanner" class="error-banner" hidden></div>
             </section>
-
-            <div class="dq-lower-grid">
-              <section class="dq-card dq-privacy-card card-contained" aria-labelledby="privacyTitle">
-                <h2 id="privacyTitle">Privacy & models</h2>
-                <span class="sr-only">Privacy Status</span>
-                <span class="sr-only">Model-Call Status</span>
-                <dl class="dq-metric-list">
-                  <div><dt>Raw media</dt><dd id="privacy">Not saved</dd></div>
-                  <div><dt>LLM calls</dt><dd id="llm">0</dd></div>
-                  <div><dt>VLM calls</dt><dd id="vlm">0</dd></div>
-                  <div><dt>Cost</dt><dd id="cost">$0</dd></div>
-                  <div><dt>AI provider</dt><dd id="cloud">huggingface</dd><span hidden>on demand</span></div>
-                </dl>
-                <p class="dq-disclosure sr-only">No continuous stream upload. Short sampled frames may be sent to the selected AI provider when Describe my next movement is clicked.</p>
-                <p class="dq-disclosure">Describe my next movement sends a short temporary frame window only after you click.</p>
-                <p class="dq-disclosure">No continuous upload.</p>
-                <p class="dq-disclosure">No raw media is saved by this app.</p>
-                <p class="dq-disclosure">Requires HF_TOKEN for live Hugging Face/Cerebras recognition.</p>
-                <p id="staticWaiverDisclosure" class="dq-disclosure sr-only">Static compatibility disclosure: historical eval status is retained in Developer Tools; operator-confirmed symbolic event UI.</p>
-              </section>
-            </div>
 
           </div>
 
@@ -2972,23 +6133,32 @@
               <div id="cameraSuggestionsPanel" class="dq-suggestion-panel" aria-labelledby="movementResultTitle">
                 <div>
                   <div class="dq-suggestion-title-row">
-                    <h2 id="movementResultTitle">Movement Result</h2>
+                    <h2 id="movementResultTitle">Visual Response</h2>
                     <template id="cameraSuggestionsTitle">Detected Action</template>
                     <span id="cameraSuggestionCount" class="dq-badge dq-badge-info">Waiting</span>
                   </div>
-                  <p class="note">One click captures one short movement window. Move when prompted.</p>
+                  <p class="note">One click captures one short visual window. Show me an action, object, or change.</p>
                 </div>
-                <div id="cameraSuggestions" class="dq-suggestion-list dq-primary-action-region">Start the camera, then describe a movement.</div>
+                <div id="cameraSuggestions" class="dq-suggestion-list dq-primary-action-region">Start the camera, then observe.</div>
+                <div id="movementSummaryRow" class="dq-movement-summary-row">Confidence --</div>
               </div>
-              <div id="movementSummaryRow" class="dq-movement-summary-row">Confidence --</div>
-              <div class="dq-button-row">
-                <button id="tryAgainMovement" class="dq-button primary no-vertical-text" type="button" hidden>Try another movement</button>
-                <button id="speakResult" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Speak result</button>
+              <section id="voiceActionsCard" class="dq-card dq-voice-actions-card card-contained" aria-labelledby="voiceActionsTitle">
+                <div class="dq-section-title-row">
+                  <div class="dq-title-stack">
+                    <h2 id="voiceActionsTitle" class="dq-card-icon-title"><span class="dq-ref-icon" aria-hidden="true">V</span> Voice & Actions</h2>
+                    <p class="dq-section-subtitle">Deliver the response and take action.</p>
+                  </div>
+                  <span id="voiceStatusPill" class="dq-status-pill accent">Voice ready</span>
+                </div>
+              <div class="dq-button-row dq-voice-row">
+                <button id="tryAgainMovement" class="dq-button primary no-vertical-text" type="button" hidden>Observe</button>
+                <button id="speakResult" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Speak again</button>
                 <button id="confirmMovement" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Confirm</button>
                 <button id="correctMovement" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Not this / Correct</button>
-                <label class="confirm" hidden>
-                  <input id="autoSpeak" type="checkbox">
-                  Auto-speak off
+                <button id="automateMovement" class="dq-button secondary no-vertical-text" type="button" disabled hidden>Automate this movement</button>
+                <label class="confirm dq-auto-speak-toggle" hidden>
+                  <input id="autoSpeak" type="checkbox" role="switch" checked>
+                  <span>Auto-speak on</span>
                 </label>
               </div>
               <form id="movementCorrectionForm" class="dq-correction-form" hidden>
@@ -3001,6 +6171,8 @@
                   <button id="cancelMovementCorrection" class="dq-button secondary no-vertical-text" type="button">Cancel</button>
                 </div>
               </form>
+              <p id="automationMatchSummary" class="note" hidden></p>
+              <p id="automationReceipt" class="note automation-execution-status bounded-execution-receipt-status" data-receipt-limit="50" data-status-values="Automation ready|Running|Completed|Failed" hidden>Automation ready</p>
               <details id="movementWhy" class="dq-readable-detail dq-result-details" data-collapsed-default="true">
                 <summary>Why?</summary>
                 <dl class="dq-metric-list" aria-label="Movement result details">
@@ -3011,15 +6183,183 @@
                   <div><dt>Model</dt><dd id="movementModel">configured server-side</dd></div>
                   <div><dt>Latency</dt><dd id="movementLatency">--</dd></div>
                   <div><dt>Voice</dt><dd id="voiceStatus">Voice ready</dd></div>
+                  <div><dt>Memory</dt><dd><select id="visualMemoryMode" aria-label="Memory mode"><option value="off">Off</option><option value="session" selected>Session only</option><option value="persistent">Persistent opt-in</option></select></dd></div>
                 </dl>
-              </details>
-              <details id="movementHistoryPanel" class="dq-readable-detail dq-result-details" data-collapsed-default="true">
-                <summary>Movement History</summary>
-                <div id="movementHistoryList" class="dq-history-list">No movement history yet.</div>
+                <p id="visualSuggestedAction" class="note" hidden></p>
                 <div class="dq-button-row">
-                  <button id="clearMovementHistory" class="dq-button secondary no-vertical-text" type="button">Clear history</button>
+                  <button id="confirmVisualSuggestedAction" class="dq-button secondary no-vertical-text" type="button" hidden>Confirm suggested action</button>
+                  <button id="clearVisualContext" class="dq-button secondary no-vertical-text" type="button">Clear context</button>
                 </div>
               </details>
+              </section>
+              <section id="gestureRecipesCard" class="dq-card dq-gesture-card card-contained" aria-labelledby="gestureRecipesTitle">
+                <div class="dq-section-title-row">
+                  <h2 id="gestureRecipesTitle" class="dq-card-icon-title"><span class="dq-ref-icon" aria-hidden="true">G</span> Gesture Recipes</h2>
+                  <button id="openGestureRecipes" class="dq-button ghost no-vertical-text" type="button">View all</button>
+                </div>
+                <div id="gestureRecipePreviewList" class="dq-recipe-preview-list" aria-live="polite">
+                  <div class="dq-recipe-row">
+                    <span aria-hidden="true">+</span>
+                    <div class="dq-recipe-meta">
+                      <strong>No gesture recipes yet</strong>
+                      <span>Create a custom gesture or add a preset.</span>
+                    </div>
+                  </div>
+                </div>
+                <button id="createCustomGesture" class="dq-button secondary dq-create-gesture-row no-vertical-text" type="button">Create custom gesture</button>
+                <dialog id="automationManagerPanel" class="dq-recipe-manager-dialog" data-default-state="closed">
+                  <div class="dq-dialog-shell">
+                    <div class="dq-section-title-row">
+                      <div class="dq-title-stack">
+                        <h2>Gesture Recipes</h2>
+                        <p id="automationReceiptStatus" class="note automation-execution-receipt-status" data-bounded-receipts="50">Enabled · 0 recipes · 0 counter total · 0 activity entries</p>
+                      </div>
+                      <button id="closeGestureRecipes" class="dq-icon-button" type="button" aria-label="Close gesture recipes">X</button>
+                    </div>
+                    <label class="confirm dq-tracking-toggle"><span>Instant gestures</span><input id="instantGestures" type="checkbox" role="switch"></label>
+                    <p id="instantGestureStatus" class="note" aria-live="polite">Off</p>
+                    <p class="note">Sensefield stores normalized local gesture templates, not photos or video.</p>
+                    <div id="customGestureList" class="dq-history-list">No custom gestures yet.</div>
+                    <div class="dq-button-row">
+                      <select id="automationPresetSelect" aria-label="Automation preset">
+                        <option value="">Choose a preset</option>
+                      </select>
+                      <button id="addAutomationPreset" class="dq-button secondary no-vertical-text" type="button">Use preset</button>
+                      <button id="clearCustomGestures" class="dq-button secondary no-vertical-text" type="button">Clear all custom gestures</button>
+                    </div>
+                    <div id="automationManagerList" class="dq-history-list">No automation recipes yet.</div>
+                    <details class="dq-nested-details">
+                      <summary><span>Execution receipts</span><small>Text-only, capped, clearable</small></summary>
+                      <div id="automationReceiptList" class="dq-history-list" data-max-items="50" aria-label="Bounded execution receipt status">No automation receipts yet.</div>
+                    </details>
+                    <div class="dq-button-row dq-dialog-footer">
+                      <button id="closeGestureRecipesFooter" class="dq-button primary no-vertical-text" type="button">Done</button>
+                    </div>
+                  </div>
+                </dialog>
+              </section>
+              <dialog id="automationRecipeEditor" class="dq-automation-dialog automation-recipe-modal" data-default-state="closed">
+                <form id="automationRecipeForm" class="dq-automation-form" method="dialog" novalidate>
+                  <h2>Automate this movement</h2>
+                  <dl class="dq-mini-metrics">
+                    <div><dt>Movement</dt><dd id="automationMovementSentence">--</dd></div>
+                    <div><dt>Short label</dt><dd id="automationShortLabel">--</dd></div>
+                    <div><dt>Confidence</dt><dd id="automationConfidence">--</dd></div>
+                  </dl>
+                  <div class="dq-automation-fields">
+                    <label>Recipe name<input id="automationRecipeName" type="text" maxlength="80" required></label>
+                    <label>Movement key<input id="automationMovementKey" type="text" maxlength="64" readonly required></label>
+                    <label class="confirm"><input id="automationInstantMode" type="checkbox"> Run instantly when recognized</label>
+                    <p id="automationInstantPolicy" class="note" hidden>This safe local action runs immediately after local gesture recognition.</p>
+                    <p id="automationInstantUpgrade" class="note" hidden>This recipe currently waits for Confirm. <button id="runRecipeInstantly" class="dq-button secondary no-vertical-text" type="button">Run instantly instead</button></p>
+                    <label id="automationGestureField">Gesture
+                      <select id="automationGestureKey">
+                        <option value="thumbs_up">Thumbs up</option>
+                        <option value="thumbs_down">Thumbs down</option>
+                        <option value="peace_sign">Peace sign</option>
+                        <option value="open_palm">Open palm</option>
+                        <option value="closed_fist">Closed fist</option>
+                        <option value="pointing_up">Pointing up</option>
+                        <option value="i_love_you">I love you</option>
+                      </select>
+                    </label>
+                    <label>Action
+                      <select id="automationActionType">
+                        <option value="speak_phrase">Speak configured phrase</option>
+                        <option value="browser_notification">Browser notification</option>
+                        <option value="start_timer">Start timer</option>
+                        <option value="increment_counter">Increment counter</option>
+                        <option value="append_activity_log">Append activity log</option>
+                        <option value="local_snapshot_download">Download local snapshot</option>
+                        <option value="signed_webhook_post">Send signed webhook</option>
+                      </select>
+                    </label>
+                    <label id="automationConfigField"><span id="automationConfigLabel">Phrase</span><input id="automationConfigValue" type="text" maxlength="180" placeholder="GREAT JOB"></label>
+                    <label id="automationSecretRefField" hidden>Secret reference<input id="automationSecretRef" type="text" maxlength="80" placeholder="DARKQUEST_WEBHOOK_SECRET_PRESENTATION" disabled></label>
+                    <p id="automationSnapshotPolicy" class="note" hidden>A fresh local snapshot requires a separate confirmation before download.</p>
+                    <label id="automationAliasesField">Exact aliases<input id="automationAliases" type="text" maxlength="300" placeholder="Optional exact aliases"></label>
+                    <label>Minimum confidence<input id="automationMinConfidence" type="number" min="0" max="1" step="0.01" value="0.7"></label>
+                    <label id="automationHoldField">Hold milliseconds<input id="automationHoldMs" type="number" min="250" max="1000" step="50" value="350"></label>
+                    <label>Cooldown seconds<input id="automationCooldown" type="number" min="0" max="86400" step="0.5" value="2.5"></label>
+                    <label id="automationConfirmationPolicyField">Confirmation policy
+                      <select id="automationConfirmationPolicy">
+                        <option value="none">No additional confirmation</option>
+                        <option value="movement_confirmation">Run after movement confirmation</option>
+                        <option value="per_run">Ask again for every run</option>
+                      </select>
+                    </label>
+                    <label class="confirm"><input id="automationEnabled" type="checkbox" checked> Enabled</label>
+                  </div>
+                  <p id="automationFormError" class="dq-form-error" role="alert" aria-live="polite" hidden></p>
+                  <div class="dq-button-row dq-automation-footer">
+                    <button id="automationRecipeSave" class="dq-button primary no-vertical-text" type="submit">Save recipe</button>
+                    <button id="cancelAutomationRecipe" class="dq-button secondary no-vertical-text" type="button">Cancel</button>
+                  </div>
+                </form>
+              </dialog>
+              <dialog id="customGestureEditor" class="dq-automation-dialog custom-gesture-modal" data-default-state="closed">
+                <form id="customGestureForm" class="dq-automation-form" method="dialog" novalidate>
+                  <h2>Create custom gesture</h2>
+                  <p id="customGestureStepStatus" class="note" aria-live="polite">Step 1 of 6</p>
+                  <div class="dq-automation-fields">
+                    <section data-custom-skill-step="1">
+                      <label>Gesture name<input id="customGestureName" type="text" maxlength="80" placeholder="Heart shape" required></label>
+                    </section>
+                    <section data-custom-skill-step="2" hidden>
+                      <label>Pose type
+                        <select id="customGesturePoseType">
+                          <option value="one_hand">One-hand pose</option>
+                          <option value="two_hand">Two-hand pose</option>
+                        </select>
+                      </label>
+                      <p class="note">Static poses are supported in this release.</p>
+                    </section>
+                    <section data-custom-skill-step="3" hidden>
+                      <p id="customGestureTrainingStatus" class="note" aria-live="polite">Position your hand, then capture five examples.</p>
+                      <p id="customGestureExampleCount" class="note">0 of 5 examples accepted</p>
+                      <div class="dq-button-row">
+                        <button id="captureCustomGestureExample" class="dq-button primary no-vertical-text" type="button">Capture example</button>
+                        <button id="captureCustomGestureNegative" class="dq-button secondary no-vertical-text" type="button">Add non-match example</button>
+                      </div>
+                    </section>
+                    <section data-custom-skill-step="4" hidden>
+                      <p id="customGestureTestStatus" class="note" aria-live="polite">Test your skill before enabling it.</p>
+                      <p id="customGestureMatchStatus" class="note">No match</p>
+                      <div class="dq-button-row">
+                        <button id="startCustomGestureTest" class="dq-button primary no-vertical-text" type="button">Test your skill</button>
+                        <button id="approveCustomGestureTest" class="dq-button secondary no-vertical-text" type="button" disabled>Looks correct</button>
+                      </div>
+                    </section>
+                    <section data-custom-skill-step="5" hidden>
+                      <label>Action
+                        <select id="customGestureActionType">
+                          <option value="speak_phrase">Speak phrase</option>
+                          <option value="start_timer">Start timer</option>
+                          <option value="increment_counter">Increment counter</option>
+                          <option value="append_activity_log">Add activity log</option>
+                          <option value="browser_notification">Browser notification</option>
+                          <option value="signed_webhook_post">Approved webhook (requires confirmation)</option>
+                        </select>
+                      </label>
+                      <label><span id="customGestureActionLabel">Phrase</span><input id="customGestureActionValue" type="text" maxlength="180" placeholder="Heart detected"></label>
+                    </section>
+                    <section data-custom-skill-step="6" hidden>
+                      <p id="customGestureSaveSummary" class="note">Review and save your custom gesture.</p>
+                      <label>Sensitivity<input id="customGestureSensitivity" type="range" min="0.7" max="1.3" step="0.1" value="1"></label>
+                      <label>Hold milliseconds<input id="customGestureHoldMs" type="number" min="250" max="1500" step="50" value="400"></label>
+                      <label>Cooldown seconds<input id="customGestureCooldown" type="number" min="0" max="86400" step="0.5" value="2.5"></label>
+                      <label class="confirm"><input id="customGestureEnabled" type="checkbox" checked> Active</label>
+                    </section>
+                  </div>
+                  <p id="customGestureFormError" class="dq-form-error" role="alert" aria-live="polite" hidden></p>
+                  <div class="dq-button-row dq-automation-footer">
+                    <button id="customGestureBack" class="dq-button secondary no-vertical-text" type="button" hidden>Back</button>
+                    <button id="customGestureNext" class="dq-button primary no-vertical-text" type="button">Next</button>
+                    <button id="customGestureSave" class="dq-button primary no-vertical-text" type="submit" hidden>Save gesture</button>
+                    <button id="cancelCustomGesture" class="dq-button secondary no-vertical-text" type="button">Cancel</button>
+                  </div>
+                </form>
+              </dialog>
               <div id="currentManualAction" class="dq-current-manual" hidden>No manual confirmation is needed yet.</div>
             </section>
 
@@ -3030,15 +6370,45 @@
             </section>
           </div>
 
-          <details id="developerTools" class="dq-dev-tools">
-            <summary><span>Advanced / Developer Tools</span><small>Trace campaign, diagnostics, calibration internals</small></summary>
+          <div class="dq-utility-strip" aria-label="Secondary utilities">
+            <details id="movementHistoryPanel" class="dq-readable-detail dq-result-details dq-utility-panel" data-collapsed-default="true">
+              <summary><span>Movement History</span></summary>
+              <div class="dq-utility-body">
+                <div id="movementHistoryList" class="dq-history-list">No movement history yet.</div>
+                <div class="dq-button-row">
+                  <button id="clearMovementHistory" class="dq-button secondary no-vertical-text" type="button">Clear history</button>
+                </div>
+              </div>
+            </details>
+            <details class="dq-card dq-privacy-card dq-utility-panel card-contained" aria-labelledby="privacyTitle" data-collapsed-default="true">
+              <summary><span id="privacyTitle">Privacy & Model Usage</span></summary>
+              <div class="dq-utility-body">
+                <span class="sr-only">Privacy Status</span>
+                <span class="sr-only">Model-Call Status</span>
+                <dl class="dq-metric-list">
+                  <div><dt>Raw media</dt><dd id="privacy">Not saved</dd></div>
+                  <div><dt>LLM calls</dt><dd id="llm">0</dd></div>
+                  <div><dt>VLM calls</dt><dd id="vlm">0</dd></div>
+                  <div><dt>Cost</dt><dd id="cost">$0</dd></div>
+                  <div><dt>AI provider</dt><dd id="cloud">huggingface</dd><span hidden>on demand</span></div>
+                </dl>
+                <p class="dq-disclosure sr-only">No continuous stream upload. Short sampled frames are sent to the local visual companion service only when Observe is clicked.</p>
+                <p class="dq-disclosure">Observe sends a short temporary visual window only after you click.</p>
+                <p class="dq-disclosure">No continuous upload.</p>
+                <p class="dq-disclosure">No raw media is saved by this app.</p>
+                <p class="dq-disclosure">Uses a local open-source visual model service when running.</p>
+                <p id="staticWaiverDisclosure" class="dq-disclosure sr-only">Static compatibility disclosure: historical eval status is retained in Developer Tools; operator-confirmed symbolic event UI.</p>
+              </div>
+            </details>
+          <details id="developerTools" class="dq-dev-tools dq-utility-panel">
+            <summary><span>Developer Tools</span></summary>
             <div class="dq-dev-body">
             <p class="sr-only">Legacy Gate 4A disclosure superseded by AI Movement Recognition Mode: Camera suggestion — requires confirmation. Local motion proxy only.</p>
             <p class="sr-only">Legacy Gate 2A label superseded by AI provider: Cloud fallback.</p>
             <details id="liveAiSmokeCard" class="dq-card card-contained">
-              <summary><span>Live AI Smoke Test</span><small>Provider health and one real recognition call</small></summary>
+              <summary><span>Local visual smoke test</span><small>Service health and one local observation call</small></summary>
               <div class="dq-button-row">
-                <button id="runLiveAiSmoke" class="dq-button secondary" type="button">Run live provider check</button>
+                <button id="runLiveAiSmoke" class="dq-button secondary" type="button">Run local visual check</button>
               </div>
               <pre id="liveAiSmokeResult" class="dq-pre code-contained scroll-contained">Not run.</pre>
             </details>
@@ -3057,6 +6427,34 @@
                 <div><dt>History count</dt><dd id="researchHistoryCount">0</dd></div>
                 <div><dt>Correction count</dt><dd id="researchCorrectionCount">0</dd></div>
                 <div><dt>One-shot guard</dt><dd id="researchOneShotGuard">ready</dd></div>
+                <div><dt>Instant mode</dt><dd id="researchInstantMode">off</dd></div>
+                <div><dt>Loop running</dt><dd id="researchInstantLoop">no</dd></div>
+                <div><dt>Frames processed</dt><dd id="researchInstantFrames">0</dd></div>
+                <div><dt>Last inference age</dt><dd id="researchInstantInferenceAge">--</dd></div>
+                <div><dt>Raw gesture label</dt><dd id="researchInstantRawLabel">None</dd></div>
+                <div><dt>Raw confidence</dt><dd id="researchInstantRawConfidence">0.000</dd></div>
+                <div><dt>Mapped gesture</dt><dd id="researchInstantMappedGesture">--</dd></div>
+                <div><dt>Hold progress</dt><dd id="researchInstantHold">0 / 350ms</dd></div>
+                <div><dt>Last stable event</dt><dd id="researchInstantStableEvent">--</dd></div>
+                <div><dt>Last recipe outcome</dt><dd id="researchInstantRecipeOutcome">loop_not_running</dd></div>
+                <div><dt>Last action outcome</dt><dd id="researchInstantActionOutcome">--</dd></div>
+                <div><dt>Last receipt</dt><dd id="researchInstantReceipt">--</dd></div>
+                <div><dt>Safe error</dt><dd id="researchInstantSafeError">--</dd></div>
+                <div><dt>Instant diagnosis</dt><dd id="researchInstantDiagnosis">loop_not_running</dd></div>
+                <div><dt>user_enabled</dt><dd id="researchInstantUserEnabled">false</dd></div>
+                <div><dt>effective_enabled</dt><dd id="researchInstantEffectiveEnabled">false</dd></div>
+                <div><dt>engine_status</dt><dd id="researchInstantEngineStatus">off</dd></div>
+                <div><dt>successful_inferences</dt><dd id="researchInstantSuccessfulInferences">0</dd></div>
+                <div><dt>last_candidate</dt><dd id="researchInstantLastCandidate">--</dd></div>
+                <div><dt>last_outcome_code</dt><dd id="researchInstantLastOutcomeCode">loop_not_running</dd></div>
+                <div><dt>wizard_step</dt><dd id="researchTrainerWizardStep">closed</dd></div>
+                <div><dt>capture_state</dt><dd id="researchTrainerCaptureState">idle</dd></div>
+                <div><dt>required_hand_count</dt><dd id="researchTrainerRequiredHandCount">0</dd></div>
+                <div><dt>visible_hand_count</dt><dd id="researchTrainerVisibleHandCount">0</dd></div>
+                <div><dt>landmark_frame_available</dt><dd id="researchTrainerLandmarkFrameAvailable">false</dd></div>
+                <div><dt>stable_hold_ms</dt><dd id="researchTrainerStableHoldMs">0</dd></div>
+                <div><dt>accepted_example_count</dt><dd id="researchTrainerAcceptedExampleCount">0</dd></div>
+                <div><dt>last_capture_error</dt><dd id="researchTrainerLastCaptureError">--</dd></div>
               </dl>
               <div class="dq-button-row">
                 <button id="clearCorrectionMemory" class="dq-button secondary no-vertical-text" type="button">Clear corrections</button>
@@ -3377,11 +6775,15 @@ Downloaded filename: live_physical_focus_ritual_001.v0.json</pre>
           </div>
             </div>
           </details>
+          </div>
         </div>
       </div>
+      </template>
 
     </main>
 
+    <script src="./assets/lucide.min.js"></script>
+    <script type="module" src="./premium-ui.js"></script>
     <script type="module" src="./local-capture.js"></script>
   </body>
 </html>
