@@ -143,9 +143,9 @@ export async function visualCompanionObserveResponseForRequest(body = {}, env = 
       return {
         status: response.status,
         json: normalizeContextualVisualResponse({
-          ...DEFAULT_UNCERTAIN_RESPONSE,
-          spoken_response: safeServiceError(payload) || "The local visual model is unavailable.",
-          observation_summary: "The local visual model did not complete.",
+          ...uncertainVisualResponseForMode(body),
+          spoken_response: body.interaction_mode === "conversation" ? conversationVisualFallback() : safeServiceError(payload) || "The local visual model is unavailable.",
+          observation_summary: body.interaction_mode === "conversation" ? "The current view is not clear enough for a confident answer." : "The local visual model did not complete.",
           evidence: ["local_service_error"],
           confidence: 0,
           uncertainty: true,
@@ -166,9 +166,9 @@ export async function visualCompanionObserveResponseForRequest(body = {}, env = 
     return {
       status: error?.visual_companion_code === "request_too_large" ? 413 : 400,
       json: normalizeContextualVisualResponse({
-        ...DEFAULT_UNCERTAIN_RESPONSE,
-        spoken_response: safeVisualErrorMessage(error),
-        observation_summary: "The observation window could not be analyzed.",
+        ...uncertainVisualResponseForMode(body),
+        spoken_response: body.interaction_mode === "conversation" ? conversationVisualFallback() : safeVisualErrorMessage(error),
+        observation_summary: body.interaction_mode === "conversation" ? "The current view is not clear enough for a confident answer." : "The observation window could not be analyzed.",
         evidence: [error?.visual_companion_code || "bad_request"],
         confidence: 0,
         uncertainty: true
@@ -177,6 +177,23 @@ export async function visualCompanionObserveResponseForRequest(body = {}, env = 
   } finally {
     clearVisualFramePayloads(body.frames);
   }
+}
+
+function uncertainVisualResponseForMode(body = {}) {
+  if (body.interaction_mode !== "conversation" && body.requested_response_mode !== "conversation") return DEFAULT_UNCERTAIN_RESPONSE;
+  return {
+    ...DEFAULT_UNCERTAIN_RESPONSE,
+    response_type: "uncertain",
+    observation_summary: "The current view is not clear enough for a confident answer.",
+    spoken_response: conversationVisualFallback(),
+    evidence: ["conversation_visual_uncertain"],
+    meaningful_change: true,
+    movement_label: "conversation_uncertain"
+  };
+}
+
+function conversationVisualFallback() {
+  return "I can’t reliably describe the current view from this angle. Could you adjust the camera or ask about a specific visible area?";
 }
 
 export async function visualCompanionSpeakResponseForRequest(body = {}, env = process.env, options = {}) {
@@ -241,6 +258,58 @@ export async function visualCompanionSpeakResponseForRequest(body = {}, env = pr
   } catch (error) {
     return {
       status: 200,
+      json: localSpeechFallback(error?.name === "TimeoutError" ? "Voice synthesis timed out." : "Visual voice service is not running.", startedAt)
+    };
+  }
+}
+
+export async function visualCompanionSpeakStreamResponseForRequest(body = {}, env = process.env, options = {}) {
+  const startedAt = Date.now();
+  const config = loadVisualCompanionConfig(env);
+  const text = sanitizeText(body.text || body.spoken_response, 2000);
+  if (containsTtsRawMediaMarker(body) || !text) {
+    return {
+      status: 400,
+      json: localSpeechFallback(!text ? "No speakable text supplied." : "Voice synthesis accepts text only.", startedAt)
+    };
+  }
+  const send = options.fetch || globalThis.fetch;
+  if (typeof send !== "function") return { status: 503, json: localSpeechFallback("Visual voice service is not reachable.", startedAt) };
+  try {
+    const serviceBase = config.serviceUrl.replace(/\/$/, "");
+    const response = await send(serviceBase + "/speak-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson, application/json" },
+      body: JSON.stringify({
+        speech_id: sanitizeText(body.speech_id, 120),
+        text,
+        observation_id: sanitizeText(body.observation_id, 120),
+        voice: sanitizeText(body.voice || "sensefield_default", 80),
+        style: sanitizeText(body.style || "warm_conversational", 80),
+        mode: ["conversation", "observing"].includes(String(body.mode)) ? String(body.mode) : "conversation",
+        chunking: "sentence",
+        contains_raw_media: false
+      }),
+      signal: options.signal || timeoutSignal(config.timeoutMs)
+    });
+    const contentType = String(response.headers?.get?.("content-type") || "");
+    if (response.ok && /^application\/x-ndjson/i.test(contentType) && response.body) {
+      return {
+        status: response.status,
+        contentType: "application/x-ndjson; charset=utf-8",
+        stream: response.body,
+        headers: {
+          "cache-control": "no-store",
+          "x-accel-buffering": "no",
+          "x-sensefield-voice-mode": "progressive"
+        }
+      };
+    }
+    const payload = await safeJson(response);
+    return { status: response.status, json: { ...localSpeechFallback(safeServiceError(payload) || "Voice unavailable", startedAt), ...payload, contains_raw_media: false } };
+  } catch (error) {
+    return {
+      status: error?.name === "TimeoutError" ? 504 : 503,
       json: localSpeechFallback(error?.name === "TimeoutError" ? "Voice synthesis timed out." : "Visual voice service is not running.", startedAt)
     };
   }

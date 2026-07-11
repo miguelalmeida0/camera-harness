@@ -2,6 +2,7 @@ import io
 import os
 import platform
 import re
+import threading
 import time
 from dataclasses import dataclass
 from importlib import util as importlib_util
@@ -93,6 +94,9 @@ class SensefieldVoiceRuntime:
         self._adapter = None
         self._load_error = ""
         self._cancelled_at = 0.0
+        self._cancel_generation = 0
+        self._warmed = False
+        self._warmup_lock = threading.Lock()
 
     def health(self, lazy: bool = True) -> Dict[str, Any]:
         candidate = candidate_by_id(self.selected_model) or candidate_by_id("kokoro_82m")
@@ -102,6 +106,7 @@ class SensefieldVoiceRuntime:
         return {
             "voice_ready": installed or loaded,
             "voice_status": status,
+            "voice_warmed": self._warmed,
             "voice_engine": candidate["id"],
             "voice_model": candidate["model"],
             "voice_license": candidate["license"],
@@ -125,10 +130,32 @@ class SensefieldVoiceRuntime:
 
     def cancel(self) -> Dict[str, Any]:
         self._cancelled_at = time.time()
+        self._cancel_generation += 1
         adapter = self._adapter
         if adapter and hasattr(adapter, "cancel"):
             adapter.cancel()
         return {"ok": True, "cancelled": True}
+
+    def cancellation_generation(self) -> int:
+        return self._cancel_generation
+
+    def is_cancelled(self, generation: int) -> bool:
+        return generation != self._cancel_generation
+
+    def warmup(self) -> Dict[str, Any]:
+        with self._warmup_lock:
+            if self._warmed:
+                return {"ok": True, "voice_warmed": True, "already_warm": True}
+            started = time.time()
+            result = self.synthesize("Sensefield is ready.")
+            self._warmed = True
+            return {
+                "ok": True,
+                "voice_warmed": True,
+                "already_warm": False,
+                "warmup_ms": int((time.time() - started) * 1000),
+                "audio_duration_ms": result.output_duration_ms,
+            }
 
     def synthesize(self, text: str, observation_id: str = "", voice: str = "sensefield_default", style: str = "warm_conversational") -> SynthesisResult:
         clean_text = prepare_spoken_text(text)
@@ -136,7 +163,9 @@ class SensefieldVoiceRuntime:
             raise VoiceRuntimeError("No speakable text supplied.")
         try:
             adapter = self._ensure_adapter(self.selected_model)
-            return adapter.synthesize(clean_text, self.profile)
+            result = adapter.synthesize(clean_text, self.profile)
+            self._warmed = True
+            return result
         except Exception as error:
             self._load_error = f"{self.selected_model}: {error}"
             self._adapter = None

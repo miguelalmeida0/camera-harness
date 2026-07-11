@@ -105,6 +105,7 @@ assert.equal(launcher.includes("visualCompanionObserveResponseForRequest"), true
 assert.equal(launcher.includes("ensureNeuralVoiceService"), true, "launcher starts or verifies the neural voice service");
 assert.equal(launcher.includes("Neural voice: ready"), true, "launcher reports neural voice readiness");
 assert.equal(serverSource.includes("visualCompanionSpeakResponseForRequest"), true, "server speak route proxies local TTS provider");
+assert.equal(serverSource.includes("visualCompanionSpeakStreamResponseForRequest"), true, "server proxies real progressive TTS chunks");
 assert.equal(serverSource.includes("visualCompanionCancelResponseForRequest"), true, "server cancel route proxies local TTS provider");
 assert.equal(serverSource.includes('ok: true, engine: "browser_speech_fallback", audio_duration_ms: 0'), false, "server no longer fakes successful zero-audio speech");
 
@@ -360,7 +361,7 @@ const autoVoice = createNeuralVoiceHarness();
   assert.equal(runtime.movementRecognition.voiceStatus, "Muted");
   assert.equal(runtime.automation.receipts.length, 0, "auto narration does not execute automation");
   assert.equal(runtime.vlmCalls || 0, 0, "speech replay does not call the VLM");
-  assert.equal(autoVoice.requests.every((request) => [VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint, VISUAL_COMPANION_CLIENT_CONFIG.cancelEndpoint].includes(request.pathname)), true, "only local visual TTS endpoints are requested");
+  assert.equal(autoVoice.requests.every((request) => [VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint, VISUAL_COMPANION_CLIENT_CONFIG.speakStreamEndpoint, VISUAL_COMPANION_CLIENT_CONFIG.cancelEndpoint].includes(request.pathname)), true, "only local visual TTS endpoints are requested");
   assert.equal(autoVoice.requests.some((request) => request.pathname.includes("/observe")), false, "speech never calls visual observe");
 
   queueMovementRecognitionResult(runtime, {

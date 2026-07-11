@@ -6,9 +6,12 @@ import { createVisualTtsRuntime } from "../index.mjs";
 const service = readFileSync(resolve("services/visual-companion/app.py"), "utf8");
 const runtime = readFileSync(resolve("services/visual-companion/voice_runtime.py"), "utf8");
 const benchmark = readFileSync(resolve("services/visual-companion/voice_benchmark.py"), "utf8");
+const chunking = readFileSync(resolve("services/visual-companion/voice_chunking.py"), "utf8");
 
 assert.equal(service.includes("@app.get(\"/voices\")"), true, "voice list endpoint exists");
 assert.equal(service.includes("@app.post(\"/speak\")"), true, "speak endpoint exists");
+assert.equal(service.includes("@app.post(\"/speak-stream\")"), true, "progressive speak endpoint exists");
+assert.equal(service.includes("@app.post(\"/warmup\")"), true, "idempotent warm-up endpoint exists");
 assert.equal(service.includes("@app.post(\"/cancel\")"), true, "cancel endpoint exists");
 assert.equal(runtime.includes("hexgrad/Kokoro-82M"), true, "Kokoro engine is wired");
 assert.equal(runtime.includes("ResembleAI/chatterbox"), true, "Chatterbox candidate is recorded");
@@ -20,6 +23,7 @@ assert.equal(benchmark.includes("runs/voice-benchmark"), true, "benchmark writes
 assert.equal(/api_key|OPENAI_API_KEY|ELEVEN/i.test(runtime), false, "runtime has no paid API key dependency");
 assert.equal(/encoded_frame|data_uri/.test(runtime), false, "voice runtime does not accept camera frame fields");
 assert.equal(/browser_speechSynthesis/.test(runtime + service), false, "voice service has no browser/system fallback");
+assert.equal(chunking.includes("chunk_spoken_text"), true, "sentence and clause chunker exists");
 
 const calls = [];
 const tts = createVisualTtsRuntime({

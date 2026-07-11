@@ -75,6 +75,7 @@ export const VISUAL_COMPANION_CLIENT_CONFIG = {
   conversationEndpoint: "/api/visual-companion/conversation",
   healthEndpoint: "/api/visual-companion/health",
   speakEndpoint: "/api/visual-companion/speak",
+  speakStreamEndpoint: "/api/visual-companion/speak-stream",
   cancelEndpoint: "/api/visual-companion/cancel",
   provider: "local_visual_companion",
   mode: "local_smolvlm_frames",
@@ -2683,6 +2684,7 @@ export async function handleRealtimeUserSpeechTurn(target = state, transcript = 
   const text = sanitizeMemoryText(transcript);
   if (!text) return { ok: false, code: "empty_user_turn" };
   const receivedAtMs = Math.round(now());
+  target.movementRecognition.activeTurnTiming = { transcript_finalized_at: receivedAtMs };
   const accepted = target.emergencyRuntimeController.queueFinalTranscript(text, receivedAtMs);
   if (!accepted.ok) return { ok: false, code: accepted.code === "duplicate_transcript" ? "duplicate_final_transcript" : accepted.code };
   target.appState = target.emergencyRuntimeController.snapshot();
@@ -2768,6 +2770,10 @@ async function runRealtimeInference(target, task, options = {}) {
   if (!modeRequestStillCurrent(target, interactionMode, modeGenerationId) || Number(target.interactionState.sessionGenerationId) !== Number(sessionGenerationId)) return;
   const inferenceGenerationId = Number(target.interactionState.inferenceGenerationId || 0) + 1;
   const correlationId = task.userTurn?.turn_id || task.visualEvent?.event_id || `visual_${Math.round(now())}`;
+  target.movementRecognition.activeTurnTiming = {
+    ...(task.type === "user_turn" ? target.movementRecognition.activeTurnTiming || {} : {}),
+    inference_started_at: Math.round(now())
+  };
   if (target === state) {
     sensefieldTestRuntime.resourceCounts.inferenceStarted += 1;
     recordSensefieldTestEvent("inference_started", { task_type: task.type, mode: interactionMode }, { correlationId, modeGenerationId });
@@ -4356,7 +4362,11 @@ export async function speakSensefieldResponse({ observationId = "", text = "" } 
     speechGenerationId,
     cancelled: false,
     playing: false,
-    completed: false
+    completed: false,
+    timings: {
+      ...(target.movementRecognition.activeTurnTiming || {}),
+      tts_request_started_at: Math.round(now())
+    }
   };
   target.movementRecognition.activeSpeechOwnership = ownership;
   voiceLifecycleEvidence(options, "requested", ownership, {
@@ -4455,6 +4465,16 @@ async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, r
   const controller = typeof Controller === "function" ? new Controller() : null;
   target.movementRecognition.activeVoiceAbortController = controller;
   try {
+    const streamed = await tryProgressiveVisualSpeech({
+      send,
+      controller,
+      text,
+      observationId,
+      speechGenerationId,
+      runtimeSpeechToken,
+      ownership
+    }, target, options);
+    if (streamed.handled) return streamed.result;
     const response = await send(VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4467,6 +4487,7 @@ async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, r
       }),
       signal: controller?.signal
     });
+    if (!ownership.timings.tts_first_byte_at) ownership.timings.tts_first_byte_at = Math.round(now());
     const contentType = String(response.headers?.get?.("content-type") || "");
     voiceLifecycleEvidence(options, "response", ownership, {
       httpStatus: Number(response.status || 0),
@@ -4474,6 +4495,7 @@ async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, r
     });
     if (response.ok && /^audio\//i.test(contentType)) {
       const blob = await audioBlobFromResponse(response, contentType);
+      ownership.timings.tts_response_complete_at = Math.round(now());
       voiceLifecycleEvidence(options, "audio", ownership, {
         mimeType: contentType,
         audioBytes: Number(blob?.size || 0),
@@ -4511,6 +4533,304 @@ async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, r
     }
   }
   return { ok: false, code: "visual_local_tts_unavailable" };
+}
+
+async function tryProgressiveVisualSpeech(input, target, options = {}) {
+  if (options.disableVoiceStreaming === true || typeof ReadableStream !== "function") return { handled: false };
+  let response;
+  try {
+    response = await input.send(VISUAL_COMPANION_CLIENT_CONFIG.speakStreamEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+      body: JSON.stringify({
+        speech_id: input.ownership.speechId,
+        text: input.text,
+        observation_id: input.observationId || "",
+        voice: "sensefield_default",
+        mode: target.interactionState?.mode || "conversation",
+        chunking: "sentence",
+        contains_raw_media: false
+      }),
+      signal: input.controller?.signal
+    });
+  } catch {
+    return { handled: false };
+  }
+  const contentType = String(response.headers?.get?.("content-type") || "");
+  if (!response.ok || !/^application\/x-ndjson/i.test(contentType) || typeof response.body?.getReader !== "function") {
+    return { handled: false };
+  }
+  voiceLifecycleEvidence(options, "stream_response", input.ownership, {
+    httpStatus: Number(response.status || 0),
+    mimeType: contentType
+  });
+  const result = await playProgressiveVoiceStream(response.body, input, target, options);
+  return { handled: true, result };
+}
+
+async function playProgressiveVoiceStream(stream, input, target, options = {}) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const queue = [];
+  const waiters = [];
+  const maxQueued = Math.max(1, Math.min(3, Number(options.maxQueuedVoiceChunks || 2)));
+  let pendingText = "";
+  let streamDone = false;
+  let streamFailure = null;
+  const notify = () => waiters.splice(0).forEach((resolveWaiter) => resolveWaiter());
+  const waitForChange = () => new Promise((resolveWaiter) => waiters.push(resolveWaiter));
+  const cancelQueue = () => {
+    input.ownership.cancelled = true;
+    queue.length = 0;
+    input.controller?.abort?.();
+    void reader.cancel().catch(() => {});
+    releaseProgressiveAudio(target, options.URLApi || globalThis.URL, input.ownership, true);
+    notify();
+  };
+  target.movementRecognition.activeSpeechCancel = cancelQueue;
+
+  const acceptLine = async (line) => {
+    if (!line.trim()) return;
+    let event;
+    try { event = JSON.parse(line); } catch { throw new Error("invalid_voice_stream_event"); }
+    if (event.type === "error") throw new Error(event.code || "voice_stream_error");
+    if (event.type !== "audio" || !event.audio_base64) return;
+    while (queue.length >= maxQueued && !input.ownership.cancelled) await waitForChange();
+    if (input.ownership.cancelled) return;
+    queue.push(event);
+    input.ownership.peakQueuedChunks = Math.max(Number(input.ownership.peakQueuedChunks || 0), queue.length);
+    voiceLifecycleEvidence(options, "chunk_ready", input.ownership, {
+      chunkIndex: Number(event.index || 0),
+      totalChunks: Number(event.total_chunks || 0),
+      audioBytes: Number(event.audio_bytes || 0),
+      generationMs: Number(event.generation_ms || 0),
+      peakQueuedChunks: input.ownership.peakQueuedChunks
+    });
+    notify();
+  };
+
+  const producer = (async () => {
+    try {
+      while (!input.ownership.cancelled) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!input.ownership.timings.tts_first_byte_at) input.ownership.timings.tts_first_byte_at = Math.round(now());
+        pendingText += decoder.decode(value, { stream: true });
+        const lines = pendingText.split("\n");
+        pendingText = lines.pop() || "";
+        for (const line of lines) await acceptLine(line);
+      }
+      pendingText += decoder.decode();
+      if (pendingText.trim()) await acceptLine(pendingText);
+    } catch (error) {
+      if (!input.ownership.cancelled) streamFailure = error;
+    } finally {
+      input.ownership.timings.tts_response_complete_at = Math.round(now());
+      streamDone = true;
+      try { reader.releaseLock(); } catch {}
+      notify();
+    }
+  })();
+
+  while (!input.ownership.cancelled) {
+    if (!queue.length) {
+      if (streamDone) break;
+      await waitForChange();
+      continue;
+    }
+    const event = queue.shift();
+    notify();
+    const blob = voiceChunkBlob(event.audio_base64, event.mime_type || "audio/wav");
+    if (!blob || blob.size <= 0) {
+      streamFailure = new Error("empty_voice_chunk");
+      break;
+    }
+    const playback = await playProgressiveAudioChunk(blob, event, input, target, options);
+    if (!playback.ok) {
+      streamFailure = new Error(playback.code || "voice_chunk_playback_failed");
+      break;
+    }
+  }
+  await producer;
+  if (input.ownership.cancelled) return { ok: false, code: "visual_speech_cancelled" };
+  if (!input.ownership.playing && !streamFailure) streamFailure = new Error("voice_stream_empty");
+  if (streamFailure) {
+    queue.length = 0;
+    input.controller?.abort?.();
+    void reader.cancel().catch(() => {});
+    releaseProgressiveAudio(target, options.URLApi || globalThis.URL, input.ownership, true);
+    target.movementRecognition.activeSpeechCancel = null;
+    target.movementRecognition.voiceStatus = "Voice unavailable";
+    if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+    resumeRealtimeSpeechInputAfterAssistant(target);
+    render();
+    return { ok: false, code: "visual_local_tts_stream_failed" };
+  }
+  return completeProgressiveSpeech(input, target, options);
+}
+
+function playProgressiveAudioChunk(blob, event, input, target, options = {}) {
+  const URLApi = options.URLApi || globalThis.URL;
+  const AudioCtor = options.AudioCtor || globalThis.Audio;
+  if (typeof URLApi?.createObjectURL !== "function" || typeof URLApi?.revokeObjectURL !== "function" || typeof AudioCtor !== "function") {
+    return Promise.resolve({ ok: false, code: "visual_audio_playback_unavailable" });
+  }
+  const objectUrl = URLApi.createObjectURL(blob);
+  const audio = new AudioCtor(objectUrl);
+  audio.muted = false;
+  audio.volume = 1;
+  target.movementRecognition.activeSpeechAudio = audio;
+  target.movementRecognition.activeSpeechObjectUrl = objectUrl;
+  target.movementRecognition.activeSpeechOwnership = input.ownership;
+  return new Promise((resolvePlayback) => {
+    let settled = false;
+    let startTimer;
+    let endTimer;
+    const current = () => Number(target.interactionState?.speechGenerationId || 0) === Number(input.speechGenerationId) &&
+      target.movementRecognition.activeSpeechOwnership === input.ownership && input.ownership.cancelled !== true &&
+      (!input.runtimeSpeechToken || target.emergencyRuntimeController.isCurrent(input.runtimeSpeechToken, "speechId", input.runtimeSpeechToken.speechId));
+    const finish = (result, stop = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startTimer);
+      clearTimeout(endTimer);
+      releaseProgressiveAudio(target, URLApi, input.ownership, stop);
+      resolvePlayback(result);
+    };
+    audio.onloadedmetadata = () => {
+      if (!input.ownership.timings.audio_decode_complete_at) input.ownership.timings.audio_decode_complete_at = Math.round(now());
+      voiceLifecycleEvidence(options, "decoded", input.ownership, {
+        chunkIndex: Number(event.index || 0),
+        decodedDurationMs: Number.isFinite(Number(audio.duration)) ? Math.round(Number(audio.duration) * 1000) : 0
+      });
+    };
+    audio.onplaying = () => {
+      if (!current()) return finish({ ok: false, code: "visual_speech_stale" }, true);
+      const playingAt = Math.round(now());
+      if (input.ownership.previousChunkEndedAt) {
+        input.ownership.maxInterChunkGapMs = Math.max(0, Number(input.ownership.maxInterChunkGapMs || 0), playingAt - input.ownership.previousChunkEndedAt);
+      }
+      const firstLogicalPlayback = !input.ownership.playing;
+      if (firstLogicalPlayback) {
+        if (input.runtimeSpeechToken && !target.emergencyRuntimeController.markSpeechStarted(input.runtimeSpeechToken)) {
+          return finish({ ok: false, code: "visual_speech_stale" }, true);
+        }
+        input.ownership.playing = true;
+        input.ownership.timings.audio_playing_at = playingAt;
+        target.movementRecognition.voiceStatus = "Speaking…";
+        if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: true });
+        pauseRealtimeSpeechInputForAssistant(target);
+        if (target === state) {
+          sensefieldTestRuntime.resourceCounts.speechStarted += 1;
+          recordSensefieldTestSpeech("started", speechOwnershipMetadata(input.ownership, { path: "local_tts", text: input.text }), {
+            correlationId: input.ownership.responseId,
+            modeGenerationId: input.ownership.modeGeneration
+          });
+        }
+        render();
+      }
+      voiceLifecycleEvidence(options, firstLogicalPlayback ? "playing" : "chunk_playing", input.ownership, { chunkIndex: Number(event.index || 0) });
+      clearTimeout(startTimer);
+      endTimer = setTimeout(() => finish({ ok: false, code: "visual_local_tts_end_timeout" }, true), options.speechEndTimeoutMs ?? 30000);
+    };
+    audio.onended = () => {
+      if (!current()) return finish({ ok: false, code: "visual_speech_stale" }, true);
+      input.ownership.previousChunkEndedAt = Math.round(now());
+      voiceLifecycleEvidence(options, "chunk_ended", input.ownership, { chunkIndex: Number(event.index || 0) });
+      finish({ ok: true });
+    };
+    audio.onerror = () => finish({ ok: false, code: "visual_local_tts_playback_error" }, true);
+    startTimer = setTimeout(() => finish({ ok: false, code: "visual_local_tts_start_timeout" }, true), options.speechStartTimeoutMs ?? 3000);
+    try {
+      if (!input.ownership.timings.audio_play_called_at) input.ownership.timings.audio_play_called_at = Math.round(now());
+      const playResult = audio.play();
+      playResult?.then?.(() => voiceLifecycleEvidence(options, "play_resolved", input.ownership, { chunkIndex: Number(event.index || 0) }))
+        ?.catch?.(() => finish({ ok: false, code: "visual_local_tts_play_rejected" }, true));
+    } catch {
+      finish({ ok: false, code: "visual_local_tts_play_failed" }, true);
+    }
+  });
+}
+
+function completeProgressiveSpeech(input, target, options = {}) {
+  const completed = input.runtimeSpeechToken ? finishRuntimeSpeech(target, input.runtimeSpeechToken, { completed: true }) : true;
+  if (!completed) return { ok: false, code: "visual_speech_stale" };
+  input.ownership.completed = true;
+  input.ownership.timings.audio_ended_at = Math.round(now());
+  target.movementRecognition.voiceStatus = "Voice complete";
+  if (target.interactionState?.sessionActive) {
+    applyInteractionState(target, { assistantSpeaking: false });
+    if (interactionModeIs(target, "conversation")) appendRealtimeMemory(target, "assistant", { text: input.text, interrupted: false, source: "voice" });
+    resumeRealtimeSpeechInputAfterAssistant(target);
+  }
+  if (target === state) {
+    sensefieldTestRuntime.resourceCounts.speechCompleted += 1;
+    recordSensefieldTestSpeech("completed", speechOwnershipMetadata(input.ownership, { path: "local_tts", text: input.text }), {
+      correlationId: input.ownership.responseId,
+      modeGenerationId: input.ownership.modeGeneration
+    });
+  }
+  voiceLifecycleEvidence(options, "ended", input.ownership, {
+    peakQueuedChunks: Number(input.ownership.peakQueuedChunks || 0),
+    maxInterChunkGapMs: Number(input.ownership.maxInterChunkGapMs || 0),
+    timings: voiceTimingMetrics(input.ownership.timings)
+  });
+  target.movementRecognition.activeSpeechCancel = null;
+  clearActiveAudio(target, options.URLApi || globalThis.URL, input.ownership);
+  render();
+  return {
+    ok: true,
+    path: "local_tts",
+    engine: "kokoro_82m",
+    spoken_response: input.text,
+    observation_id: input.observationId || "",
+    contains_raw_media: false
+  };
+}
+
+function releaseProgressiveAudio(target, URLApi, ownership, stop = false) {
+  if (target.movementRecognition.activeSpeechOwnership !== ownership) return false;
+  const audio = target.movementRecognition.activeSpeechAudio;
+  if (audio) {
+    audio.onplaying = null;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.onloadedmetadata = null;
+    if (stop) audio.pause?.();
+    audio.removeAttribute?.("src");
+    try {
+      audio.src = "";
+      audio.load?.();
+    } catch {}
+  }
+  if (target.movementRecognition.activeSpeechObjectUrl) URLApi?.revokeObjectURL?.(target.movementRecognition.activeSpeechObjectUrl);
+  target.movementRecognition.activeSpeechAudio = null;
+  target.movementRecognition.activeSpeechObjectUrl = "";
+  return true;
+}
+
+function voiceChunkBlob(base64, mimeType) {
+  try {
+    const binary = globalThis.atob(String(base64 || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return new Blob([bytes], { type: mimeType || "audio/wav" });
+  } catch {
+    return null;
+  }
+}
+
+function voiceTimingMetrics(timings = {}) {
+  const between = (start, end) => start && end ? Math.max(0, end - start) : 0;
+  return {
+    transcript_to_first_text_ms: between(timings.transcript_finalized_at, timings.first_text_available_at),
+    first_text_to_tts_request_ms: between(timings.first_text_available_at, timings.tts_request_started_at),
+    tts_request_to_first_byte_ms: between(timings.tts_request_started_at, timings.tts_first_byte_at),
+    tts_request_to_complete_ms: between(timings.tts_request_started_at, timings.tts_response_complete_at),
+    complete_to_playing_ms: between(timings.tts_response_complete_at, timings.audio_playing_at),
+    text_ready_to_playing_ms: between(timings.first_text_available_at || timings.final_text_available_at, timings.audio_playing_at),
+    total_turn_latency_ms: between(timings.transcript_finalized_at, timings.audio_ended_at)
+  };
 }
 
 async function audioBlobFromResponse(response, contentType) {
@@ -4554,6 +4874,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       target.movementRecognition.activeSpeechOwnership === ownership && ownership?.cancelled !== true &&
       (!runtimeSpeechToken || target.emergencyRuntimeController.isCurrent(runtimeSpeechToken, "speechId", runtimeSpeechToken.speechId));
     audio.onloadedmetadata = () => {
+      if (ownership?.timings && !ownership.timings.audio_decode_complete_at) ownership.timings.audio_decode_complete_at = Math.round(now());
       voiceLifecycleEvidence(options, "decoded", ownership, {
         decodedDurationMs: Number.isFinite(Number(audio.duration)) ? Math.round(Number(audio.duration) * 1000) : 0
       });
@@ -4563,6 +4884,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (runtimeSpeechToken && !target.emergencyRuntimeController.markSpeechStarted(runtimeSpeechToken)) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (ownership) ownership.playing = true;
+      if (ownership?.timings && !ownership.timings.audio_playing_at) ownership.timings.audio_playing_at = Math.round(now());
       voiceLifecycleEvidence(options, "playing", ownership);
       target.movementRecognition.voiceStatus = "Speaking…";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: true });
@@ -4590,7 +4912,8 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       const completed = runtimeSpeechToken ? finishRuntimeSpeech(target, runtimeSpeechToken, { completed: true }) : true;
       if (!completed) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (ownership) ownership.completed = true;
-      voiceLifecycleEvidence(options, "ended", ownership);
+      if (ownership?.timings) ownership.timings.audio_ended_at = Math.round(now());
+      voiceLifecycleEvidence(options, "ended", ownership, { timings: voiceTimingMetrics(ownership?.timings) });
       target.movementRecognition.voiceStatus = "Voice complete";
       if (target.interactionState?.sessionActive) {
         applyInteractionState(target, { assistantSpeaking: false });
@@ -4624,6 +4947,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       cleanup({ ok: false, code: "visual_local_tts_start_timeout" });
     }, options.speechStartTimeoutMs ?? 3000);
     try {
+      if (ownership?.timings && !ownership.timings.audio_play_called_at) ownership.timings.audio_play_called_at = Math.round(now());
       const playResult = audio.play();
       if (playResult?.then) {
         playResult.then(() => {
@@ -4649,6 +4973,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
 function voiceLifecycleEvidence(options, event, ownership, details = {}) {
   const evidence = {
     event,
+    atMs: Math.round(now()),
     speechId: String(ownership?.speechId || ""),
     responseId: String(ownership?.responseId || ""),
     sessionGeneration: Number(ownership?.sessionGeneration || 0),
@@ -6758,6 +7083,12 @@ export async function analyzeMovementInState(target = state, options = {}) {
       options.inferenceTimeoutMs ?? 45000,
       "Visual inference timed out."
     );
+    const textAvailableAt = Math.round(now());
+    target.movementRecognition.activeTurnTiming = {
+      ...(target.movementRecognition.activeTurnTiming || {}),
+      first_text_available_at: target.movementRecognition.activeTurnTiming?.first_text_available_at || textAvailableAt,
+      final_text_available_at: textAvailableAt
+    };
     if (!requestStillOwned()) return target;
     const responseSource = backend.kind === "local_visual" ? "local_vlm" : "cloud_vlm";
     let result = {

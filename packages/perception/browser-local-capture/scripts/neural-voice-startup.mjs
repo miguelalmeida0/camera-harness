@@ -96,6 +96,7 @@ export async function checkNeuralVoiceHealth(serviceUrl, { fetch: send = globalT
     return {
       reachable: true,
       ready: response.ok && body?.voice_ready === true,
+      warmed: body?.voice_warmed === true,
       serviceUrl: safeUrl,
       httpStatus: response.status,
       healthStatus: String(body?.voice_status || body?.status || "unknown"),
@@ -118,6 +119,7 @@ export async function ensureNeuralVoiceService({
   runtime = discoverVoiceRuntime({ root, env }),
   healthCheck = (url) => checkNeuralVoiceHealth(url),
   pythonProbe = (candidate) => probeVoicePython(candidate, { root, env }),
+  warmUp = (url) => warmNeuralVoiceService(url, { timeoutMs }),
   spawnVoice = spawnVoiceService,
   sleep = delay,
   now = Date.now,
@@ -126,7 +128,9 @@ export async function ensureNeuralVoiceService({
   const serviceUrl = String(env.VISUAL_COMPANION_URL || DEFAULT_VOICE_SERVICE_URL);
   const initialHealth = await healthCheck(serviceUrl);
   if (initialHealth.ready) {
-    return { ready: true, owned: false, child: null, runtime, health: initialHealth, serviceUrl: safeServiceUrl(serviceUrl) };
+    const warmup = initialHealth.warmed ? { ok: true, alreadyWarm: true } : await warmUp(serviceUrl);
+    if (!warmup.ok) throw voiceStartupError("Neural voice warm-up failed.", "warmup_failed");
+    return { ready: true, owned: false, child: null, runtime, health: { ...initialHealth, warmed: true }, warmup, serviceUrl: safeServiceUrl(serviceUrl) };
   }
   if (initialHealth.reachable) throw voiceStartupError("Neural voice health endpoint responded but the selected voice is not ready.", "health_not_ready");
   if (!runtime.ok) throw voiceStartupError("Neural voice runtime was not found.", "runtime_not_found");
@@ -141,11 +145,37 @@ export async function ensureNeuralVoiceService({
     await sleep(250);
     const health = await healthCheck(serviceUrl);
     if (health.ready) {
-      return { ready: true, owned: true, child, runtime, health, serviceUrl: safeServiceUrl(serviceUrl) };
+      const warmup = await warmUp(serviceUrl);
+      if (!warmup.ok) {
+        stopOwnedVoiceService({ owned: true, child });
+        throw voiceStartupError("Neural voice warm-up failed.", "warmup_failed");
+      }
+      return { ready: true, owned: true, child, runtime, health: { ...health, warmed: true }, warmup, serviceUrl: safeServiceUrl(serviceUrl) };
     }
   }
   stopOwnedVoiceService({ owned: true, child });
   throw voiceStartupError("Neural voice service did not become ready before the startup timeout.", "startup_timeout");
+}
+
+export async function warmNeuralVoiceService(serviceUrl, {
+  fetch: send = globalThis.fetch,
+  timeoutMs = DEFAULT_VOICE_STARTUP_TIMEOUT_MS
+} = {}) {
+  try {
+    const response = await send(endpointUrl(serviceUrl, "/warmup"), {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: timeoutSignal(timeoutMs)
+    });
+    const body = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok && body?.ok === true && body?.voice_warmed === true,
+      alreadyWarm: body?.already_warm === true,
+      warmupMs: Math.max(0, Number(body?.warmup_ms || 0))
+    };
+  } catch {
+    return { ok: false, alreadyWarm: false, warmupMs: 0 };
+  }
 }
 
 export function spawnVoiceService({ root, env, runtime, serviceUrl }) {

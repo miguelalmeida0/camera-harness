@@ -10,9 +10,11 @@ import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from spatial_runtime import run_spatial_observations, spatial_runtime_health
+from voice_chunking import chunk_spoken_text
 
 try:
     from voice_runtime import SensefieldVoiceRuntime, synthesis_result_headers
@@ -73,6 +75,9 @@ class SpeakInput(BaseModel):
     style: str = "warm_conversational"
     mute: bool = False
     contains_raw_media: bool = False
+    speech_id: str = ""
+    mode: str = "conversation"
+    chunking: str = "sentence"
 
 
 class SpatialInput(BaseModel):
@@ -184,14 +189,14 @@ def observe(payload: ObserveInput):
             images.append(decode_frame(frame))
         ensure_model_loaded(lazy=False)
         if runtime["model"] is None or runtime["processor"] is None:
-            return uncertain_response("The local visual model is not installed yet.", started)
+            return uncertain_response_for_payload(payload, started, "The local visual model is not installed yet.")
         model_text = run_model(images, payload)
         return normalize_model_output(model_text, started, payload)
     except HTTPException:
         raise
     except Exception as error:
         runtime["safe_error"] = str(error)[:240]
-        return uncertain_response("The local visual model could not understand that window.", started)
+        return uncertain_response_for_payload(payload, started, "The local visual model could not understand that window.")
     finally:
         for image in images:
             image.close()
@@ -236,6 +241,78 @@ async def speak(request: Request):
         )
     except Exception as error:
         return local_voice_unavailable(str(error)[:240])
+
+
+@app.post("/warmup")
+async def warmup():
+    if not voice_runtime:
+        return local_voice_unavailable(VOICE_IMPORT_ERROR)
+    try:
+        result = await asyncio.to_thread(voice_runtime.warmup)
+        return {**result, "contains_raw_media": False}
+    except Exception as error:
+        return local_voice_unavailable(str(error)[:240])
+
+
+@app.post("/speak-stream")
+async def speak_stream(request: Request):
+    raw = await request.json()
+    if contains_raw_media_marker(raw):
+        raise HTTPException(status_code=400, detail="Voice synthesis accepts text only.")
+    payload = SpeakInput.model_validate(raw)
+    text = str(payload.text or payload.spoken_response or "").strip()
+    if not text or not voice_runtime:
+        return local_voice_unavailable(VOICE_IMPORT_ERROR if not voice_runtime else "No speakable text supplied.")
+    chunks = chunk_spoken_text(text)
+    if not chunks:
+        return local_voice_unavailable("No speakable text supplied.")
+    cancellation_generation = voice_runtime.cancellation_generation()
+
+    async def generate():
+        for index, chunk in enumerate(chunks):
+            if voice_runtime.is_cancelled(cancellation_generation):
+                break
+            try:
+                result = await asyncio.to_thread(
+                    voice_runtime.synthesize,
+                    chunk,
+                    observation_id=payload.observation_id,
+                    voice=payload.voice,
+                    style=payload.style,
+                )
+            except Exception as error:
+                yield json.dumps({
+                    "type": "error",
+                    "index": index,
+                    "code": "local_voice_unavailable",
+                    "safe_error": str(error)[:160],
+                    "contains_raw_media": False,
+                }) + "\n"
+                break
+            if voice_runtime.is_cancelled(cancellation_generation):
+                break
+            yield json.dumps({
+                "type": "audio",
+                "index": index,
+                "total_chunks": len(chunks),
+                "mime_type": "audio/wav",
+                "audio_base64": base64.b64encode(result.audio_bytes).decode("ascii"),
+                "audio_bytes": len(result.audio_bytes),
+                "audio_duration_ms": result.output_duration_ms,
+                "generation_ms": result.total_generation_time_ms,
+                "time_to_first_audio_ms": result.time_to_first_audio_ms,
+                "contains_raw_media": False,
+            }) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "X-Sensefield-Voice-Mode": "progressive",
+        },
+    )
 
 
 @app.post("/cancel")
@@ -370,7 +447,8 @@ User question:
 Rules:
 - Answer the user's question using the frames as supporting visual context.
 - Preserve recent conversational references when useful.
-- Be concise, warm, and natural.
+- Answer directly in 1–3 concise sentences and usually 15–70 spoken words.
+- Put the first useful sentence first; avoid preambles and question repetition.
 - Do not proactively narrate unrelated motion.
 - Do not identify the person.
 - Do not infer sensitive attributes.
@@ -454,7 +532,7 @@ def normalize_model_output(text: str, started: float, payload: Optional[ObserveI
                 "response_source": "local_vlm",
                 "contains_raw_media": False,
             }
-        return uncertain_response("I'm not sure what changed. Try showing me again.", started)
+        return uncertain_response_for_payload(payload, started, "The visual evidence was unclear.")
     confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0) or 0)))
     response_type = parsed.get("response_type") or ("uncertain" if parsed.get("uncertainty") else "narrate")
     summary = safe_textual_model_output(str(parsed.get("observation_summary") or parsed.get("summary") or ""))
@@ -469,6 +547,14 @@ def normalize_model_output(text: str, started: float, payload: Optional[ObserveI
         parsed["uncertainty"] = False
         parsed["spoken_response"] = spoken if spoken and not is_uncertain_text(spoken) else summary
         parsed["observation_summary"] = summary
+    if payload and payload.interaction_mode == "conversation" and (
+        not spoken or is_uncertain_text(spoken) or is_uncertain_text(str(parsed.get("spoken_response") or ""))
+    ):
+        fallback = conversation_uncertain_text(summary)
+        parsed["spoken_response"] = fallback
+        parsed["observation_summary"] = summary or "The current view is not clear enough for a confident answer."
+        parsed["uncertainty"] = True
+        response_type = "uncertain"
     return {
         "schema_version": "contextual-visual-response.v1",
         "response_type": response_type,
@@ -541,6 +627,26 @@ def uncertain_response(message: str, started: float) -> Dict[str, Any]:
         "response_source": "unavailable",
         "contains_raw_media": False,
     }
+
+
+def uncertain_response_for_payload(payload: ObserveInput, started: float, message: str) -> Dict[str, Any]:
+    if payload.interaction_mode != "conversation":
+        return uncertain_response(message, started)
+    response = uncertain_response(conversation_uncertain_text(""), started)
+    response.update({
+        "observation_summary": "The current view is not clear enough for a confident answer.",
+        "movement_label": "conversation_uncertain",
+        "meaningful_change": True,
+        "response_source": "local_vlm",
+    })
+    return response
+
+
+def conversation_uncertain_text(summary: str) -> str:
+    clean = safe_textual_model_output(summary)
+    if clean and not is_uncertain_text(clean):
+        return f"{clean} I’m not fully confident from this angle. Could you adjust the camera or ask about a specific visible area?"
+    return "I can’t reliably describe the current view from this angle. Could you adjust the camera or ask about a specific visible area?"
 
 
 def extract_json(text: str) -> Optional[Dict[str, Any]]:

@@ -8,7 +8,8 @@ import {
   visualCompanionCancelResponseForRequest,
   visualCompanionHealth,
   visualCompanionObserveResponseForRequest,
-  visualCompanionSpeakResponseForRequest
+  visualCompanionSpeakResponseForRequest,
+  visualCompanionSpeakStreamResponseForRequest
 } from "../server/visual-companion-provider.mjs";
 import {
   ensureNeuralVoiceService,
@@ -29,6 +30,7 @@ const visualHealthRoute = "/api/visual-companion/health";
 const visualObserveRoute = "/api/visual-companion/observe";
 const visualConversationRoute = "/api/visual-companion/conversation";
 const visualSpeakRoute = "/api/visual-companion/speak";
+const visualSpeakStreamRoute = "/api/visual-companion/speak-stream";
 const visualCancelRoute = "/api/visual-companion/cancel";
 const automationExecuteRoute = "/api/automation/execute";
 const maxApiBodyBytes = 8 * 1024 * 1024;
@@ -174,9 +176,9 @@ async function maybeHandleVisualCompanionApi(request, response, url) {
     return true;
   }
   if (request.method === "POST" && [visualObserveRoute, visualConversationRoute].includes(url.pathname)) {
+    const conversation = url.pathname === visualConversationRoute;
     try {
       const body = await readJsonBody(request);
-      const conversation = url.pathname === visualConversationRoute;
       const result = await visualCompanionObserveResponseForRequest(conversation ? {
         ...body,
         interaction_mode: "conversation",
@@ -188,7 +190,9 @@ async function maybeHandleVisualCompanionApi(request, response, url) {
         schema_version: "contextual-visual-response.v1",
         response_type: "uncertain",
         observation_summary: "The observation window could not be analyzed.",
-        spoken_response: error?.message || "I'm not sure what changed. Try showing me again.",
+        spoken_response: conversation
+          ? "I can’t reliably describe the current view from this angle. Could you adjust the camera or ask about a specific visible area?"
+          : error?.message || "I saw partial movement, but the final action was unclear.",
         confidence: 0,
         uncertainty: true,
         suggested_actions: [],
@@ -218,6 +222,19 @@ async function maybeHandleVisualCompanionApi(request, response, url) {
         voice_status: "Voice unavailable",
         contains_raw_media: false
       });
+    }
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === visualSpeakStreamRoute) {
+    try {
+      const body = await readJsonBody(request);
+      const controller = new AbortController();
+      request.once("aborted", () => controller.abort("client_abort"));
+      const result = await visualCompanionSpeakStreamResponseForRequest(body, process.env, { signal: controller.signal });
+      if (result.stream) await writeStream(response, result);
+      else writeJson(response, result.status, result.json);
+    } catch {
+      writeJson(response, 400, { ok: false, engine: "unavailable", code: "visual_tts_bad_request", voice_status: "Voice unavailable", contains_raw_media: false });
     }
     return true;
   }
@@ -313,4 +330,23 @@ function writeBinary(response, status, body, contentType, headers = {}) {
     ...headers
   });
   response.end(body);
+}
+
+async function writeStream(response, result) {
+  response.writeHead(result.status || 200, {
+    "content-type": result.contentType || "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-store",
+    ...(result.headers || {})
+  });
+  const reader = result.stream.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!response.write(Buffer.from(value))) await new Promise((resolveDrain) => response.once("drain", resolveDrain));
+    }
+  } finally {
+    reader.releaseLock();
+    response.end();
+  }
 }

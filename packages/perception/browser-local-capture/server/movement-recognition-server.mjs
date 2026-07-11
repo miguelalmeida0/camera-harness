@@ -5,7 +5,8 @@ import {
   visualCompanionCancelResponseForRequest,
   visualCompanionHealth,
   visualCompanionObserveResponseForRequest,
-  visualCompanionSpeakResponseForRequest
+  visualCompanionSpeakResponseForRequest,
+  visualCompanionSpeakStreamResponseForRequest
 } from "./visual-companion-provider.mjs";
 import {
   AUTOMATION_EXECUTE_ROUTE,
@@ -28,6 +29,7 @@ const VISUAL_HEALTH_ROUTE = "/api/visual-companion/health";
 const VISUAL_OBSERVE_ROUTE = "/api/visual-companion/observe";
 const VISUAL_CONVERSATION_ROUTE = "/api/visual-companion/conversation";
 const VISUAL_SPEAK_ROUTE = "/api/visual-companion/speak";
+const VISUAL_SPEAK_STREAM_ROUTE = "/api/visual-companion/speak-stream";
 const VISUAL_CANCEL_ROUTE = "/api/visual-companion/cancel";
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
@@ -158,9 +160,9 @@ export function createMovementRecognitionServer(options = {}) {
       return;
     }
     if (request.method === "POST" && [VISUAL_OBSERVE_ROUTE, VISUAL_CONVERSATION_ROUTE].includes(request.url)) {
+      const conversation = request.url === VISUAL_CONVERSATION_ROUTE;
       try {
         const body = await readJsonBody(request);
-        const conversation = request.url === VISUAL_CONVERSATION_ROUTE;
         const result = await visualCompanionObserveResponseForRequest(conversation ? {
           ...body,
           interaction_mode: "conversation",
@@ -168,7 +170,7 @@ export function createMovementRecognitionServer(options = {}) {
         } : body, options.env, options);
         writeJson(response, result.status, result.json);
       } catch {
-        writeJson(response, 400, { schema_version: "contextual-visual-response.v1", response_type: "uncertain", spoken_response: "I'm not sure what changed. Try showing me again.", confidence: 0, uncertainty: true, suggested_actions: [], contains_raw_media: false });
+        writeJson(response, 400, { schema_version: "contextual-visual-response.v1", response_type: "uncertain", spoken_response: conversation ? "I can’t reliably describe the current view from this angle. Could you adjust the camera or ask about a specific visible area?" : "I saw partial movement, but the final action was unclear.", confidence: 0, uncertainty: true, suggested_actions: [], contains_raw_media: false });
       }
       return;
     }
@@ -179,6 +181,19 @@ export function createMovementRecognitionServer(options = {}) {
         writeProviderResult(response, result);
       } catch {
         writeJson(response, 200, { ok: false, engine: "unavailable", code: "local_voice_unavailable", voice_status: "Voice unavailable", audio_duration_ms: 0, time_to_first_audio_ms: 0, contains_raw_media: false });
+      }
+      return;
+    }
+    if (request.method === "POST" && request.url === VISUAL_SPEAK_STREAM_ROUTE) {
+      try {
+        const body = await readJsonBody(request);
+        const controller = new AbortController();
+        request.once("aborted", () => controller.abort("client_abort"));
+        const result = await visualCompanionSpeakStreamResponseForRequest(body, options.env, { ...options, signal: controller.signal });
+        if (result.stream) await writeProviderStreamResult(response, result);
+        else writeProviderResult(response, result);
+      } catch {
+        writeJson(response, 400, { ok: false, engine: "unavailable", code: "local_voice_unavailable", voice_status: "Voice unavailable", contains_raw_media: false });
       }
       return;
     }
@@ -263,6 +278,25 @@ function writeProviderResult(response, result = {}) {
     return;
   }
   writeJson(response, result.status || 200, result.json || { ok: false, contains_raw_media: false });
+}
+
+async function writeProviderStreamResult(response, result = {}) {
+  response.writeHead(result.status || 200, {
+    "Content-Type": result.contentType || "application/x-ndjson; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...(result.headers || {})
+  });
+  const reader = result.stream.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!response.write(Buffer.from(value))) await new Promise((resolveDrain) => response.once("drain", resolveDrain));
+    }
+  } finally {
+    reader.releaseLock();
+    response.end();
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

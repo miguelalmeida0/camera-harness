@@ -43,15 +43,18 @@ assert.equal(discoverVoiceRuntime({ root, env: {}, commonRepoRoot: "", isUsable:
 
 const runtime = { ok: true, python: "/voice/python", serviceScript: "/repo/services/visual-companion/app.py" };
 let spawnCount = 0;
+let warmupCount = 0;
 const alreadyHealthy = await ensureNeuralVoiceService({
   root,
   env: {},
   runtime,
   healthCheck: async () => ({ reachable: true, ready: true, httpStatus: 200 }),
+  warmUp: async () => { warmupCount += 1; return { ok: true, alreadyWarm: false }; },
   spawnVoice: () => { spawnCount += 1; }
 });
 assert.equal(alreadyHealthy.owned, false);
 assert.equal(spawnCount, 0, "healthy shared service is not duplicated");
+assert.equal(warmupCount, 1, "healthy service is genuinely warmed before readiness");
 
 await assert.rejects(() => ensureNeuralVoiceService({
   root,
@@ -81,12 +84,14 @@ const started = await ensureNeuralVoiceService({
   runtime,
   healthCheck: async () => (++healthCalls === 1 ? { reachable: false, ready: false } : { reachable: true, ready: true, httpStatus: 200 }),
   pythonProbe: async () => ({ ok: true }),
+  warmUp: async () => { warmupCount += 1; return { ok: true, alreadyWarm: false }; },
   spawnVoice: () => { spawnCount += 1; return child; },
   sleep: async () => {},
   now: () => 0
 });
 assert.equal(started.owned, true, "unhealthy service is started");
 assert.equal(spawnCount, 1);
+assert.equal(warmupCount, 2, "owned service warms exactly once");
 assert.equal(stopOwnedVoiceService(started), true, "owned child is cleaned up");
 assert.equal(child.killed, true);
 
