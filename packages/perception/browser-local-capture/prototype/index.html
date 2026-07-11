@@ -5031,6 +5031,125 @@
         object-fit: cover;
       }
 
+      .sf-spatial-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        pointer-events: none;
+      }
+
+      .sf-spatial-overlay[hidden] {
+        display: none !important;
+      }
+
+      .sf-spatial-outline {
+        position: absolute;
+        left: 12%;
+        top: 25%;
+        width: 24%;
+        height: 28%;
+        min-width: 88px;
+        min-height: 64px;
+        max-width: 42%;
+        max-height: 44%;
+        border: 1px solid rgba(164, 128, 255, 0.9);
+        border-radius: 16px;
+        box-shadow: 0 0 0 1px rgba(49, 87, 238, 0.24), 0 12px 28px rgba(19, 14, 48, 0.22);
+      }
+
+      .sf-spatial-label,
+      .sf-spatial-relation,
+      .sf-spatial-confidence,
+      .sf-spatial-hint,
+      .sf-spatial-dismiss {
+        max-width: min(76%, 300px);
+        color: #ffffff;
+        font-family: var(--sf-font);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(20, 16, 45, 0.78);
+        backdrop-filter: blur(12px);
+      }
+
+      .sf-spatial-label {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        padding: 5px 8px;
+        border-radius: 999px;
+      }
+
+      .sf-spatial-relation {
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        width: max-content;
+        min-width: 112px;
+        max-width: 180px;
+        padding: 5px 8px;
+        border-radius: 999px;
+        overflow-wrap: normal;
+        word-break: normal;
+        transform: translateY(-50%);
+      }
+
+      .sf-spatial-confidence {
+        position: absolute;
+        left: 18px;
+        bottom: 92px;
+        padding: 5px 8px;
+        border-radius: 999px;
+      }
+
+      .sf-spatial-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 92px;
+        padding: 7px 10px;
+        border-color: rgba(109, 74, 255, 0.58);
+        border-radius: 10px;
+        transform: translateX(-50%);
+      }
+
+      .sf-spatial-dismiss {
+        position: absolute;
+        right: 18px;
+        bottom: 92px;
+        padding: 6px 9px;
+        border-radius: 999px;
+        cursor: pointer;
+        pointer-events: auto;
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .sf-spatial-overlay:not([hidden]) .sf-spatial-outline,
+        .sf-spatial-overlay:not([hidden]) .sf-spatial-hint {
+          animation: sf-spatial-evidence-in 180ms ease-out both;
+        }
+      }
+
+      @keyframes sf-spatial-evidence-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @media (max-width: 460px) {
+        .sf-spatial-relation {
+          left: 0;
+          top: calc(100% + 6px);
+          min-width: 0;
+          max-width: 180px;
+          transform: none;
+        }
+
+        .sf-spatial-hint {
+          max-width: calc(100% - 144px);
+        }
+      }
+
       body[data-view="primary"] .dq-camera-empty {
         gap: 10px;
         max-width: 340px;
@@ -5862,6 +5981,15 @@
             <h1 id="cameraTitle" class="sr-only">Sensefield camera</h1>
             <div class="dq-camera-frame sf-camera-frame preview-wrap">
               <video id="preview" autoplay playsinline muted aria-label="Sensefield local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
+              <div id="spatialEvidenceOverlay" class="sf-spatial-overlay" aria-live="polite" hidden>
+                <div id="spatialEvidenceOutline" class="sf-spatial-outline" aria-hidden="true">
+                  <span id="spatialEvidenceLabel" class="sf-spatial-label"></span>
+                  <span id="spatialEvidenceRelation" class="sf-spatial-relation"></span>
+                </div>
+                <span id="spatialEvidenceConfidence" class="sf-spatial-confidence"></span>
+                <span id="spatialEvidenceHint" class="sf-spatial-hint"></span>
+                <button id="dismissSpatialEvidence" class="sf-spatial-dismiss" type="button">Dismiss evidence</button>
+              </div>
               <div class="dq-camera-empty" aria-hidden="true">
                 <i data-lucide="camera" aria-hidden="true"></i>
                 <strong>Camera is off</strong>
