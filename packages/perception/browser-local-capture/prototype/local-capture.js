@@ -3,6 +3,19 @@ import { createLocalPerceptionFrame } from "./perception/zone-motion-engine.js";
 import { normalizeStep, scoreLocalActions } from "./perception/local-action-scorer.js";
 import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
 import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
+import {
+  analyzeSpatialWindow,
+  clearSpatialTransient,
+  createSpatialExperienceState,
+  detectSpatialIntent,
+  resolveSpatialQuery,
+  spatialContextForRequest,
+  spatialMetadata,
+  spatialNarration,
+  spatialOverlayModel,
+  updateSpatialMemory,
+  validateSpatialResult
+} from "./spatial/spatial-experience.js";
 import { createGestureStabilizerState, updateGestureStabilizer } from "./perception/gesture-stabilizer.js";
 import {
   MIN_CUSTOM_SKILL_EXAMPLES,
@@ -1007,6 +1020,7 @@ function syncEmergencyRuntimeOwner(target) {
 }
 
 function clearTransientPresentationState(target) {
+  clearSpatialTransient(target.spatialExperience);
   target.movementResultSnapshot = null;
   target.movementRecognition.lastResult = null;
   target.movementRecognition.lastError = "";
@@ -1149,6 +1163,7 @@ export function createInitialState() {
       approvedPreferences: "",
       suggestedActions: []
     },
+    spatialExperience: createSpatialExperienceState(),
     confidenceCalibration: {
       results_count: 0,
       confirmed_count: 0,
@@ -1316,6 +1331,17 @@ function installSensefieldRuntimeTestBridge() {
       interrupted_response_count: state.conversationMemory?.interruptedResponses?.length || 0
     }),
     getObservationMemorySummary: () => copy(state.observationMemory),
+    getSpatialExperienceSummary: () => copy({
+      status: state.spatialExperience?.status,
+      metadata: state.spatialExperience?.metadata,
+      scene_id: state.spatialExperience?.memory?.lastSceneId,
+      referenced_labels: state.spatialExperience?.memory?.lastReferencedLabels,
+      last_relation: state.spatialExperience?.memory?.lastRelation,
+      overlay_visible: state.spatialExperience?.overlay?.visible === true,
+      overlay_generation: state.spatialExperience?.overlay?.generation,
+      current_response_is_spatial: state.spatialExperience?.currentResponseIsSpatial === true,
+      contains_raw_media: false
+    }),
     getResourceCounts: () => copy({
       ...sensefieldTestRuntime.resourceCounts,
       active_media_tracks: mediaTrackSnapshot().filter((track) => track.readyState !== "ended").length,
@@ -1428,6 +1454,13 @@ function bindDom() {
   const bound = {
     preview: document.querySelector("#preview"),
     cameraFrame: document.querySelector(".dq-camera-frame"),
+    spatialEvidenceOverlay: document.querySelector("#spatialEvidenceOverlay"),
+    spatialEvidenceOutline: document.querySelector("#spatialEvidenceOutline"),
+    spatialEvidenceLabel: document.querySelector("#spatialEvidenceLabel"),
+    spatialEvidenceRelation: document.querySelector("#spatialEvidenceRelation"),
+    spatialEvidenceConfidence: document.querySelector("#spatialEvidenceConfidence"),
+    spatialEvidenceHint: document.querySelector("#spatialEvidenceHint"),
+    dismissSpatialEvidence: document.querySelector("#dismissSpatialEvidence"),
     primaryObservationState: document.querySelector("#primaryObservationState"),
     cameraCardStatus: document.querySelector("#cameraCardStatus"),
     cameraStatusChip: document.querySelector("#cameraStatusChip"),
@@ -1708,6 +1741,10 @@ function bindEvents(boundDom) {
   boundDom.startCamera?.addEventListener("click", startCamera);
   boundDom.stopCamera?.addEventListener("click", stopCamera);
   boundDom.analyzeMovement?.addEventListener("click", () => handlePrimaryAction());
+  boundDom.dismissSpatialEvidence?.addEventListener("click", () => {
+    dismissSpatialEvidenceOverlay(state);
+    render();
+  });
   boundDom.interactionModeSelector?.addEventListener("click", (event) => {
     const button = event.target?.closest?.("[data-interaction-mode]");
     if (!button) return;
@@ -2328,6 +2365,7 @@ export async function endRealtimeConversation(target = state, options = {}) {
 export async function endInteractionSession(target = state, options = {}) {
   if (!target.interactionState.sessionActive && target.realtimeSession.state === "inactive") return target;
   const endingMode = target.interactionState.mode;
+  dismissSpatialEvidenceOverlay(target);
   target.emergencyRuntimeController.beginEnd();
   syncEmergencyRuntimeOwner(target);
   target.realtimeSession.state = "ending";
@@ -2368,6 +2406,7 @@ export async function switchInteractionMode(target = state, mode = "conversation
     cameraActive: target.cameraReady,
     microphoneActive: false
   });
+  dismissSpatialEvidenceOverlay(target);
   const generationId = switchingRuntime.session.modeGeneration;
   const sessionGenerationId = switchingRuntime.session.sessionGeneration;
   target.appState = switchingRuntime;
@@ -2805,7 +2844,7 @@ function appendRealtimeMemory(target, role, entry = {}) {
   }
   target.emergencyRuntimeController.recordMoment("conversation", {
     id: entry.id || `${role}_${normalized.created_at_ms}_${normalized.text}`,
-    role: role === "user" ? "USER" : "SENSEFIELD",
+    role: role === "user" ? "USER" : target.spatialExperience?.currentResponseIsSpatial ? "SPATIAL" : "SENSEFIELD",
     text: normalized.text,
     createdAt: normalized.created_at_ms
   });
@@ -6423,6 +6462,113 @@ function stopLocalPerception() {
   state.localPerceptionStatus = "stopped";
 }
 
+export async function analyzeSpatialExperienceForWindow(target, frames, options = {}) {
+  const mode = options.mode === "observing" ? "observing" : "conversation";
+  const intent = detectSpatialIntent(options.query || "");
+  const requested = mode === "observing" || intent.isSpatial;
+  if (!requested) return { requested: false, result: null, unavailable: false, intent };
+  const spatialState = target.spatialExperience;
+  spatialState.status = "analyzing";
+  spatialState.lastSafeError = "";
+  spatialState.currentResponseIsSpatial = false;
+  const Controller = globalThis.AbortController;
+  const controller = typeof Controller === "function" ? new Controller() : null;
+  spatialState.activeAbortController?.abort?.();
+  spatialState.activeAbortController = controller;
+  const resolvedQuery = resolveSpatialQuery(options.query || "", spatialState.memory);
+  const input = {
+    frames,
+    timestamps: frames.map((frame) => Number(frame.captured_at_ms || 0)),
+    query: resolvedQuery,
+    mode,
+    calibration: options.calibration || null,
+    previousScene: spatialState.memory.lastSceneId ? {
+      scene_id: spatialState.memory.lastSceneId,
+      referenced_object_ids: spatialState.memory.lastReferencedObjectIds
+    } : null
+  };
+  try {
+    let result;
+    if (options.spatialAdapter) {
+      const testAdapterAllowed = options.spatialTestMode === true && (target !== state || sensefieldTestModeEnabled());
+      if (!testAdapterAllowed) throw new Error("Deterministic spatial analysis is unavailable outside explicit test mode.");
+      result = validateSpatialResult(await options.spatialAdapter.analyzeSpatialWindow(input));
+    } else {
+      result = await analyzeSpatialWindow(input, { fetch: options.spatialFetch || globalThis.fetch, signal: controller?.signal });
+    }
+    const suggestedView = result.uncertainty.suggested_view || result.partial_observation?.suggested_view || "";
+    if (suggestedView && suggestedView === spatialState.memory.lastSuggestedView) {
+      result = {
+        ...result,
+        partial_observation: result.partial_observation ? { ...result.partial_observation, suggested_view: null } : null,
+        uncertainty: { ...result.uncertainty, suggested_view: null }
+      };
+    } else if (suggestedView) {
+      spatialState.memory.lastSuggestedView = suggestedView;
+    }
+    spatialState.status = "ready";
+    spatialState.lastResult = result;
+    spatialState.metadata = spatialMetadata(result);
+    return { requested: true, result, unavailable: false, intent };
+  } catch (error) {
+    if (controller?.signal?.aborted) return { requested: true, result: null, unavailable: true, stale: true, intent };
+    spatialState.status = "unavailable";
+    spatialState.lastResult = null;
+    spatialState.lastSafeError = "Precise spatial analysis is unavailable.";
+    spatialState.metadata = "Spatial precision unavailable";
+    return { requested: true, result: null, unavailable: true, intent };
+  } finally {
+    if (spatialState.activeAbortController === controller) spatialState.activeAbortController = null;
+  }
+}
+
+function applySpatialExperienceResult(target, spatialOutcome, answer, requestMode, requestGenerationId) {
+  const result = spatialOutcome?.result;
+  if (!result?.ok) return;
+  target.spatialExperience.currentResponseIsSpatial = true;
+  updateSpatialMemory(target.spatialExperience, result, answer);
+  presentSpatialEvidenceOverlay(target, result, requestGenerationId);
+  if (target === state) {
+    recordSensefieldTestEvent("spatial_result_applied", {
+      mode: requestMode,
+      scene_id: result.scene_id,
+      relation_count: result.relations.length,
+      movement_count: result.movements.length,
+      uncertainty: result.uncertainty.level,
+      scale: result.scale.type,
+      contains_raw_media: false
+    }, { modeGenerationId: requestGenerationId });
+  }
+}
+
+function presentSpatialEvidenceOverlay(target, result, modeGenerationId) {
+  const model = spatialOverlayModel(result);
+  if (!model) return;
+  dismissSpatialEvidenceOverlay(target);
+  const overlay = target.spatialExperience.overlay;
+  const generation = overlay.generation;
+  const sessionGenerationId = Number(target.interactionState.sessionGenerationId || 0);
+  overlay.visible = true;
+  Object.assign(overlay, model);
+  overlay.timer = globalThis.setTimeout?.(() => {
+    const current = target.spatialExperience.overlay;
+    if (current.generation !== generation ||
+        Number(target.interactionState.sessionGenerationId || 0) !== sessionGenerationId ||
+        Number(target.interactionState.modeGenerationId || 0) !== Number(modeGenerationId || 0)) return;
+    dismissSpatialEvidenceOverlay(target);
+    render();
+  }, 4000) || null;
+}
+
+export function dismissSpatialEvidenceOverlay(target = state) {
+  const overlay = target.spatialExperience?.overlay;
+  if (!overlay) return;
+  if (overlay.timer) globalThis.clearTimeout?.(overlay.timer);
+  overlay.timer = null;
+  overlay.visible = false;
+  overlay.generation = Number(overlay.generation || 0) + 1;
+}
+
 export async function analyzeMovementInState(target = state, options = {}) {
   const requestMode = normalizeInteractionMode(options.interactionMode || (options.directUserTurn ? "conversation" : options.persistent ? "observing" : target.interactionState?.mode));
   const requestGenerationId = Number(options.modeGenerationId ?? target.interactionState?.modeGenerationId ?? 0);
@@ -6459,6 +6605,10 @@ export async function analyzeMovementInState(target = state, options = {}) {
   target.movementRecognition.frameBufferCleared = false;
   target.movementRecognition.confirmed = false;
   target.movementRecognition.lastSpokenMovement = "";
+  dismissSpatialEvidenceOverlay(target);
+  target.spatialExperience.currentResponseIsSpatial = false;
+  target.spatialExperience.metadata = null;
+  target.spatialExperience.lastResult = null;
   target.movementResultSnapshot = null;
   target.statusMessage = "Get ready...";
   render();
@@ -6502,6 +6652,25 @@ export async function analyzeMovementInState(target = state, options = {}) {
     ));
     if (!requestStillOwned()) return target;
     validateLiveFrameWindow(frames, target, { requireChange: requestMode === "observing" });
+    const spatialOutcome = await analyzeSpatialExperienceForWindow(target, frames, {
+      mode: requestMode,
+      query: sanitizeMemoryText(options.userQuestion || ""),
+      calibration: target.spatialExperience.calibration || null,
+      spatialAdapter: options.spatialAdapter,
+      spatialTestMode: options.spatialTestMode,
+      spatialFetch: options.spatialFetch
+    });
+    if (!requestStillOwned()) return target;
+    const baseVisualContext = visualContextForRequest(target);
+    const requestVisualContext = spatialOutcome.requested ? {
+      ...baseVisualContext,
+      spatial_facts: spatialContextForRequest(spatialOutcome.result, {
+        requested: true,
+        unavailable: spatialOutcome.unavailable,
+        intent: spatialOutcome.intent.intent
+      })
+    } : baseVisualContext;
+    const ordinaryRequestContext = { previous_context: visualContextForRequest(target) };
     setMovementCaptureState(target, "analyzing");
     target.movementRecognition.status = "analyzing";
     if (options.persistent) target.movementRecognition.persistent.state = "active";
@@ -6511,7 +6680,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
       ? requestVisualCompanionObservation({
           frames,
           frame_timestamps_ms: frames.map((frame) => frame.captured_at_ms),
-          previous_context: visualContextForRequest(target),
+          ...(spatialOutcome.requested ? { previous_context: requestVisualContext } : ordinaryRequestContext),
           user_question: sanitizeMemoryText(options.userQuestion || ""),
           requested_response_mode: requestMode === "conversation" ? "conversation" : "movement_observation",
           allowed_suggested_actions: VISUAL_COMPANION_ALLOWED_ACTIONS,
@@ -6526,7 +6695,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
           current_step: requestMode === "conversation" ? "visual_conversation" : "movement_narration",
           zone_metadata: movementRecognitionZoneMetadata(target),
           recent_corrections: recentCorrectionContextForPrompt(target),
-          previous_context: visualContextForRequest(target),
+          ...(spatialOutcome.requested ? { previous_context: requestVisualContext } : ordinaryRequestContext),
           user_question: sanitizeMemoryText(options.userQuestion || ""),
           requested_response_mode: requestMode === "conversation" ? "conversation" : "movement_observation",
           interaction_mode: requestMode,
@@ -6540,11 +6709,21 @@ export async function analyzeMovementInState(target = state, options = {}) {
     );
     if (!requestStillOwned()) return target;
     const responseSource = backend.kind === "local_visual" ? "local_vlm" : "cloud_vlm";
-    const result = {
+    let result = {
       ...rawResult,
       ...(options.userQuestion ? { question: sanitizeMemoryText(options.userQuestion) } : {}),
       response_source: responseSource
     };
+    const spatialResponse = spatialNarration(spatialOutcome.result, { mode: requestMode, query: options.userQuestion || "" });
+    if (spatialResponse && (requestMode === "observing" || spatialOutcome.result?.partial_observation)) {
+      result = {
+        ...result,
+        movement: spatialResponse,
+        spoken_response: spatialResponse,
+        reason: spatialResponse,
+        meaningful_change: requestMode === "observing" ? true : result.meaningful_change
+      };
+    }
     validateLiveInferenceResult(result, requestMode);
     if (target.interactionState?.sessionActive && !modeRequestStillCurrent(target, requestMode, requestGenerationId)) {
       target.movementRecognition.status = "idle";
@@ -6555,6 +6734,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
       recordMovementHistory: requestMode === "observing",
       queueSuggestion: requestMode === "observing"
     });
+    applySpatialExperienceResult(target, spatialOutcome, result.spoken_response || result.movement, requestMode, requestGenerationId);
     if (result.provider !== "local_motion_proxy") target.vlmCalls += 1;
     setMovementCaptureState(target, "result_ready");
     target.movementRecognition.status = "complete";
@@ -8838,6 +9018,7 @@ function render() {
 function renderPrimaryView(target) {
   document.body.classList.toggle("dq-camera-live", target.cameraReady);
   dom.cameraFrame?.classList.toggle("is-live", target.cameraReady);
+  renderSpatialEvidenceOverlay(target);
   if (dom.cameraStatusChip) dom.cameraStatusChip.textContent = target.cameraReady ? "Camera on" : "Camera off";
   renderInteractionModeSelector(target);
   if (dom.primaryObservationState) dom.primaryObservationState.textContent = primaryObservationStateLabel(target);
@@ -8859,6 +9040,39 @@ function renderPrimaryView(target) {
   if (dom.voiceStatus) dom.voiceStatus.textContent = primarySpeechState(target);
   if (dom.savedActionsList) dom.savedActionsList.innerHTML = savedActionsSummaryHtml(target);
   if (dom.recentMomentsList) dom.recentMomentsList.innerHTML = recentMomentsSummaryHtml(target);
+}
+
+function renderSpatialEvidenceOverlay(target) {
+  const overlay = target.spatialExperience?.overlay;
+  if (!dom.spatialEvidenceOverlay || !overlay) return;
+  dom.spatialEvidenceOverlay.hidden = overlay.visible !== true;
+  if (!overlay.visible) return;
+  const region = overlay.region;
+  if (dom.spatialEvidenceOutline) {
+    dom.spatialEvidenceOutline.hidden = !overlay.label && !region;
+    if (region) {
+      dom.spatialEvidenceOutline.style.left = `${Math.round(region.x * 100)}%`;
+      dom.spatialEvidenceOutline.style.top = `${Math.round(region.y * 100)}%`;
+      dom.spatialEvidenceOutline.style.width = `${Math.round(region.width * 100)}%`;
+      dom.spatialEvidenceOutline.style.height = `${Math.round(region.height * 100)}%`;
+    }
+  }
+  if (dom.spatialEvidenceLabel) {
+    dom.spatialEvidenceLabel.hidden = !overlay.label;
+    dom.spatialEvidenceLabel.textContent = overlay.label;
+  }
+  if (dom.spatialEvidenceRelation) {
+    dom.spatialEvidenceRelation.hidden = !overlay.relation;
+    dom.spatialEvidenceRelation.textContent = overlay.relation;
+  }
+  if (dom.spatialEvidenceConfidence) {
+    dom.spatialEvidenceConfidence.hidden = overlay.confidence == null;
+    dom.spatialEvidenceConfidence.textContent = overlay.confidence == null ? "" : `Evidence ${Math.round(overlay.confidence * 100)}%`;
+  }
+  if (dom.spatialEvidenceHint) {
+    dom.spatialEvidenceHint.hidden = !overlay.suggestedView;
+    dom.spatialEvidenceHint.textContent = overlay.suggestedView;
+  }
 }
 
 function canonicalAppState(target) {
@@ -8915,6 +9129,7 @@ function primaryObservationStateLabel(target) {
 
 function primaryResponseMeta(target) {
   const app = canonicalAppState(target);
+  if (app.currentTurn.responseType && target.spatialExperience?.metadata) return target.spatialExperience.metadata;
   if (!app.currentTurn.responseType || app.currentTurn.confidence == null) return "";
   return `Confidence ${Number(app.currentTurn.confidence).toFixed(2)}`;
 }
