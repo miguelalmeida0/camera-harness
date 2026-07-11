@@ -102,7 +102,8 @@ assert.equal(/router\.huggingface\.co/.test(source), false, "frontend has no HF 
 
 assert.equal(launcher.includes("/api/visual-companion/observe"), true, "launcher proxies observe route");
 assert.equal(launcher.includes("visualCompanionObserveResponseForRequest"), true, "launcher uses visual provider helper");
-assert.equal(launcher.includes("npm run voice:serve"), true, "launcher explains local voice service startup");
+assert.equal(launcher.includes("ensureNeuralVoiceService"), true, "launcher starts or verifies the neural voice service");
+assert.equal(launcher.includes("Neural voice: ready"), true, "launcher reports neural voice readiness");
 assert.equal(serverSource.includes("visualCompanionSpeakResponseForRequest"), true, "server speak route proxies local TTS provider");
 assert.equal(serverSource.includes("visualCompanionCancelResponseForRequest"), true, "server cancel route proxies local TTS provider");
 assert.equal(serverSource.includes('ok: true, engine: "browser_speech_fallback", audio_duration_ms: 0'), false, "server no longer fakes successful zero-audio speech");

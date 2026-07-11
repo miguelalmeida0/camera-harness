@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { loadMovementRecognitionConfig, movementRecognitionHealth, movementRecognitionResponseForRequest, movementRecognitionUsageForRequest } from "../server/movement-recognition-provider.mjs";
 import { automationExecutionResponseForRequest } from "../server/automation-server.mjs";
@@ -10,9 +10,14 @@ import {
   visualCompanionObserveResponseForRequest,
   visualCompanionSpeakResponseForRequest
 } from "../server/visual-companion-provider.mjs";
+import {
+  ensureNeuralVoiceService,
+  loadProjectEnv,
+  stopOwnedVoiceService
+} from "./neural-voice-startup.mjs";
 
 const root = resolve(".");
-loadProjectRootEnv(root);
+loadProjectEnv(root);
 const startPath = "/";
 const prototypeRoot = resolve(root, "packages/perception/browser-local-capture/prototype");
 const prototypePath = resolve(prototypeRoot, "index.html");
@@ -28,6 +33,16 @@ const visualCancelRoute = "/api/visual-companion/cancel";
 const automationExecuteRoute = "/api/automation/execute";
 const maxApiBodyBytes = 8 * 1024 * 1024;
 const port = parsePort(process.argv.slice(2), process.env.DARKQUEST_CAPTURE_PORT);
+let voiceServiceHandle;
+
+try {
+  voiceServiceHandle = await ensureNeuralVoiceService({ root, env: process.env });
+  console.log("Neural voice: ready");
+} catch (error) {
+  console.error(`Neural voice: unavailable (${error?.code || "startup_failed"})`);
+  console.error(error?.message || "The neural voice service could not start.");
+  process.exit(1);
+}
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -57,6 +72,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.on("error", (error) => {
+  stopOwnedVoiceService(voiceServiceHandle);
   if (error?.code === "EPERM" || error?.code === "EACCES") {
     console.error(`Unable to start local capture server on 127.0.0.1:${port}: permission denied.`);
     console.error("No server process was left running.");
@@ -92,13 +108,8 @@ server.listen(port, "127.0.0.1", async () => {
   console.log("");
   console.log("Camera starts only after clicking Start Camera.");
   console.log("Observe now captures a short temporary visual window and calls the local visual companion service.");
-  console.log("Start the local visual and voice service with: npm run voice:serve");
-  console.log(`Visual service: ${visualHealth.ok ? "ready" : visualHealth.status || "not running"}`);
-  const voiceState = visualHealth.voice_ready
-    ? (visualHealth.voice_status === "ready" ? "ready" : `configured (${visualHealth.voice_engine || "local_tts"})`)
-    : "fallback voice active";
-  console.log(`Natural local voice: ${voiceState}`);
-  if (!visualHealth.voice_ready) console.log("Voice fallback: Natural voice unavailable — using system voice");
+  console.log(`Visual service: ${visualHealth.ok ? "ready" : "unavailable"}`);
+  console.log(`Sensefield: ready at ${url.replace(/\/$/, "")}`);
   console.log(`HF token loaded: ${movementConfig.token ? "yes" : "no"}`);
   console.log(`Cloud inference enabled: ${movementConfig.cloudEnabled ? "yes" : "no"}`);
   console.log(`Session limit: ${movementConfig.maxRequestsPerSession}`);
@@ -109,6 +120,14 @@ server.listen(port, "127.0.0.1", async () => {
   console.log("Browser auto-open: disabled; paste the Open URL into Chrome, Edge, or Safari if a browser does not open.");
   console.log("Alternate port: npm run physical:capture -- --port 4180");
 });
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    stopOwnedVoiceService(voiceServiceHandle);
+    server.close(() => process.exit(0));
+  });
+}
+process.once("exit", () => stopOwnedVoiceService(voiceServiceHandle));
 
 function parsePort(args, envPort) {
   const explicit = readPortArg(args);
@@ -194,9 +213,9 @@ async function maybeHandleVisualCompanionApi(request, response, url) {
     } catch {
       writeJson(response, 400, {
         ok: false,
-        engine: "browser_speech_fallback",
+        engine: "unavailable",
         code: "visual_tts_bad_request",
-        voice_status: "Natural voice unavailable — using system voice",
+        voice_status: "Voice unavailable",
         contains_raw_media: false
       });
     }
@@ -294,38 +313,4 @@ function writeBinary(response, status, body, contentType, headers = {}) {
     ...headers
   });
   response.end(body);
-}
-
-function loadProjectRootEnv(projectRoot) {
-  const envPath = resolve(projectRoot, ".env");
-  if (!existsSync(envPath)) return { loaded: false, applied: 0 };
-  const text = readFileSync(envPath, "utf8");
-  let applied = 0;
-  for (const line of text.split(/\r?\n/)) {
-    const parsed = parseEnvLine(line);
-    if (!parsed) continue;
-    if (process.env[parsed.key] !== undefined) continue;
-    process.env[parsed.key] = parsed.value;
-    applied += 1;
-  }
-  return { loaded: true, applied };
-}
-
-function parseEnvLine(line) {
-  const trimmed = String(line || "").trim();
-  if (!trimmed || trimmed.startsWith("#")) return null;
-  const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-  if (!match) return null;
-  return { key: match[1], value: parseEnvValue(match[2]) };
-}
-
-function parseEnvValue(rawValue) {
-  const value = String(rawValue ?? "").trim();
-  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-    const unquoted = value.slice(1, -1);
-    return value.startsWith("\"")
-      ? unquoted.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t").replace(/\\"/g, "\"").replace(/\\\\/g, "\\")
-      : unquoted;
-  }
-  return value.replace(/\s+#.*$/, "");
 }

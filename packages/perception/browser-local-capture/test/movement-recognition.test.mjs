@@ -25,6 +25,7 @@ const html = readFileSync(resolve("packages/perception/browser-local-capture/pro
 const providerSource = readFileSync(resolve("packages/perception/browser-local-capture/server/movement-recognition-provider.mjs"), "utf8");
 const serverSource = readFileSync(resolve("packages/perception/browser-local-capture/server/movement-recognition-server.mjs"), "utf8");
 const launcherSource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs"), "utf8");
+const voiceStartupSource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/neural-voice-startup.mjs"), "utf8");
 const limiterSource = readFileSync(resolve("packages/perception/browser-local-capture/server/hf-usage-limiter.mjs"), "utf8");
 const liveSource = readFileSync(resolve("packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs"), "utf8");
 const envExample = readFileSync(resolve(".env.example"), "utf8");
@@ -102,8 +103,8 @@ assert.equal(launcherSource.includes('const movementAnalyzeRoute = "/api/movemen
 assert.equal(launcherSource.includes('const movementUsageRoute = "/api/movement-recognition/usage"'), true, "physical:capture exposes movement usage route");
 assert.equal(launcherSource.includes("maybeHandleMovementRecognitionApi(request, response, url)"), true, "physical:capture mounts movement API before static files");
 assert.equal(launcherSource.includes("movementRecognitionResponseForRequest(body, process.env"), true, "physical:capture analyze route uses provider helper");
-assert.equal(launcherSource.includes("loadProjectRootEnv(root)"), true, "physical:capture loads project-root .env automatically");
-assert.equal(launcherSource.includes("process.env[parsed.key] !== undefined"), true, "existing process environment values take precedence over .env");
+assert.equal(launcherSource.includes("loadProjectEnv(root)"), true, "physical:capture loads project-root .env automatically");
+assert.equal(voiceStartupSource.includes("env[parsed.key] !== undefined"), true, "existing process environment values take precedence over .env");
 assert.equal(launcherSource.includes("HF token loaded:"), true, "launcher reports token loaded state without printing token");
 assert.equal(launcherSource.includes('const automationExecuteRoute = "/api/automation/execute"'), true, "physical:capture mounts automation execution route");
 assert.equal(serverSource.includes("automationExecutionResponseForRequest"), true, "movement server mounts automation execution helper");

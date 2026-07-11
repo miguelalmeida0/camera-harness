@@ -3744,7 +3744,11 @@ export async function confirmVisualSuggestedActionInState(target = state) {
       snapshot: target.movementResultSnapshot
     }, {
       runtime: target.automation,
-      userGesture: true
+      userGesture: true,
+      speakPhrase: (phrase) => speakSensefieldResponse({
+        observationId: "saved_action_" + Math.round(now()),
+        text: phrase
+      }, { target })
     });
   } catch (error) {
     outcome = {
@@ -3916,6 +3920,10 @@ export async function executeConfirmedMovementAutomations(target = state, option
     context: {
       captureSnapshot: (captureOptions) => captureConfirmedMovementSnapshot(captureOptions),
       executeWebhook: (request) => requestAutomationExecution(request),
+      speakPhrase: (phrase) => speakSensefieldResponse({
+        observationId: "saved_action_" + Math.round(now()),
+        text: phrase
+      }, { target }),
       onRuntimeChange: () => render()
     }
   });
@@ -4351,6 +4359,9 @@ export async function speakSensefieldResponse({ observationId = "", text = "" } 
     completed: false
   };
   target.movementRecognition.activeSpeechOwnership = ownership;
+  voiceLifecycleEvidence(options, "requested", ownership, {
+    serviceUrl: VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint
+  });
   if (target === state) recordSensefieldTestSpeech("requested", speechOwnershipMetadata(ownership, { path: "local_tts", text }), {
     correlationId: ownership.responseId,
     modeGenerationId: ownership.modeGeneration
@@ -4457,8 +4468,17 @@ async function tryLocalVisualSpeech({ text, observationId, speechGenerationId, r
       signal: controller?.signal
     });
     const contentType = String(response.headers?.get?.("content-type") || "");
+    voiceLifecycleEvidence(options, "response", ownership, {
+      httpStatus: Number(response.status || 0),
+      mimeType: contentType
+    });
     if (response.ok && /^audio\//i.test(contentType)) {
       const blob = await audioBlobFromResponse(response, contentType);
+      voiceLifecycleEvidence(options, "audio", ownership, {
+        mimeType: contentType,
+        audioBytes: Number(blob?.size || 0),
+        durationMs: Number(response.headers?.get?.("x-sensefield-audio-duration-ms") || 0)
+      });
       if (!blob || Number(blob.size || 0) <= 0) return { ok: false, code: "visual_local_tts_empty_audio" };
       const durationMs = Number(response.headers?.get?.("x-sensefield-audio-duration-ms") || 0);
       if (!Number.isFinite(durationMs) || durationMs <= 0) return { ok: false, code: "visual_local_tts_invalid_duration" };
@@ -4533,11 +4553,17 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
     const current = () => Number(target.interactionState?.speechGenerationId || 0) === Number(speechGenerationId) &&
       target.movementRecognition.activeSpeechOwnership === ownership && ownership?.cancelled !== true &&
       (!runtimeSpeechToken || target.emergencyRuntimeController.isCurrent(runtimeSpeechToken, "speechId", runtimeSpeechToken.speechId));
+    audio.onloadedmetadata = () => {
+      voiceLifecycleEvidence(options, "decoded", ownership, {
+        decodedDurationMs: Number.isFinite(Number(audio.duration)) ? Math.round(Number(audio.duration) * 1000) : 0
+      });
+    };
     audio.onplaying = () => {
       if (settled) return;
       if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (runtimeSpeechToken && !target.emergencyRuntimeController.markSpeechStarted(runtimeSpeechToken)) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (ownership) ownership.playing = true;
+      voiceLifecycleEvidence(options, "playing", ownership);
       target.movementRecognition.voiceStatus = "Speaking…";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: true });
       pauseRealtimeSpeechInputForAssistant(target);
@@ -4564,6 +4590,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       const completed = runtimeSpeechToken ? finishRuntimeSpeech(target, runtimeSpeechToken, { completed: true }) : true;
       if (!completed) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (ownership) ownership.completed = true;
+      voiceLifecycleEvidence(options, "ended", ownership);
       target.movementRecognition.voiceStatus = "Voice complete";
       if (target.interactionState?.sessionActive) {
         applyInteractionState(target, { assistantSpeaking: false });
@@ -4581,6 +4608,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       cleanup({ ok: true, path: "local_tts" });
     };
     audio.onerror = () => {
+      voiceLifecycleEvidence(options, "playback_error", ownership, { code: "visual_local_tts_playback_error" });
       if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
       target.movementRecognition.voiceStatus = "Voice unavailable";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
@@ -4597,8 +4625,11 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
     }, options.speechStartTimeoutMs ?? 3000);
     try {
       const playResult = audio.play();
-      if (playResult?.catch) {
-        playResult.catch(() => {
+      if (playResult?.then) {
+        playResult.then(() => {
+          voiceLifecycleEvidence(options, "play_resolved", ownership);
+        }).catch(() => {
+          voiceLifecycleEvidence(options, "play_rejected", ownership, { code: "visual_local_tts_play_rejected" });
           target.movementRecognition.voiceStatus = "Voice unavailable";
           if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
           render();
@@ -4606,12 +4637,26 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
         });
       }
     } catch {
+      voiceLifecycleEvidence(options, "play_rejected", ownership, { code: "visual_local_tts_play_failed" });
       target.movementRecognition.voiceStatus = "Voice unavailable";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
       render();
       cleanup({ ok: false, code: "visual_local_tts_play_failed" });
     }
   });
+}
+
+function voiceLifecycleEvidence(options, event, ownership, details = {}) {
+  const evidence = {
+    event,
+    speechId: String(ownership?.speechId || ""),
+    responseId: String(ownership?.responseId || ""),
+    sessionGeneration: Number(ownership?.sessionGeneration || 0),
+    modeGeneration: Number(ownership?.modeGeneration || 0),
+    ...details
+  };
+  options?.onVoiceEvidence?.(evidence);
+  if (globalThis.__SENSEFIELD_VOICE_DEBUG__ === true) console.debug("[Sensefield neural voice]", evidence);
 }
 
 export async function cancelVisualSpeech(target = state, options = {}) {
@@ -4670,6 +4715,7 @@ function clearActiveAudio(target, URLApi = globalThis.URL, ownership = target.mo
     audio.onplaying = null;
     audio.onended = null;
     audio.onerror = null;
+    audio.onloadedmetadata = null;
     audio.pause?.();
     audio.removeAttribute?.("src");
     try {
@@ -6318,8 +6364,10 @@ export async function handleStableLocalGesture(gestureEvent, options = {}) {
       documentVisible: !documentHidden,
       documentHidden,
       engineStatus: String(engineStatus).startsWith("ready") ? "ready" : engineStatus,
-      speechSynthesis: options.speechSynthesis || globalThis.speechSynthesis,
-      SpeechSynthesisUtterance: options.SpeechSynthesisUtterance || globalThis.SpeechSynthesisUtterance,
+      speakPhrase: options.speakPhrase || ((phrase) => speakSensefieldResponse({
+        observationId: "saved_action_" + Math.round(now()),
+        text: phrase
+      }, { ...options, target })),
       Notification: options.Notification || globalThis.Notification,
       userGesture: false,
       onRuntimeChange: options.onRuntimeChange,
@@ -6371,8 +6419,6 @@ async function handleLocalGestureObservation(observation, options = {}) {
   const outcome = await handleLocalGestureObservationInState(state, observation, {
     ...options,
     engineStatus: localGestureEngine?.getStatus?.() || "ready",
-    speechSynthesis: globalThis.speechSynthesis,
-    SpeechSynthesisUtterance: globalThis.SpeechSynthesisUtterance,
     Notification: globalThis.Notification,
     onRuntimeChange: () => renderAutomationState(state)
   });

@@ -40,6 +40,8 @@
     "voice:setup": "node packages/perception/browser-local-capture/scripts/voice-setup.mjs",
     "voice:benchmark": "node packages/perception/browser-local-capture/scripts/voice-benchmark.mjs",
     "voice:serve": ".venv-voice/bin/python services/visual-companion/app.py",
+    "voice:doctor": "node packages/perception/browser-local-capture/scripts/voice-doctor.mjs",
+    "test:voice-startup": "node packages/perception/browser-local-capture/test/voice-startup.test.mjs",
     "voice:test": "node services/visual-companion/test/voice-service.test.mjs && node packages/perception/browser-local-capture/test/visual-companion.test.mjs",
     "benchmark:visual-models": "node services/visual-companion/bin/benchmark-visual-models.mjs",
     "gate:0b": "node packages/evals/bin/darkquest-eval.mjs gate-0b fixtures/replay/gate_0b_manifest.json",

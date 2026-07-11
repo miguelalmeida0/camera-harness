@@ -55,8 +55,8 @@ async function doctor() {
       stt: { configured_path: "browser SpeechRecognition", transcript_finalization_capability: true, runtime_browser_capability_required: true },
       tts: {
         local_service_health: local.voice_ready === true ? "ready" : local.voice_status || "unavailable",
-        browser_speech_fallback: true,
-        usable_fallback_count: local.voice_ready === true ? 2 : 1
+        browser_speech_fallback: false,
+        usable_voice_count: local.voice_ready === true ? 1 : 0
       },
       configuration: {
         endpoints: ["/api/movement-recognition/analyze", "/api/movement-recognition/usage", "/api/visual-companion/conversation", "/api/visual-companion/observe", "/api/visual-companion/speak"],
@@ -144,38 +144,9 @@ function validateProviderResult(result, checkMode) {
 async function voice() {
   const local = await visualCompanionSpeakResponseForRequest({ text: "Sensefield emergency voice test.", observation_id: "emergency_voice", contains_raw_media: false }, env);
   const localAudio = Boolean(local.body?.length > 0 && Number(local.headers?.["x-sensefield-audio-duration-ms"] || 0) > 0);
-  const browser = await browserSpeechProof();
-  const report = { local_tts: { available: localAudio, bytes: local.body?.length || 0, duration_ms: Number(local.headers?.["x-sensefield-audio-duration-ms"] || 0) }, browser_speech: browser, audio_persisted: false };
+  const report = { local_tts: { available: localAudio, bytes: local.body?.length || 0, duration_ms: Number(local.headers?.["x-sensefield-audio-duration-ms"] || 0) }, browser_speech_fallback: false, audio_persisted: false };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  if (!browser.started || !browser.completed) throw new Error("Browser playback lifecycle did not complete.");
-}
-
-async function browserSpeechProof() {
-  const { chromium } = await import("@playwright/test");
-  const executablePath = chromeExecutable();
-  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}), args: ["--autoplay-policy=no-user-gesture-required"] });
-  try {
-    const page = await browser.newPage();
-    return await page.evaluate(async () => {
-      const synth = speechSynthesis;
-      if (!synth || typeof SpeechSynthesisUtterance !== "function") return { started: false, completed: false, error: "unavailable" };
-      if (!synth.getVoices().length) await new Promise((resolve) => { const timer = setTimeout(resolve, 1000); synth.addEventListener("voiceschanged", () => { clearTimeout(timer); resolve(); }, { once: true }); });
-      synth.cancel();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      return await new Promise((resolve) => {
-        const utterance = new SpeechSynthesisUtterance("Sensefield emergency voice test.");
-        utterance.volume = 1;
-        let started = false;
-        const timer = setTimeout(() => resolve({ started, completed: false, error: "timeout", voices: synth.getVoices().length }), 8000);
-        utterance.onstart = () => { started = true; };
-        utterance.onend = () => { clearTimeout(timer); resolve({ started: true, completed: true, error: "", voices: synth.getVoices().length }); };
-        utterance.onerror = (event) => { clearTimeout(timer); resolve({ started, completed: false, error: event.error || "speech_error", voices: synth.getVoices().length }); };
-        synth.speak(utterance);
-      });
-    });
-  } finally {
-    await browser.close();
-  }
+  if (!localAudio) throw new Error("Neural voice audio generation did not complete.");
 }
 
 async function conversation() {

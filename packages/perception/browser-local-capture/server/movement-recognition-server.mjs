@@ -178,7 +178,7 @@ export function createMovementRecognitionServer(options = {}) {
         const result = await visualCompanionSpeakResponseForRequest(body, options.env, options);
         writeProviderResult(response, result);
       } catch {
-        writeJson(response, 200, { ok: false, engine: "browser_speech_fallback", code: "local_voice_unavailable", audio_duration_ms: 0, time_to_first_audio_ms: 0, contains_raw_media: false });
+        writeJson(response, 200, { ok: false, engine: "unavailable", code: "local_voice_unavailable", voice_status: "Voice unavailable", audio_duration_ms: 0, time_to_first_audio_ms: 0, contains_raw_media: false });
       }
       return;
     }

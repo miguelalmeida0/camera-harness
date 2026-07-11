@@ -1,5 +1,4 @@
 const timerHandles = new Map();
-const voiceInitializationWaited = new WeakSet();
 
 export const AUTOMATION_RISK_TIERS = Object.freeze({
   speak_phrase: 0,
@@ -93,82 +92,12 @@ export async function executeLocalAutomationAction(input = {}, fallbackContext =
 }
 
 async function speakPhrase(config, context) {
-  const synth = context.speechSynthesis || globalThis.speechSynthesis;
-  const Utterance = context.SpeechSynthesisUtterance || globalThis.SpeechSynthesisUtterance;
-  if (typeof synth?.speak !== "function" || typeof Utterance !== "function") {
-    throw automationError("Voice unavailable", "voice_unavailable");
-  }
   const phrase = String(config?.text ?? config?.phrase ?? config?.value ?? "").trim().slice(0, 180);
   if (!phrase) throw automationError("Speech phrase missing", "speech_phrase_missing");
-  await waitForVoicesOnce(synth, context);
-  const utterance = new Utterance(phrase);
-  const setTimer = context.setTimeout || globalThis.setTimeout;
-  const clearTimer = context.clearTimeout || globalThis.clearTimeout;
-  const speechStarted = new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId != null) clearTimer?.(timeoutId);
-      callback();
-    };
-    const timeoutId = typeof setTimer === "function"
-      ? setTimer(() => finish(() => reject(automationError("Voice did not start", "speech_not_started"))), Math.max(250, Number(context.speechStartTimeoutMs || 3000)))
-      : null;
-    utterance.onstart = () => {
-      context.onSpeechStart?.(phrase);
-      finish(() => resolve("started"));
-    };
-    utterance.onend = () => {
-      context.onSpeechEnd?.(phrase);
-      finish(() => resolve("completed"));
-    };
-    utterance.onerror = () => {
-      context.onSpeechError?.(phrase);
-      finish(() => reject(automationError("Voice unavailable", "voice_unavailable")));
-    };
-  });
-  synth.cancel?.();
-  await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-  try {
-    synth.speak(utterance);
-  } catch {
-    throw automationError("Voice unavailable", "voice_unavailable");
-  }
-  await speechStarted;
+  if (typeof context.speakPhrase !== "function") throw automationError("Voice unavailable", "voice_unavailable");
+  const outcome = await context.speakPhrase(phrase);
+  if (outcome?.ok === false) throw automationError("Voice unavailable", "voice_unavailable");
   return { safe_message: "Configured phrase spoken." };
-}
-
-async function waitForVoicesOnce(synth, context) {
-  if (typeof synth?.getVoices !== "function" || voiceInitializationWaited.has(synth)) return;
-  if (synth.getVoices().length > 0) {
-    voiceInitializationWaited.add(synth);
-    return;
-  }
-  voiceInitializationWaited.add(synth);
-  const setTimer = context.setTimeout || globalThis.setTimeout;
-  const clearTimer = context.clearTimeout || globalThis.clearTimeout;
-  await new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      synth.removeEventListener?.("voiceschanged", finish);
-      if (timeoutId != null) clearTimer?.(timeoutId);
-      resolve();
-    };
-    const timeoutId = typeof setTimer === "function"
-      ? setTimer(finish, Math.max(50, Number(context.voiceLoadTimeoutMs || 500)))
-      : null;
-    if (typeof synth.addEventListener === "function") synth.addEventListener("voiceschanged", finish, { once: true });
-    else if ("onvoiceschanged" in synth) {
-      const previous = synth.onvoiceschanged;
-      synth.onvoiceschanged = (event) => {
-        if (typeof previous === "function") previous.call(synth, event);
-        finish();
-      };
-    } else finish();
-  });
 }
 
 async function showBrowserNotification(config, runtime, context) {

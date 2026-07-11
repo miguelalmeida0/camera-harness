@@ -69,7 +69,7 @@ export function visualCompanionStaticHealth(env = process.env) {
     voice_engine: env.SENSEFIELD_VOICE_MODEL || "kokoro_82m",
     voice_model: env.SENSEFIELD_VOICE_MODEL || "kokoro_82m",
     voice_license: "Apache-2.0",
-    voice_fallback_chain: ["kokoro_82m", "browser_speechSynthesis"]
+    voice_fallback_chain: [env.SENSEFIELD_VOICE_MODEL || "kokoro_82m"]
   };
 }
 
@@ -233,7 +233,7 @@ export async function visualCompanionSpeakResponseForRequest(body = {}, env = pr
     return {
       status: response.status,
       json: {
-        ...localSpeechFallback(safeServiceError(payload) || "Natural voice unavailable — using system voice", startedAt),
+        ...localSpeechFallback(safeServiceError(payload) || "Voice unavailable", startedAt),
         ...payload,
         contains_raw_media: false
       }
@@ -560,9 +560,9 @@ function timeoutSignal(ms) {
 function localSpeechFallback(message, startedAt, code = "local_voice_unavailable") {
   return {
     ok: false,
-    engine: "browser_speech_fallback",
+    engine: "unavailable",
     code,
-    voice_status: "Natural voice unavailable — using system voice",
+    voice_status: "Voice unavailable",
     safe_error: sanitizeText(message, 240),
     audio_duration_ms: 0,
     time_to_first_audio_ms: 0,
