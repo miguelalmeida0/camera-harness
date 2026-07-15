@@ -1,0 +1,266 @@
+.sf-neural-field-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.sf-neural-field-canvas[hidden],
+.sf-neural-field-controls[hidden],
+.sf-neural-field-evidence[hidden] {
+  display: none !important;
+}
+
+.sf-neural-field-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sf-neural-field-controls[data-feedback-only="true"] .sf-neural-field-tool-selector {
+  display: none;
+}
+
+#neuralFieldRelationText {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sf-neural-field-tool-selector {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: grid;
+  width: min(286px, calc(100% - 236px));
+  min-width: 230px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(17, 18, 39, 0.84);
+  box-shadow: 0 12px 28px rgba(8, 9, 24, 0.24);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.sf-neural-field-tool-selector button {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: var(--sf-font, var(--dq-font-sans));
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--sf-motion, 160ms ease), background var(--sf-motion, 160ms ease), border-color var(--sf-motion, 160ms ease);
+}
+
+.sf-neural-field-tool-selector button[aria-pressed="true"] {
+  border-color: rgba(174, 156, 255, 0.5);
+  background: linear-gradient(145deg, rgba(103, 74, 239, 0.96), rgba(68, 74, 220, 0.96));
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(55, 43, 180, 0.3);
+}
+
+.sf-neural-field-tool-selector button:focus-visible,
+.sf-neural-field-evidence button:focus-visible {
+  outline: 3px solid rgba(216, 208, 255, 0.78);
+  outline-offset: 2px;
+}
+
+.sf-neural-field-status {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  display: inline-flex;
+  min-width: 0;
+  max-width: calc(100% - 36px);
+  min-height: 31px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 6px 11px;
+  background: rgba(17, 18, 39, 0.84);
+  box-shadow: 0 9px 24px rgba(7, 8, 22, 0.22);
+  color: #ffffff;
+  font-family: var(--sf-font, var(--dq-font-sans));
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.sf-neural-field-status > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-neural-field-status-mark {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 50%;
+  background: #8c79ff;
+  box-shadow: 0 0 10px rgba(140, 121, 255, 0.68);
+}
+
+.sf-neural-field-status[data-state="tracking-uncertain"] .sf-neural-field-status-mark,
+.sf-neural-field-status[data-state="neural-field-unavailable"] .sf-neural-field-status-mark {
+  background: #f4c56a;
+  box-shadow: none;
+}
+
+.sf-neural-field-evidence {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  display: flex;
+  width: max-content;
+  min-width: 0;
+  max-width: min(520px, calc(100% - 32px));
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(202, 191, 255, 0.42);
+  border-radius: 13px;
+  padding: 8px 9px 8px 12px;
+  background: rgba(18, 17, 39, 0.9);
+  box-shadow: 0 12px 30px rgba(7, 8, 22, 0.26);
+  color: #ffffff;
+  font-family: var(--sf-font, var(--dq-font-sans));
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+  transform: translateX(-50%);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+}
+
+.sf-neural-field-evidence > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.sf-neural-field-evidence button {
+  width: auto !important;
+  min-width: 72px !important;
+  max-width: max-content;
+  min-height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  font: 750 10px/1 var(--sf-font, var(--dq-font-sans));
+  cursor: pointer;
+}
+
+button.sf-neural-field-launcher {
+  width: 100%;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.sf-neural-field-launcher > span:last-child,
+button.sf-neural-field-launcher strong,
+button.sf-neural-field-launcher small {
+  min-width: 0;
+  max-width: 100%;
+}
+
+button.sf-neural-field-launcher strong,
+button.sf-neural-field-launcher small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+button.sf-neural-field-launcher[aria-pressed="true"] {
+  border-color: rgba(105, 76, 255, 0.38);
+  background: linear-gradient(145deg, #ffffff, rgba(239, 236, 255, 0.78));
+  box-shadow: 0 0 0 2px rgba(105, 76, 255, 0.11), var(--sf-shadow-small);
+}
+
+body.sf-neural-field-active[data-view="primary"] .sf-camera-state,
+body.sf-neural-field-active[data-view="primary"] #spatialEvidenceOverlay {
+  display: none !important;
+}
+
+body.sf-neural-field-active[data-neural-field-fixture] .sf-camera-frame .dq-camera-empty {
+  display: none !important;
+}
+
+body.sf-neural-field-active[data-view="primary"] .dq-preview-chips {
+  width: max-content;
+  min-width: 0;
+}
+
+body.sf-neural-field-active[data-view="primary"] .dq-preview-chips span {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .sf-neural-field-tool-selector {
+    top: 58px;
+    width: min(260px, calc(100% - 28px));
+    min-width: 0;
+  }
+
+  .sf-neural-field-tool-selector button {
+    min-height: 36px;
+    padding-inline: 8px;
+    font-size: 10px;
+  }
+
+  .sf-neural-field-status {
+    bottom: 88px;
+    max-width: calc(100% - 28px);
+  }
+
+  .sf-neural-field-evidence {
+    bottom: 126px;
+    display: grid;
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
+    grid-template-columns: minmax(12ch, 1fr) auto;
+    align-items: center;
+  }
+
+  .sf-neural-field-evidence button {
+    width: auto !important;
+    min-height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-neural-field-tool-selector button,
+  button.sf-neural-field-launcher {
+    transition: none !important;
+  }
+}

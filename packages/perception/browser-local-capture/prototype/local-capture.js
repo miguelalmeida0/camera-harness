@@ -3,6 +3,7 @@ import { createLocalPerceptionFrame } from "./perception/zone-motion-engine.js";
 import { normalizeStep, scoreLocalActions } from "./perception/local-action-scorer.js";
 import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
 import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
+import { mountNeuralField } from "./neural-field/neural-field-controller.js";
 import {
   analyzeSpatialWindow,
   clearSpatialTransient,
@@ -1270,6 +1271,7 @@ let lastMovementDetailsRenderKey = "";
 let lastMovementRevealResultId = "";
 let lastAutomationRenderKey = "";
 let localGestureEngine = null;
+let neuralField = null;
 let instantGestureCooldownTimer = null;
 const perceptionRuntime = {
   rafId: null,
@@ -1294,9 +1296,30 @@ if (typeof document !== "undefined") {
   if (isPrimaryView()) state.movementRecognition.autoSpeak = true;
   logBootDiagnostics();
   dom = bindDom();
+  neuralField = isPrimaryView() ? mountNeuralField({
+    canvas: document.querySelector("#neuralFieldCanvas"),
+    video: dom.preview,
+    stage: dom.cameraFrame,
+    launcher: document.querySelector("#neuralFieldLauncher"),
+    controls: document.querySelector("#neuralFieldControls"),
+    statusNode: document.querySelector("#neuralFieldStatus"),
+    evidenceNode: document.querySelector("#neuralFieldEvidence"),
+    evidenceText: document.querySelector("#neuralFieldEvidenceText"),
+    dismissEvidence: document.querySelector("#dismissNeuralFieldEvidence"),
+    relationText: document.querySelector("#neuralFieldRelationText"),
+    isCameraActive: () => state.cameraReady === true,
+    testMode: sensefieldTestModeEnabled(),
+    fixture: new URLSearchParams(String(globalThis.location?.search || "")).get("neural-field-fixture") || "",
+    onActiveChange: (active) => {
+      if (active && state.spatialExperience?.lastResult?.ok) neuralField?.ingestSpatialResult(state.spatialExperience.lastResult);
+      syncInstantGestureEngine();
+      render();
+    }
+  }) : null;
   buildCalibrationForm(dom, state);
   bindEvents(dom);
   bindPersistentObservationVisibility();
+  globalThis.addEventListener?.("pagehide", () => neuralField?.dispose(), { once: true });
   render();
   refreshCloudUsageStatus(state);
   installP0RuntimeTestHook();
@@ -1343,6 +1366,8 @@ function installSensefieldRuntimeTestBridge() {
       current_response_is_spatial: state.spatialExperience?.currentResponseIsSpatial === true,
       contains_raw_media: false
     }),
+    getNeuralFieldSnapshot: () => copy(neuralField?.getSnapshot?.() || { active: false, running: false, disposed: true }),
+    getNeuralFieldMetrics: () => copy(neuralField?.getMetrics?.() || { fps: 0, p95RenderMs: 0, pathPointCount: 0, canvasMemoryBytes: 0, labelLayoutMs: 0, relationUpdateMs: 0, disposed: true }),
     getResourceCounts: () => copy({
       ...sensefieldTestRuntime.resourceCounts,
       active_media_tracks: mediaTrackSnapshot().filter((track) => track.readyState !== "ended").length,
@@ -2049,6 +2074,10 @@ function openPrimarySavedAction() {
 }
 
 function handlePrimaryAction() {
+  if (neuralField?.isActive()) {
+    neuralField.exit();
+    return;
+  }
   if (state.interactionState.sessionActive || state.realtimeSession.state === "active") {
     void endInteractionSession(state);
     return;
@@ -6480,12 +6509,13 @@ function syncInstantGestureEngine() {
     && recipe.consent?.run_instantly === true).length;
   const instantRequested = runtime.userEnabled === true;
   const trainerRequested = state.customSkillWizard?.open === true && state.customSkillDraft != null;
+  const neuralFieldRequested = neuralField?.isActive() === true;
   const primaryConversation = isPrimaryView() && state.interactionState?.mode === "conversation";
-  const engineRequested = (instantRequested || trainerRequested)
+  const engineRequested = (instantRequested || trainerRequested || neuralFieldRequested)
     && runtime.cameraActive
     && runtime.documentVisible
     && Boolean(dom?.preview)
-    && !primaryConversation;
+    && (!primaryConversation || neuralFieldRequested);
   if (!engineRequested) {
     stopInstantGestureEngine(runtime.userEnabled && !runtime.cameraActive ? "waiting_camera" : runtime.userEnabled ? "starting_inference" : "off");
     return;
@@ -6495,6 +6525,7 @@ function syncInstantGestureEngine() {
     numHands: 2,
     compatibilityMaxFps: 6,
     onStatusChange: ({ status, reason, code, mode }) => {
+      neuralField?.setTrackingAvailability({ status, available: status !== "unavailable", reason: status === "unavailable" ? "Hand tracking is unavailable." : "" });
       runtime.engineMode = mode || runtime.engineMode;
       if (code && code !== "gesture_direct_main_thread") runtime.lastErrorCode = code;
       if (reason) runtime.lastErrorMessage = String(reason);
@@ -6516,7 +6547,10 @@ function syncInstantGestureEngine() {
       }
     },
     onDiagnosticsChange: (diagnostics) => setInstantGestureDiagnostics(diagnostics),
-    onLandmarks: (frame) => handleCustomSkillLandmarksInState(state, frame),
+    onLandmarks: (frame) => {
+      neuralField?.ingestHandFrame(frame);
+      return handleCustomSkillLandmarksInState(state, frame);
+    },
     onObservation: (observation) => handleLocalGestureObservation(observation, { physicalSmokeTest: true })
   });
   if (!localGestureEngine.isRunning()) {
@@ -6903,6 +6937,7 @@ function applySpatialExperienceResult(target, spatialOutcome, answer, requestMod
   if (!result?.ok) return;
   target.spatialExperience.currentResponseIsSpatial = true;
   updateSpatialMemory(target.spatialExperience, result, answer);
+  if (target === state) neuralField?.ingestSpatialResult(result);
   presentSpatialEvidenceOverlay(target, result, requestGenerationId);
   if (target === state) {
     recordSensefieldTestEvent("spatial_result_applied", {
@@ -6918,6 +6953,10 @@ function applySpatialExperienceResult(target, spatialOutcome, answer, requestMod
 }
 
 function presentSpatialEvidenceOverlay(target, result, modeGenerationId) {
+  if (target === state && neuralField?.isActive()) {
+    dismissSpatialEvidenceOverlay(target);
+    return;
+  }
   const model = spatialOverlayModel(result);
   if (!model) return;
   dismissSpatialEvidenceOverlay(target);
@@ -9408,6 +9447,7 @@ function render() {
 function renderPrimaryView(target) {
   document.body.classList.toggle("dq-camera-live", target.cameraReady);
   dom.cameraFrame?.classList.toggle("is-live", target.cameraReady);
+  neuralField?.setCameraActive(target.cameraReady === true);
   renderSpatialEvidenceOverlay(target);
   if (dom.cameraStatusChip) dom.cameraStatusChip.textContent = target.cameraReady ? "Camera on" : "Camera off";
   renderInteractionModeSelector(target);
@@ -9435,6 +9475,10 @@ function renderPrimaryView(target) {
 function renderSpatialEvidenceOverlay(target) {
   const overlay = target.spatialExperience?.overlay;
   if (!dom.spatialEvidenceOverlay || !overlay) return;
+  if (neuralField?.isActive()) {
+    dom.spatialEvidenceOverlay.hidden = true;
+    return;
+  }
   dom.spatialEvidenceOverlay.hidden = overlay.visible !== true;
   if (!overlay.visible) return;
   const region = overlay.region;
@@ -9482,10 +9526,12 @@ function renderInteractionModeSelector(target) {
 }
 
 function primaryActionBusy(target) {
+  if (neuralField?.isActive()) return false;
   return target.cameraStartInFlight === true || ["starting", "ending"].includes(target.realtimeSession.state);
 }
 
 function primaryActionLabel(target) {
+  if (neuralField?.isActive()) return "End Neural Field";
   if (target.realtimeSession.state === "starting" || target.cameraStartInFlight) return "Starting…";
   if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) return "End observing";
   if (target.interactionState.sessionActive) return "End conversation";
