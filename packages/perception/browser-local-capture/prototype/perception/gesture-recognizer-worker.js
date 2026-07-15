@@ -6,14 +6,19 @@ import {
   extractGestureCandidates,
   mapMediaPipeGestureLabel
 } from "./local-gesture-engine.js";
+import { createHandGeometryTracker } from "./neural-field-perception.js";
 
 let recognizer = null;
 let stopped = false;
+let neuralFieldFrameInFlight = false;
+let lastNeuralFieldTimestamp = -Infinity;
+const geometryTracker = createHandGeometryTracker();
 
 self.addEventListener("message", async (event) => {
   const message = event.data || {};
   if (message.type === "init") await initializeRecognizer();
   if (message.type === "frame") await recognizeFrame(message);
+  if (message.type === "process_frame") processNeuralFieldFrame(message);
   if (message.type === "stop") stopRecognizer();
 });
 
@@ -22,8 +27,10 @@ async function initializeRecognizer() {
   self.postMessage({ type: "gesture_engine_loading" });
   try {
     const { FilesetResolver, GestureRecognizer } = await import(MEDIAPIPE_ESM_URL);
+    if (stopped) return;
     const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_ROOT);
-    recognizer = await GestureRecognizer.createFromOptions(vision, {
+    if (stopped) return;
+    const nextRecognizer = await GestureRecognizer.createFromOptions(vision, {
       baseOptions: { modelAssetPath: GESTURE_MODEL_URL },
       runningMode: "VIDEO",
       numHands: 2,
@@ -32,6 +39,11 @@ async function initializeRecognizer() {
         maxResults: 1
       }
     });
+    if (stopped) {
+      nextRecognizer?.close?.();
+      return;
+    }
+    recognizer = nextRecognizer;
     self.postMessage({ type: "gesture_engine_initialized" });
     self.postMessage({
       type: "gesture_engine_ready",
@@ -85,8 +97,76 @@ async function recognizeFrame(message) {
   }
 }
 
+function processNeuralFieldFrame(message) {
+  const frame = message.frame;
+  const timestamp = Number(message.timestamp);
+  const startedAt = performance.now();
+  try {
+    if (!frame) {
+      postNeuralFieldDrop(timestamp, "missing_frame", startedAt);
+      return;
+    }
+    if (!recognizer || stopped) {
+      postNeuralFieldDrop(timestamp, "worker_unready", startedAt);
+      return;
+    }
+    if (!Number.isFinite(timestamp) || timestamp <= lastNeuralFieldTimestamp) {
+      postNeuralFieldDrop(timestamp, "stale_timestamp", startedAt);
+      return;
+    }
+    if (neuralFieldFrameInFlight) {
+      postNeuralFieldDrop(timestamp, "worker_busy", startedAt);
+      return;
+    }
+
+    neuralFieldFrameInFlight = true;
+    lastNeuralFieldTimestamp = timestamp;
+    const result = recognizer.recognizeForVideo(frame, timestamp);
+    const normalize = geometryTracker?.process
+      || geometryTracker?.processFrame
+      || geometryTracker?.normalize
+      || geometryTracker?.normalizeFrame;
+    if (typeof normalize !== "function") throw new Error("Hand geometry tracker is unavailable.");
+    const normalized = normalize.call(geometryTracker, result, {
+      timestamp,
+      frameWidth: positiveDimension(message.frameWidth),
+      frameHeight: positiveDimension(message.frameHeight),
+      mirrored: message.mirrored === true
+    }) || {};
+    self.postMessage({
+      ...normalized,
+      type: "hand_frame",
+      timestamp,
+      hands: Array.isArray(normalized.hands) ? normalized.hands.slice(0, 2) : [],
+      processingMs: Math.max(0, performance.now() - startedAt)
+    });
+  } catch {
+    postNeuralFieldDrop(timestamp, "inference_failed", startedAt);
+  } finally {
+    neuralFieldFrameInFlight = false;
+    frame?.close?.();
+  }
+}
+
+function postNeuralFieldDrop(timestamp, reason, startedAt) {
+  self.postMessage({
+    type: "hand_frame_dropped",
+    timestamp: Number.isFinite(timestamp) ? timestamp : null,
+    reason,
+    processingMs: Math.max(0, performance.now() - startedAt)
+  });
+}
+
+function positiveDimension(value) {
+  const dimension = Number(value);
+  return Number.isFinite(dimension) && dimension > 0 ? dimension : 1;
+}
+
 function stopRecognizer() {
   stopped = true;
-  recognizer?.close?.();
+  try { recognizer?.close?.(); } catch {}
   recognizer = null;
+  neuralFieldFrameInFlight = false;
+  try { geometryTracker?.dispose?.(); } catch {}
+  self.postMessage({ type: "gesture_engine_stopped" });
 }
