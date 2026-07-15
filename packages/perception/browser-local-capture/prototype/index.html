@@ -5971,6 +5971,7 @@
         }
       }
     </style>
+    <link rel="stylesheet" href="./neural-field/neural-field.css">
   </head>
   <body>
     <main class="dq-app">
@@ -5981,6 +5982,22 @@
             <h1 id="cameraTitle" class="sr-only">Sensefield camera</h1>
             <div class="dq-camera-frame sf-camera-frame preview-wrap">
               <video id="preview" autoplay playsinline muted aria-label="Sensefield local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
+              <canvas id="neuralFieldCanvas" class="sf-neural-field-canvas" aria-hidden="true" hidden></canvas>
+              <div id="neuralFieldControls" class="sf-neural-field-controls" aria-label="Neural Field Pro" hidden>
+                <div id="neuralFieldToolSelector" class="sf-neural-field-tool-selector" role="group" aria-label="Neural Field tool">
+                  <button type="button" data-neural-field-tool="airscript" aria-pressed="true">AirScript</button>
+                  <button type="button" data-neural-field-tool="spatial-lasso" aria-pressed="false">Spatial Lasso</button>
+                </div>
+                <div id="neuralFieldStatus" class="sf-neural-field-status" role="status" aria-live="polite" aria-atomic="true">
+                  <span class="sf-neural-field-status-mark" aria-hidden="true"></span>
+                  <span id="neuralFieldStatusText">Ready</span>
+                </div>
+                <div id="neuralFieldEvidence" class="sf-neural-field-evidence" role="status" aria-live="polite" aria-atomic="true" hidden>
+                  <span id="neuralFieldEvidenceText"></span>
+                  <button id="dismissNeuralFieldEvidence" type="button" aria-label="Dismiss Neural Field message">Dismiss</button>
+                </div>
+                <p id="neuralFieldRelationText" class="sr-only" aria-live="polite" aria-atomic="true"></p>
+              </div>
               <div id="spatialEvidenceOverlay" class="sf-spatial-overlay" aria-live="polite" hidden>
                 <div id="spatialEvidenceOutline" class="sf-spatial-outline" aria-hidden="true">
                   <span id="spatialEvidenceLabel" class="sf-spatial-label"></span>
@@ -6023,10 +6040,10 @@
                 <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="box"></i></span>
                 <span><strong>Spatial Awareness</strong><small>Understand 3D space and distances.</small></span>
               </article>
-              <article class="sf-roadmap-tile">
+              <button id="neuralFieldLauncher" class="sf-roadmap-tile sf-neural-field-launcher" type="button" aria-label="Neural Field · Pro" aria-controls="neuralFieldControls" aria-pressed="false">
                 <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="hand"></i></span>
-                <span><strong>Hand Motion</strong><small>Understand gestures and fine movements.</small></span>
-              </article>
+                <span><strong>Neural Field · Pro</strong><small>AirScript and Spatial Lasso.</small></span>
+              </button>
               <article class="sf-roadmap-tile">
                 <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="languages"></i></span>
                 <span><strong>Live Translation</strong><small>Real-time translation across languages.</small></span>

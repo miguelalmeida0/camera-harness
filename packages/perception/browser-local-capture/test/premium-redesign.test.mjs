@@ -99,7 +99,9 @@ try {
     assert.equal(layout.modeVisible, true, `${viewport.width}px: mode selector is not visible`);
     assert.equal(layout.singlePrimaryCta, 1, `${viewport.width}px: expected one primary CTA`);
     assert.equal(layout.roadmapTiles, 5, `${viewport.width}px: expected five roadmap tiles`);
-    assert.equal(layout.interactiveRoadmapTiles, 0, `${viewport.width}px: roadmap tiles must remain non-interactive`);
+    assert.equal(layout.interactiveRoadmapTiles, 1, `${viewport.width}px: Neural Field must be the only roadmap launcher`);
+    assert.equal(layout.neuralFieldLauncher, "Neural Field · Pro", `${viewport.width}px: Neural Field launcher is missing`);
+    assert.equal(layout.neuralFieldLauncherTag, "BUTTON", `${viewport.width}px: Neural Field launcher must be keyboard accessible`);
     assert.ok(layout.savedActionRows <= 3, `${viewport.width}px: more than three saved actions are visible`);
     assert.ok(layout.recentMomentRows <= 3, `${viewport.width}px: more than three recent moments are visible`);
     assert.deepEqual(layout.outsideCards, [], `${viewport.width}px: cards leave the viewport`);
@@ -199,6 +201,7 @@ function layoutProbe() {
     const saved = document.querySelector('#savedActionsCard');
     const recent = document.querySelector('#recentMomentsCard');
     const roadmap = document.querySelector('#whatsNextPanel');
+    const neuralFieldLauncher = document.querySelector('#neuralFieldLauncher');
     const cards = [camera, mode, response, saved, recent, roadmap];
     const clippedText = [...document.querySelectorAll('[data-primary-view] button, [data-primary-view] strong, [data-primary-view] small, [data-primary-view] p, [data-primary-view] a')]
       .filter(visible)
@@ -211,7 +214,9 @@ function layoutProbe() {
       modeVisible: visible(mode),
       singlePrimaryCta: [...document.querySelectorAll('.sf-primary-action')].filter(visible).length,
       roadmapTiles: roadmap.querySelectorAll('.sf-roadmap-tile').length,
-      interactiveRoadmapTiles: roadmap.querySelectorAll('.sf-roadmap-tile button, .sf-roadmap-tile a, .sf-roadmap-tile [role="button"]').length,
+      interactiveRoadmapTiles: roadmap.querySelectorAll('.sf-roadmap-tile:is(button, a, [role="button"]), .sf-roadmap-tile button, .sf-roadmap-tile a, .sf-roadmap-tile [role="button"]').length,
+      neuralFieldLauncher: neuralFieldLauncher?.querySelector('strong')?.textContent.trim() || '',
+      neuralFieldLauncherTag: neuralFieldLauncher?.tagName || '',
       savedActionRows: saved.querySelectorAll('.sf-action-row').length,
       recentMomentRows: recent.querySelectorAll('.sf-moment-row').length,
       outsideCards: cards.filter((element) => !inside(element)).map((element) => element.id || element.className),
