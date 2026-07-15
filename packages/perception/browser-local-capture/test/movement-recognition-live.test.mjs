@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
@@ -30,7 +30,14 @@ if (!process.env.HF_TOKEN) {
 const fixture = loadControlFixture();
 const bare = await runBareHuggingFaceControlCall(fixture);
 if (bare.status === "pass") await runMovementPromptControlCall(fixture, bare.requestedModel);
-const helper = await runProviderHelperEquivalenceCheck(fixture);
+mkdirSync(resolve(".darkquest"), { recursive: true });
+const helperUsageRoot = mkdtempSync(resolve(".darkquest/live-hf-usage-"));
+let helper;
+try {
+  helper = await runProviderHelperEquivalenceCheck(fixture, resolve(helperUsageRoot, "usage.json"));
+} finally {
+  rmSync(helperUsageRoot, { recursive: true, force: true });
+}
 if (helper.status === "busy") {
   console.log(`LIVE_REACHABLE_BUT_BUSY candidates=${VLM_CANDIDATES.length}`);
   process.exit(0);
@@ -131,7 +138,7 @@ async function runMovementPromptControlCall(fixture, requestedModel = CONTROL_MO
   return normalized;
 }
 
-async function runProviderHelperEquivalenceCheck(fixture) {
+async function runProviderHelperEquivalenceCheck(fixture, usageStatePath) {
   const response = await movementRecognitionResponseForRequest({
     frames: [{ data_uri: fixture.dataUri, captured_at_ms: Date.now() }],
     allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
@@ -139,7 +146,8 @@ async function runProviderHelperEquivalenceCheck(fixture) {
     zone_metadata: {}
   }, {
     ...process.env,
-    MOVEMENT_RECOGNITION_MODEL_CANDIDATES: VLM_CANDIDATES.join(",")
+    MOVEMENT_RECOGNITION_MODEL_CANDIDATES: VLM_CANDIDATES.join(","),
+    HF_USAGE_STATE_PATH: usageStatePath
   });
 
   if (response.status === 200 && response.json.movement === "AI provider is busy — try again in a moment.") {

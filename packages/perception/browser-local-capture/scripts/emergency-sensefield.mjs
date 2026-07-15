@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { createMovementRecognitionServer } from "../server/movement-recognition-server.mjs";
 import { movementRecognitionHealth, movementRecognitionResponseForRequest } from "../server/movement-recognition-provider.mjs";
@@ -7,7 +8,10 @@ import { visualCompanionHealth, visualCompanionObserveResponseForRequest, visual
 import { createEmergencyRuntimeController } from "../prototype/emergency-runtime-controller.js";
 
 const mode = process.argv[2] || "doctor";
-const env = loadProjectEnv();
+mkdirSync(resolve(".darkquest"), { recursive: true });
+const emergencyUsageRoot = mkdtempSync(resolve(".darkquest/emergency-hf-usage-"));
+const env = { ...loadProjectEnv(), HF_USAGE_STATE_PATH: resolve(emergencyUsageRoot, "usage.json") };
+process.on("exit", () => rmSync(emergencyUsageRoot, { recursive: true, force: true }));
 
 try {
   if (mode === "doctor") await doctor();

@@ -175,7 +175,7 @@ async function maybeHandleVisualCompanionApi(request, response, url) {
         suggested_actions: [],
         evidence: ["bad_request"],
         provider: "local_visual_companion",
-        model: process.env.VISUAL_COMPANION_MODEL || "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+        model: process.env.VISUAL_COMPANION_MODEL || "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
         latency_ms: 0,
         contains_raw_media: false
       });

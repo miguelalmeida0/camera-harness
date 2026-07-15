@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -21,14 +22,37 @@ except Exception as voice_import_error:  # pragma: no cover - exercised by runti
 else:
     VOICE_IMPORT_ERROR = ""
 
-MODEL_ID = os.getenv("VISUAL_COMPANION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
+def load_project_env(path: str = ".env") -> None:
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+
+
+load_project_env()
+
+MODEL_ID = os.getenv("VISUAL_COMPANION_MODEL", "HuggingFaceTB/SmolVLM2-500M-Video-Instruct")
 MODEL_REVISION = os.getenv("VISUAL_COMPANION_MODEL_REVISION", "main")
-DEFAULT_MODEL_DIR = os.path.abspath(os.path.join(os.getcwd(), ".models", "visual-companion", "smolvlm2-2.2b-instruct"))
+DEFAULT_MODEL_DIR = os.path.abspath(os.path.join(os.getcwd(), ".models", "visual-companion", "smolvlm2-500m-video-instruct"))
 MODEL_DIR = os.getenv("VISUAL_COMPANION_MODEL_DIR", DEFAULT_MODEL_DIR)
 MAX_FRAMES = int(os.getenv("VISUAL_COMPANION_MAX_FRAMES", "8"))
 MAX_DIMENSION = int(os.getenv("VISUAL_COMPANION_MAX_DIMENSION", "384"))
 MAX_IMAGE_BYTES = int(os.getenv("VISUAL_COMPANION_MAX_IMAGE_BYTES", str(512 * 1024)))
 MAX_NEW_TOKENS = int(os.getenv("VISUAL_COMPANION_MAX_NEW_TOKENS", "24"))
+MAX_GENERATION_SECONDS = float(os.getenv("VISUAL_COMPANION_MAX_GENERATION_SECONDS", "30"))
+REQUESTED_DEVICE = os.getenv("VISUAL_COMPANION_DEVICE", "auto").strip().lower()
+INFERENCE_LOCK = Lock()
 
 app = FastAPI(title="DarkQuest Visual Companion", version="1.0")
 voice_runtime = SensefieldVoiceRuntime() if SensefieldVoiceRuntime else None
@@ -135,6 +159,9 @@ def observe(payload: ObserveInput):
     if len(payload.frames) > MAX_FRAMES:
         raise HTTPException(status_code=413, detail="Too many frames supplied.")
     images: List[Image.Image] = []
+    inference_acquired = INFERENCE_LOCK.acquire(blocking=False)
+    if not inference_acquired:
+        raise HTTPException(status_code=409, detail="inference_busy")
     try:
         for frame in payload.frames:
             images.append(decode_frame(frame))
@@ -152,6 +179,7 @@ def observe(payload: ObserveInput):
         for image in images:
             image.close()
         images.clear()
+        INFERENCE_LOCK.release()
 
 
 @app.post("/speak")
@@ -241,7 +269,13 @@ def ensure_model_loaded(lazy: bool):
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
         source = MODEL_DIR if local_model_dir_ready(MODEL_DIR) else MODEL_ID
-        if torch.cuda.is_available():
+        if REQUESTED_DEVICE == "cpu":
+            device = "cpu"
+        elif REQUESTED_DEVICE == "cuda" and torch.cuda.is_available():
+            device = "cuda"
+        elif REQUESTED_DEVICE == "mps" and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
             device = "cuda"
         elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             device = "mps"
@@ -299,7 +333,12 @@ def run_model(images: List[Image.Image], payload: ObserveInput) -> str:
     )
     inputs = {key: value.to(runtime["device"]) if hasattr(value, "to") else value for key, value in inputs.items()}
     with torch.inference_mode():
-        generated = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False)
+        generated = model.generate(
+            **inputs,
+            max_new_tokens=MAX_NEW_TOKENS,
+            max_time=MAX_GENERATION_SECONDS,
+            do_sample=False,
+        )
     input_length = inputs["input_ids"].shape[-1]
     decoded = processor.batch_decode(generated[:, input_length:], skip_special_tokens=True)[0]
     return decoded
@@ -351,34 +390,19 @@ Frames:
 
 Rules:
 - Compare the ordered frames and determine what visibly changed.
-- Identify which visible body part moved and whether a recognizable hand gesture occurred.
-- Identify whether an object was raised, lowered, picked up, placed down, or moved.
-- Describe the most visible movement, object, or change in one short sentence.
-- Cite the one-based frame numbers that support the conclusion.
-- For uncertainty, describe partial visible evidence instead of using a generic failure sentence.
+- Choose exactly one label: thumbs_up, thumbs_down, peace_sign, pointing_up, open_palm, closed_fist, i_love_you, heart, object_moved, body_moved, no_change, uncertain.
+- Describe the most visible movement or gesture in at most six words.
 - Do not answer unasked questions.
 - Do not identify the person.
 - Do not infer sensitive attributes.
-- Return only JSON.
-
-JSON shape:
-{{
-  "meaningful_change": true,
-  "movement_label": "peace_sign",
-  "response_type": "narrate|uncertain",
-  "observation_summary": "...",
-  "spoken_response": "...",
-  "confidence": 0.5,
-  "uncertainty": false,
-  "question": "",
-  "suggested_actions": [],
-  "evidence": ["..."],
-  "evidence_frames": [1, 3, 5],
-  "no_meaningful_change": false
-}}"""
+- Return only: label|short sentence
+- Example: peace_sign|A peace sign was shown."""
 
 
 def normalize_model_output(text: str, started: float, payload: Optional[ObserveInput] = None) -> Dict[str, Any]:
+    compact = parse_compact_observation(text, started, payload)
+    if compact:
+        return compact
     parsed = extract_json(text)
     if not parsed:
         fallback = safe_textual_model_output(text)
@@ -421,18 +445,27 @@ def normalize_model_output(text: str, started: float, payload: Optional[ObserveI
         parsed["uncertainty"] = False
         parsed["spoken_response"] = spoken if spoken and not is_uncertain_text(spoken) else summary
         parsed["observation_summary"] = summary
+    clean_summary = summary or "I saw a visible change."
+    clean_spoken = spoken or clean_summary
+    movement_label = inferred_movement_label(parsed.get("movement_label"), f"{clean_summary} {clean_spoken}")
+    gesture_tags = [movement_label] if movement_label in {
+        "thumbs_up", "thumbs_down", "peace_sign", "pointing_up", "open_palm",
+        "closed_fist", "i_love_you", "heart"
+    } else []
     return {
         "schema_version": "contextual-visual-response.v1",
         "response_type": response_type,
-        "observation_summary": str(parsed.get("observation_summary") or "Visible change observed.")[:500],
-        "spoken_response": str(parsed.get("spoken_response") or "I saw a visible change.")[:500],
+        "observation_summary": clean_summary[:500],
+        "spoken_response": clean_spoken[:500],
         "confidence": confidence,
         "uncertainty": bool(parsed.get("uncertainty") or response_type == "uncertain"),
         "question": str(parsed.get("question") or "")[:240],
         "suggested_actions": parsed.get("suggested_actions") if isinstance(parsed.get("suggested_actions"), list) else [],
         "evidence": parsed.get("evidence") if isinstance(parsed.get("evidence"), list) else [],
         "meaningful_change": bool(parsed.get("meaningful_change", not parsed.get("no_meaningful_change", False))),
-        "movement_label": normalize_movement_label(parsed.get("movement_label")),
+        "movement_label": movement_label,
+        "movement_key": movement_label,
+        "gesture_tags": gesture_tags,
         "evidence_frames": normalize_evidence_frames(parsed.get("evidence_frames"), len(payload.frames) if payload else MAX_FRAMES),
         "provider": "local_visual_companion",
         "model": MODEL_ID,
@@ -453,6 +486,26 @@ def is_uncertain_text(text: str) -> bool:
 def normalize_movement_label(value: Any) -> Optional[str]:
     label = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
     return label[:80] or None
+
+
+def inferred_movement_label(value: Any, text: str) -> Optional[str]:
+    label = normalize_movement_label(value)
+    aliases = (
+        (r"\bthumbs?\s+up\b", "thumbs_up"),
+        (r"\bthumbs?\s+down\b", "thumbs_down"),
+        (r"\b(?:peace|victory|v)\s+sign\b", "peace_sign"),
+        (r"\bpoint(?:ing|ed)?\s+up\b", "pointing_up"),
+        (r"\bopen\s+palm\b", "open_palm"),
+        (r"\bclosed\s+fist\b", "closed_fist"),
+        (r"\bi\s+love\s+you\b", "i_love_you"),
+        (r"\bheart(?:\s+shape|\s+gesture)?\b", "heart"),
+    )
+    if label not in {None, "visible_change", "movement", "gesture"}:
+        return label
+    for pattern, candidate in aliases:
+        if re.search(pattern, str(text or ""), re.I):
+            return candidate
+    return label
 
 
 def normalize_evidence_frames(value: Any, frame_count: int) -> List[int]:
@@ -517,9 +570,66 @@ def safe_textual_model_output(text: str) -> str:
         return ""
     if re.search(r"\b(identity|identified as|age|race|ethnicity|religion|diagnos|depressed|angry|attractive|gender)\b", value, re.I):
         return ""
+    incomplete_tail = re.match(r"^(.*[.!?])\s+([^.!?]+)$", value)
+    if incomplete_tail and len(re.findall(r"[A-Za-z0-9]+", incomplete_tail.group(2))) < 3:
+        value = incomplete_tail.group(1).strip()
+    sentences = re.findall(r"[^.!?]+[.!?]", value)
+    if len(sentences) > 1 and len(re.findall(r"[A-Za-z0-9]+", sentences[-1])) < 3:
+        value = " ".join(sentence.strip() for sentence in sentences[:-1]).strip()
+    words = re.findall(r"[A-Za-z0-9]+", value)
+    if len(words) < 3 or (len(words) <= 4 and words[-1].lower() in {"a", "an", "the", "and", "or", "with", "was", "is"}):
+        return ""
     if len(value) > 500:
         value = value[:497].rstrip() + "..."
     return value if value.endswith((".", "!", "?")) else value + "."
+
+
+def parse_compact_observation(text: str, started: float, payload: Optional[ObserveInput]) -> Optional[Dict[str, Any]]:
+    if not payload or payload.interaction_mode != "observing":
+        return None
+    value = re.sub(r"```|\s+", " ", str(text or "")).strip()
+    if "|" not in value:
+        return None
+    raw_label, raw_sentence = value.split("|", 1)
+    label = normalize_movement_label(raw_label)
+    allowed = {
+        "thumbs_up", "thumbs_down", "peace_sign", "pointing_up", "open_palm",
+        "closed_fist", "i_love_you", "heart", "object_moved", "body_moved",
+        "no_change", "uncertain"
+    }
+    sentence = safe_textual_model_output(raw_sentence)
+    if label not in allowed or not sentence:
+        return None
+    uncertain = label in {"no_change", "uncertain"}
+    gesture_tags = [label] if label in {
+        "thumbs_up", "thumbs_down", "peace_sign", "pointing_up", "open_palm",
+        "closed_fist", "i_love_you", "heart"
+    } else []
+    return {
+        "schema_version": "contextual-visual-response.v1",
+        "response_type": "uncertain" if uncertain else "narrate",
+        "observation_summary": sentence,
+        "spoken_response": sentence,
+        "confidence": 0.45 if uncertain else 0.68,
+        "uncertainty": uncertain,
+        "question": "",
+        "suggested_actions": [],
+        "evidence": [f"ordered_frames_1_to_{len(payload.frames)}"],
+        "meaningful_change": not uncertain,
+        "movement_label": None if uncertain else label,
+        "movement_key": label,
+        "gesture_tags": gesture_tags,
+        "evidence_frames": list(range(1, len(payload.frames) + 1)),
+        "provider": "local_visual_companion",
+        "model": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+        "device": runtime["device"],
+        "latency_ms": int((time.time() - started) * 1000),
+        "time_to_first_token_ms": 0,
+        "time_to_first_audio_ms": 0,
+        "response_source": "local_vlm",
+        "contains_raw_media": False,
+    }
 
 
 def main():

@@ -5,9 +5,9 @@ import { spawnSync } from "node:child_process";
 
 const serviceRoot = resolve("services/visual-companion");
 const manifestPath = resolve("runs/visual-companion-setup-latest.json");
-const model = process.env.VISUAL_COMPANION_MODEL || "HuggingFaceTB/SmolVLM2-2.2B-Instruct";
+const model = process.env.VISUAL_COMPANION_MODEL || "HuggingFaceTB/SmolVLM2-500M-Video-Instruct";
 const revision = process.env.VISUAL_COMPANION_MODEL_REVISION || "main";
-const modelDir = process.env.VISUAL_COMPANION_MODEL_DIR || resolve(".models/visual-companion/smolvlm2-2.2b-instruct");
+const modelDir = process.env.VISUAL_COMPANION_MODEL_DIR || resolve(".models/visual-companion/smolvlm2-500m-video-instruct");
 const downloadRequested = process.env.DARKQUEST_VISUAL_DOWNLOAD === "1";
 
 mkdirSync(resolve("runs"), { recursive: true });

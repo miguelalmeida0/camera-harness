@@ -19,6 +19,7 @@ export const DEFAULT_MOVEMENT_RECOGNITION_CONFIG = {
   mode: "vlm_frames",
   maxFrames: 4,
   windowMs: 1500,
+  providerTimeoutMs: 12000,
   endpoint: "/api/movement-recognition/analyze"
 };
 
@@ -52,6 +53,7 @@ export function loadMovementRecognitionConfig(env = process.env) {
     maxRequestsPerMonth: positiveInt(env.HF_MAX_REQUESTS_PER_MONTH, 100),
     maxConcurrentRequests: positiveInt(env.HF_MAX_CONCURRENT_REQUESTS, 1),
     maxProviderRetries: nonNegativeInt(env.HF_MAX_PROVIDER_RETRIES, 1),
+    providerTimeoutMs: clampInt(env.HF_PROVIDER_TIMEOUT_MS, 1000, 30000, DEFAULT_MOVEMENT_RECOGNITION_CONFIG.providerTimeoutMs),
     requestCooldownMs: nonNegativeInt(env.HF_REQUEST_COOLDOWN_MS, 5000),
     maxFramesPerRequest: positiveInt(env.HF_MAX_FRAMES_PER_REQUEST, 6),
     maxWindowMs: positiveInt(env.HF_MAX_WINDOW_MS, 4000),
@@ -79,7 +81,8 @@ export function movementRecognitionHealth(env = process.env) {
       day: config.maxRequestsPerDay,
       month: config.maxRequestsPerMonth,
       concurrent: config.maxConcurrentRequests,
-      retries: config.maxProviderRetries
+      retries: config.maxProviderRetries,
+      provider_timeout_ms: config.providerTimeoutMs
     },
     failed_candidates: [...failedMovementRecognitionCandidates]
   };
@@ -300,6 +303,7 @@ export async function callHuggingFaceVlmFrames(input, config, options = {}) {
     prompt,
     frames: input.frames,
     mode: config.mode,
+    timeoutMs: config.providerTimeoutMs,
     fetch: options.fetch
   });
   const promptVersion = input.interactionMode === "conversation" || input.requestedResponseMode === "conversation" || input.userQuestion
@@ -317,7 +321,7 @@ export async function callHuggingFaceVlmFrames(input, config, options = {}) {
   };
 }
 
-export async function callHuggingFaceRouter({ model, token, cloudEnabled = true, prompt, frames = [], mode = "vlm_frames", fetch: fetchImpl } = {}) {
+export async function callHuggingFaceRouter({ model, token, cloudEnabled = true, prompt, frames = [], mode = "vlm_frames", timeoutMs = DEFAULT_MOVEMENT_RECOGNITION_CONFIG.providerTimeoutMs, fetch: fetchImpl } = {}) {
   if (cloudEnabled === false) {
     const error = new Error(HF_USAGE_LIMIT_MESSAGES.hf_cloud_disabled);
     error.usageLimitCode = "hf_cloud_disabled";
@@ -326,21 +330,47 @@ export async function callHuggingFaceRouter({ model, token, cloudEnabled = true,
   const send = fetchImpl || globalThis.fetch;
   if (typeof send !== "function") throw new Error("No server fetch implementation is available.");
   const body = buildHuggingFaceVlmRequestBody({ model, prompt, frames });
-  const response = await send(ROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
+  const controller = new AbortController();
+  const diagnostics = routerRequestDiagnostics(body, { mode, tokenPresent: Boolean(token) });
+  const timeoutError = hfRouterError({
+    message: "Hugging Face router request timed out.",
+    status: 504,
+    body: "provider_timeout",
+    diagnostics
   });
+  let timer = null;
+  let response;
+  try {
+    response = await Promise.race([
+      send(ROUTER_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(timeoutError);
+        }, clampInt(timeoutMs, 1000, 30000, DEFAULT_MOVEMENT_RECOGNITION_CONFIG.providerTimeoutMs));
+      })
+    ]);
+  } catch (error) {
+    if (controller.signal.aborted && error !== timeoutError) throw timeoutError;
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!response.ok) {
     const hfResponseBody = await readResponseBody(response);
     throw hfRouterError({
       message: `Hugging Face router returned ${response.status}: ${hfResponseBody}`,
       status: response.status,
       body: hfResponseBody,
-      diagnostics: routerRequestDiagnostics(body, { mode, tokenPresent: Boolean(token) })
+      diagnostics
     });
   }
   const payload = await response.json();
@@ -350,7 +380,7 @@ export async function callHuggingFaceRouter({ model, token, cloudEnabled = true,
       message: `Hugging Face router returned provider error: ${hfResponseBody}`,
       status: response.status,
       body: hfResponseBody,
-      diagnostics: routerRequestDiagnostics(body, { mode, tokenPresent: Boolean(token) })
+      diagnostics
     });
   }
   return payload;

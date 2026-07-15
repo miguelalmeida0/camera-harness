@@ -65,11 +65,11 @@ export const VISUAL_COMPANION_CLIENT_CONFIG = {
   cancelEndpoint: "/api/visual-companion/cancel",
   provider: "local_visual_companion",
   mode: "local_smolvlm_frames",
-  maxFrames: 6,
-  windowMs: 2600,
+  maxFrames: 4,
+  windowMs: 2200,
   frameMimeType: "image/jpeg",
   frameQuality: 0.62,
-  frameWidth: 384,
+  frameWidth: 256,
   mirrorFramesToPreview: true
 };
 export const VISUAL_COMPANION_ALLOWED_ACTIONS = ["start_timer", "speak_phrase", "browser_notification", "increment_counter", "append_activity_log"];
@@ -541,11 +541,12 @@ export const LOCAL_MOTION = {
 export const PERSISTENT_OBSERVATION = {
   cooldownMs: 0,
   duplicateWindowMs: 45000,
+  neutralResetMs: 750,
   changeThreshold: 0.06,
   queuedEventLimit: 1,
-  minTriggerIntervalMs: 0,
-  maxFrames: 6,
-  windowMs: 3000
+  minTriggerIntervalMs: 4000,
+  maxFrames: 4,
+  windowMs: 2200
 };
 
 export const REALTIME_AUDIO_CONSTRAINTS = {
@@ -773,6 +774,12 @@ export function createInstantGestureRuntimeState() {
     }
   });
   return runtime;
+}
+
+export function instantGesturesEnabledFromRecipes(recipes = []) {
+  return (Array.isArray(recipes) ? recipes : []).some((recipe) => recipe.enabled === true
+    && recipe.execution_mode === "instant_local_gesture"
+    && recipe.consent?.run_instantly === true);
 }
 
 function createCustomSkillWizardState() {
@@ -1132,7 +1139,8 @@ export function createInitialState() {
         lastSemanticKey: "",
         queuedEvent: null,
         droppedDuplicateCount: 0,
-        neutralSinceMs: 0
+        neutralSinceMs: 0,
+        awaitingNeutral: false
       }
     },
     interactionState: createInteractionState(),
@@ -1223,6 +1231,7 @@ export function createInitialState() {
   };
   target.appState = target.emergencyRuntimeController.snapshot();
   target.realtimeSession.memory = target.conversationMemory;
+  target.instantGestureRuntimeState.userEnabled = instantGesturesEnabledFromRecipes(target.automation.recipes);
   syncRealtimeSessionFromInteraction(target);
   attachRuntimeCompatibilityAliases(target);
   return target;
@@ -2190,6 +2199,10 @@ export async function startRealtimeObserving(target = state, options = {}) {
   target.movementRecognition.persistent.pausedForVisibility = false;
   target.movementRecognition.persistent.state = "starting";
   target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.persistent.lastTriggerAtMs = 0;
+  target.movementRecognition.persistent.lastSceneFingerprint = "";
+  target.movementRecognition.persistent.neutralSinceMs = 0;
+  target.movementRecognition.persistent.awaitingNeutral = false;
   target.movementRecognition.autoSpeak = true;
   target.errorMessage = "";
   target.statusMessage = "Starting observing…";
@@ -2284,9 +2297,12 @@ async function requestRealtimeMicrophoneMedia(options = {}) {
   });
 }
 
-function withTimeout(promise, timeoutMs, message) {
+function withTimeout(promise, timeoutMs, message, onTimeout = null) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), Math.max(1000, Number(timeoutMs || 0)));
+    const timer = setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(message));
+    }, Math.max(1000, Number(timeoutMs || 0)));
     Promise.resolve(promise).then(
       (value) => {
         clearTimeout(timer);
@@ -2344,6 +2360,8 @@ export async function endInteractionSession(target = state, options = {}) {
   target.movementRecognition.persistent.state = "inactive";
   target.movementRecognition.persistent.queuedEvent = null;
   target.movementRecognition.persistent.cooldownUntilMs = 0;
+  target.movementRecognition.persistent.neutralSinceMs = 0;
+  target.movementRecognition.persistent.awaitingNeutral = false;
   stopInstantGestureEngine("off");
   stopLocalPerception();
   stopRealtimeMediaTracks(target);
@@ -2406,6 +2424,10 @@ export async function switchInteractionMode(target = state, mode = "conversation
     target.movementRecognition.persistent.active = true;
     target.movementRecognition.persistent.state = "active";
     target.movementRecognition.persistent.queuedEvent = null;
+    target.movementRecognition.persistent.lastTriggerAtMs = 0;
+    target.movementRecognition.persistent.lastSceneFingerprint = "";
+    target.movementRecognition.persistent.neutralSinceMs = 0;
+    target.movementRecognition.persistent.awaitingNeutral = false;
     startLocalPerception();
     await primeObservationBaseline(target);
     syncInstantGestureEngine();
@@ -2437,6 +2459,8 @@ export async function switchInteractionMode(target = state, mode = "conversation
   target.movementRecognition.persistent.active = false;
   target.movementRecognition.persistent.state = "inactive";
   target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.persistent.neutralSinceMs = 0;
+  target.movementRecognition.persistent.awaitingNeutral = false;
   stopInstantGestureEngine("off");
   startLocalPerception();
   try {
@@ -2840,6 +2864,10 @@ export async function startObserving(target = state) {
   target.movementRecognition.persistent.pausedForVisibility = typeof document !== "undefined" && document.hidden === true;
   target.movementRecognition.persistent.state = "starting";
   target.movementRecognition.persistent.queuedEvent = null;
+  target.movementRecognition.persistent.lastTriggerAtMs = 0;
+  target.movementRecognition.persistent.lastSceneFingerprint = "";
+  target.movementRecognition.persistent.neutralSinceMs = 0;
+  target.movementRecognition.persistent.awaitingNeutral = false;
   target.movementRecognition.autoSpeak = true;
   target.errorMessage = "";
   render();
@@ -2862,6 +2890,8 @@ export function stopObserving(target = state) {
   target.movementRecognition.persistent.state = target.errorMessage ? "error" : "inactive";
   target.movementRecognition.persistent.queuedEvent = null;
   target.movementRecognition.persistent.cooldownUntilMs = 0;
+  target.movementRecognition.persistent.neutralSinceMs = 0;
+  target.movementRecognition.persistent.awaitingNeutral = false;
   stopCamera();
   return target;
 }
@@ -2919,6 +2949,8 @@ function stopCamera() {
     state.movementRecognition.persistent.state = state.errorMessage ? "error" : "inactive";
     state.movementRecognition.persistent.queuedEvent = null;
     state.movementRecognition.persistent.cooldownUntilMs = 0;
+    state.movementRecognition.persistent.neutralSinceMs = 0;
+    state.movementRecognition.persistent.awaitingNeutral = false;
   }
   stopInstantGestureEngine("off");
   stopLocalPerception();
@@ -6447,6 +6479,9 @@ export async function analyzeMovementInState(target = state, options = {}) {
   }
   target.movementRecognition.requestInFlight = true;
   target.movementRecognition.activeRequestId = requestId;
+  const RequestController = globalThis.AbortController;
+  const requestController = typeof RequestController === "function" ? new RequestController() : null;
+  target.movementRecognition.activeRequestAbortController = requestController;
   if (target.interactionState?.sessionActive) applyInteractionState(target, { inferenceInFlight: true });
   if (options.persistent) target.movementRecognition.persistent.state = "active";
   if (options.directUserTurn) void cancelVisualSpeech(target);
@@ -6476,7 +6511,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
         frames.push(await captureTransientMovementFrame(dom.preview, VISUAL_COMPANION_CLIENT_CONFIG));
       }
     }
-    const backend = await selectMovementAnalysisBackend(target);
+    const backend = await selectMovementAnalysisBackend(target, { preferCloud: true });
     if (!requestStillOwned()) return target;
     captureConfig = backend.kind === "local_visual"
       ? backend.captureConfig
@@ -6519,7 +6554,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
           memory_mode: target.visualContext.memoryMode,
           interaction_mode: requestMode,
           mode_generation_id: requestGenerationId
-        })
+        }, { signal: requestController?.signal })
       : requestMovementRecognition({
           frames,
           allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
@@ -6532,11 +6567,13 @@ export async function analyzeMovementInState(target = state, options = {}) {
           interaction_mode: requestMode,
           mode_generation_id: requestGenerationId,
           window_ms: captureConfig.windowMs
-        }, target);
+        }, target, { signal: requestController?.signal });
+    const inferenceTimeoutMs = options.inferenceTimeoutMs ?? 45000;
     const rawResult = await withTimeout(
       inferenceRequest,
-      options.inferenceTimeoutMs ?? 45000,
-      "Visual inference timed out."
+      inferenceTimeoutMs,
+      "Visual inference timed out.",
+      () => requestController?.abort?.()
     );
     if (!requestStillOwned()) return target;
     const responseSource = backend.kind === "local_visual" ? "local_vlm" : "cloud_vlm";
@@ -6602,6 +6639,17 @@ export async function analyzeMovementInState(target = state, options = {}) {
     target.latencyRecords.push(target.lastLatency);
   } catch (error) {
     if (!requestStillOwned()) return target;
+    if (error?.movement_code === "provider_busy") {
+      setMovementCaptureState(target, "idle");
+      target.movementRecognition.status = "idle";
+      target.movementRecognition.fallbackUsed = false;
+      target.movementRecognition.lastError = "";
+      target.movementRecognition.lastSafeError = "";
+      target.errorMessage = "";
+      target.statusMessage = requestMode === "observing" ? "Watching." : "Listening.";
+      if (options.persistent) target.movementRecognition.persistent.state = "active";
+      return target;
+    }
     const safeMessage = safeObservationErrorMessage(error);
     const localFallback = false;
     setMovementCaptureState(target, "error");
@@ -6628,6 +6676,9 @@ export async function analyzeMovementInState(target = state, options = {}) {
     if (ownsLegacyLock) {
       target.movementRecognition.requestInFlight = false;
       target.movementRecognition.activeRequestId = null;
+      if (target.movementRecognition.activeRequestAbortController === requestController) {
+        target.movementRecognition.activeRequestAbortController = null;
+      }
     }
     if (ownsLegacyLock && target.interactionState?.sessionActive && requestStillOwned()) {
       applyInteractionState(target, { inferenceInFlight: false });
@@ -6909,7 +6960,49 @@ async function refreshCloudUsageStatus(target = state) {
   return target.movementRecognition.usage;
 }
 
-export async function selectMovementAnalysisBackend(target = state) {
+export async function selectMovementAnalysisBackend(target = state, options = {}) {
+  if (options.preferCloud === true) {
+    let cloudError = null;
+    try {
+      const health = await ensureMovementRecognitionReady(target);
+      if (health.cloud_enabled === false || health.live_call_enabled === false) {
+        throw movementRecognitionError("Cloud AI disabled. Local features remain available.", "hf_cloud_disabled", { health });
+      }
+      target.movementRecognition.usage = normalizeCloudUsage(await requestCloudUsageStatus());
+      target.movementRecognition.usageStatus = cloudUsageStateText(target);
+      if (cloudUsageHardLimitReached(target)) {
+        const usage = target.movementRecognition.usage;
+        const code = usage.month.remaining <= 0
+          ? "hf_monthly_limit_reached"
+          : usage.day.remaining <= 0
+            ? "hf_daily_limit_reached"
+            : "hf_session_limit_reached";
+        throw movementRecognitionError("Cloud AI limit reached. Local features remain available.", code, { health });
+      }
+      return {
+        kind: "hf_cloud",
+        health,
+        captureConfig: MOVEMENT_RECOGNITION_CLIENT_CONFIG
+      };
+    } catch (error) {
+      cloudError = error;
+    }
+    try {
+      const health = await ensureVisualCompanionReady(target);
+      return {
+        kind: "local_visual",
+        health,
+        cloudError,
+        captureConfig: VISUAL_COMPANION_CLIENT_CONFIG
+      };
+    } catch (visualError) {
+      cloudError.safe_diagnostics = {
+        ...(cloudError.safe_diagnostics || {}),
+        local_visual_error: safeMovementRecognitionDiagnostics(visualError)
+      };
+      throw cloudError;
+    }
+  }
   let visualError = null;
   try {
     const health = await ensureVisualCompanionReady(target);
@@ -7033,7 +7126,7 @@ async function captureSyntheticSmokeFrame() {
   };
 }
 
-async function requestMovementRecognition(payload, target = state) {
+async function requestMovementRecognition(payload, target = state, options = {}) {
   const send = globalThis[["fet", "ch"].join("")];
   if (typeof send !== "function") throw new Error("Movement recognition endpoint is unavailable.");
   let response;
@@ -7044,7 +7137,8 @@ async function requestMovementRecognition(payload, target = state) {
         "Content-Type": "application/json",
         "X-DarkQuest-Session-Id": darkQuestSessionId()
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
   } catch (error) {
     throw movementRecognitionError("Network error while contacting movement recognition.", "network_error", { reason: error?.message ?? "fetch_failed" });
@@ -7073,7 +7167,7 @@ async function requestMovementRecognition(payload, target = state) {
   return normalizeMovementRecognitionResult(body);
 }
 
-async function requestVisualCompanionObservation(payload) {
+async function requestVisualCompanionObservation(payload, options = {}) {
   const send = globalThis[["fet", "ch"].join("")];
   if (typeof send !== "function") throw new Error("Visual companion endpoint is unavailable.");
   const endpoint = payload.interaction_mode === "conversation"
@@ -7092,7 +7186,8 @@ async function requestVisualCompanionObservation(payload) {
     response = await send(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
   } catch (error) {
     recordSensefieldTestRequest("failed", { endpoint, error: "network_error" }, { correlationId, modeGenerationId: payload.mode_generation_id });
@@ -7116,6 +7211,7 @@ async function requestVisualCompanionObservation(payload) {
 }
 
 function failureCodeForVisualCompanion(response, body = {}) {
+  if ([409, 423, 429].includes(Number(response.status))) return "provider_busy";
   const text = `${body.spoken_response ?? ""} ${body.observation_summary ?? ""}`.toLowerCase();
   if (/model not installed|not running/.test(text)) return "model_not_installed";
   if (/frame|image/.test(text)) return "invalid_image_payload";
@@ -7142,8 +7238,8 @@ function movementRecognitionResultFromVisualResponse(body = {}) {
     movement: spoken,
     spoken_response: spoken,
     short_label: body.short_label || shortLabel,
-    movement_key: normalizeMovementKey(body.movement_key || shortLabel),
-    gesture_tags: [],
+    movement_key: normalizeMovementKey(body.movement_key || body.movement_label || shortLabel),
+    gesture_tags: normalizeGestureTags(body.gesture_tags || [body.movement_key || body.movement_label]),
     confidence: clamp01(body.confidence ?? 0),
     reason: String(body.observation_summary || body.reason || spoken),
     evidence: Array.isArray(body.evidence) ? body.evidence.map(String).slice(0, 5) : [],
@@ -7502,29 +7598,53 @@ function maybeTriggerPersistentObservationFromLocalChange(target, observations, 
   const observer = target.movementRecognition.persistent;
   if (!observer.active || !target.cameraReady || observer.pausedForVisibility || (typeof document !== "undefined" && document.hidden)) return false;
   const event = persistentObservationEventFromLocalChange(observations, timestampMs);
+  const gate = updatePersistentObservationGate(observer, event, timestampMs);
   if (!event) {
-    if (!observer.neutralSinceMs) observer.neutralSinceMs = Math.round(timestampMs);
-    if (Math.round(timestampMs) - observer.neutralSinceMs >= 300) observer.lastSceneFingerprint = "";
     if (!persistentObservationBusy(target) && observer.state !== "active") observer.state = "active";
     return false;
   }
-  observer.neutralSinceMs = 0;
   observer.lastChangeScore = event.score;
-  if (persistentObservationDuplicate(observer, event, timestampMs)) {
+  if (!gate.ready) {
     observer.droppedDuplicateCount += 1;
     return false;
   }
   if (target.realtimeSession?.state === "active") {
-    observer.lastTriggerAtMs = Number(event.timestamp_ms || Math.round(now()));
-    observer.lastSceneFingerprint = event.fingerprint;
-    return scheduleRealtimeVisualEvent(target, event);
+    const scheduled = scheduleRealtimeVisualEvent(target, event);
+    if (scheduled) markPersistentObservationTriggered(observer, event);
+    return scheduled;
   }
   if (persistentObservationBusy(target) || persistentSpeechBusy(target)) {
-    observer.queuedEvent = observer.queuedEvent || event;
     observer.state = "active";
+    observer.droppedDuplicateCount += 1;
     return false;
   }
   return triggerPersistentObservation(target, event);
+}
+
+export function updatePersistentObservationGate(observer, event, timestampMs = Math.round(now())) {
+  const timestamp = Math.round(Number(timestampMs || 0));
+  if (!event) {
+    if (!observer.neutralSinceMs) observer.neutralSinceMs = timestamp;
+    if (timestamp - Number(observer.neutralSinceMs || 0) >= PERSISTENT_OBSERVATION.neutralResetMs) {
+      observer.awaitingNeutral = false;
+      observer.lastSceneFingerprint = "";
+    }
+    return { ready: false, reason: "neutral" };
+  }
+  observer.neutralSinceMs = 0;
+  if (observer.awaitingNeutral) return { ready: false, reason: "awaiting_neutral" };
+  if (persistentObservationDuplicate(observer, event, timestamp)) return { ready: false, reason: "duplicate" };
+  if (Number(observer.lastTriggerAtMs || 0) > 0 && timestamp - Number(observer.lastTriggerAtMs || 0) < PERSISTENT_OBSERVATION.minTriggerIntervalMs) {
+    return { ready: false, reason: "minimum_interval" };
+  }
+  return { ready: true, reason: "ready" };
+}
+
+function markPersistentObservationTriggered(observer, event) {
+  observer.lastTriggerAtMs = Number(event.timestamp_ms || Math.round(now()));
+  observer.lastSceneFingerprint = event.fingerprint;
+  observer.queuedEvent = null;
+  observer.awaitingNeutral = true;
 }
 
 function persistentObservationDuplicate(observer, event, timestampMs) {
@@ -7548,10 +7668,8 @@ function persistentSpeechBusy(target) {
 function triggerPersistentObservation(target, event) {
   const observer = target.movementRecognition.persistent;
   if (!observer.active || persistentObservationBusy(target)) return false;
-  if (Number(event.timestamp_ms || 0) - Number(observer.lastTriggerAtMs || 0) < PERSISTENT_OBSERVATION.minTriggerIntervalMs) return false;
-  observer.lastTriggerAtMs = Number(event.timestamp_ms || Math.round(now()));
-  observer.lastSceneFingerprint = event.fingerprint;
-  observer.queuedEvent = null;
+  if (Number(observer.lastTriggerAtMs || 0) > 0 && Number(event.timestamp_ms || 0) - Number(observer.lastTriggerAtMs || 0) < PERSISTENT_OBSERVATION.minTriggerIntervalMs) return false;
+  markPersistentObservationTriggered(observer, event);
   observer.state = "active";
   target.statusMessage = target.realtimeSession?.state === "active" ? "Looking." : "Change detected.";
   render();
@@ -7564,14 +7682,11 @@ function completePersistentObservationCycle(target) {
   const observer = target.movementRecognition.persistent;
   if (!observer.active) return;
   observer.cooldownUntilMs = Math.round(now()) + PERSISTENT_OBSERVATION.cooldownMs;
+  observer.queuedEvent = null;
   observer.state = "active";
   render();
   setTimeout(() => {
     if (!observer.active || observer.pausedForVisibility || !target.cameraReady) return;
-    if (observer.queuedEvent && !persistentObservationBusy(target) && !persistentSpeechBusy(target)) {
-      triggerPersistentObservation(target, observer.queuedEvent);
-      return;
-    }
     observer.state = "active";
     render();
   }, Math.max(0, PERSISTENT_OBSERVATION.cooldownMs));
