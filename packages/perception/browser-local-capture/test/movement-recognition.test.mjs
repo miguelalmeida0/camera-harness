@@ -9,6 +9,7 @@ import {
   buildHuggingFaceVlmRequestBody,
   buildMovementRecognitionPrompt,
   buildVisualConversationPrompt,
+  callHuggingFaceRouter,
   classifyProviderFailure,
   describeHuggingFaceVlmRequestBody,
   isRetryableProviderFailure,
@@ -27,6 +28,7 @@ const serverSource = readFileSync(resolve("packages/perception/browser-local-cap
 const launcherSource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs"), "utf8");
 const limiterSource = readFileSync(resolve("packages/perception/browser-local-capture/server/hf-usage-limiter.mjs"), "utf8");
 const liveSource = readFileSync(resolve("packages/perception/browser-local-capture/test/movement-recognition-live.test.mjs"), "utf8");
+const emergencySource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/emergency-sensefield.mjs"), "utf8");
 const envExample = readFileSync(resolve(".env.example"), "utf8");
 const gitignore = readFileSync(resolve(".gitignore"), "utf8");
 const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
@@ -115,6 +117,7 @@ const requiredCloudEnv = {
   HF_MAX_REQUESTS_PER_MONTH: "100",
   HF_MAX_CONCURRENT_REQUESTS: "1",
   HF_MAX_PROVIDER_RETRIES: "1",
+  HF_PROVIDER_TIMEOUT_MS: "12000",
   HF_REQUEST_COOLDOWN_MS: "5000",
   HF_MAX_FRAMES_PER_REQUEST: "6",
   HF_MAX_WINDOW_MS: "4000",
@@ -137,6 +140,19 @@ assert.equal(gitignore.includes("!.env.example"), true, ".gitignore allows .env.
 assert.equal(gitignore.includes(".darkquest/"), true, ".gitignore ignores local usage state");
 assert.equal(packageJson.scripts.typecheck.includes("server/hf-usage-limiter.mjs"), true, "typecheck covers usage limiter");
 assert.equal(/HF_TOKEN|Authorization|Bearer|data:image|base64|encoded_frame|prompt/i.test(limiterSource), false, "usage limiter source does not persist secrets, prompts, or media fields");
+
+await assert.rejects(
+  callHuggingFaceRouter({
+    model: "model:timeout",
+    token: "hf_test",
+    prompt: "timeout test",
+    frames: [],
+    timeoutMs: 20,
+    fetch: async () => new Promise(() => {})
+  }),
+  (error) => error?.httpStatus === 504 && /timed out/i.test(error?.message || ""),
+  "provider requests have a server-side deadline"
+);
 
 const sessionId = "darkquest_session_testaaaa";
 const now = Date.UTC(2026, 0, 31, 23, 59, 0);
@@ -820,6 +836,8 @@ assert.equal(liveSource.includes("runBareHuggingFaceControlCall"), true, "live t
 assert.equal(liveSource.includes("runProviderHelperEquivalenceCheck"), true, "live test checks provider helper equivalence after bare pass");
 assert.equal(liveSource.includes("runMovementPromptControlCall(fixture, bare.returnedModel)"), false, "live test must not reuse returned model as request model");
 assert.equal(liveSource.includes("runMovementPromptControlCall(fixture, bare.requestedModel)"), true, "live test keeps requested model for movement prompt");
+assert.equal(liveSource.includes("HF_USAGE_STATE_PATH: usageStatePath"), true, "live provider proof cannot consume the app runtime quota ledger");
+assert.equal(emergencySource.includes('HF_USAGE_STATE_PATH: resolve(emergencyUsageRoot, "usage.json")'), true, "emergency checks cannot consume the app runtime quota ledger");
 assert.equal(liveSource.includes("requested_model"), true, "live test reports requested model separately");
 assert.equal(liveSource.includes("returned_model"), true, "live test reports returned model separately");
 assert.equal(providerSource.includes("Hugging Face router returned ${response.status}`"), false, "generic 400-only reporting is forbidden");

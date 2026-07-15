@@ -1,7 +1,7 @@
 export const VISUAL_COMPANION_SCHEMA_VERSION = "contextual-visual-response.v1";
 export const VISUAL_OBSERVATION_WINDOW_SCHEMA_VERSION = "visual-observation-window.v1";
 export const VISUAL_COMPANION_PROVIDER_VERSION = "visual-companion-provider.v1";
-export const DEFAULT_VISUAL_COMPANION_MODEL = "HuggingFaceTB/SmolVLM2-2.2B-Instruct";
+export const DEFAULT_VISUAL_COMPANION_MODEL = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct";
 export const DEFAULT_VISUAL_COMPANION_MODEL_REVISION = "main";
 export const DEFAULT_VISUAL_COMPANION_SERVICE_URL = "http://127.0.0.1:8766";
 export const MAX_VISUAL_FRAMES = 8;
@@ -304,6 +304,8 @@ export function normalizeContextualVisualResponse(input = {}, defaults = {}) {
     evidence: sanitizeEvidence(raw.evidence),
     meaningful_change: raw.meaningful_change === true,
     movement_label: sanitizeMovementLabel(raw.movement_label),
+    movement_key: sanitizeMovementLabel(raw.movement_key || raw.movement_label),
+    gesture_tags: sanitizeGestureTags(raw.gesture_tags),
     evidence_frames: sanitizeEvidenceFrames(raw.evidence_frames),
     policy_decision: policy.response_type,
     provider: sanitizeText(raw.provider || defaults.provider || "local_visual_companion", 80),
@@ -464,6 +466,13 @@ function sanitizeEvidenceFrames(value = []) {
 function sanitizeMovementLabel(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return normalized.slice(0, 80) || null;
+}
+
+function sanitizeGestureTags(value = []) {
+  const allowed = new Set(["thumbs_up", "thumbs_down", "peace_sign", "pointing_up", "open_palm", "closed_fist", "i_love_you", "heart"]);
+  return Array.isArray(value)
+    ? [...new Set(value.map(sanitizeMovementLabel).filter((item) => allowed.has(item)))].slice(0, 4)
+    : [];
 }
 
 function sanitizeResponseSource(value = "") {

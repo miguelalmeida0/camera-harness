@@ -24,14 +24,17 @@ import {
   createInitialState,
   endRealtimeConversation,
   handleRealtimeUserSpeechTurn,
+  instantGesturesEnabledFromRecipes,
   interruptAssistantSpeech,
   maybeAutoSpeakVisualResult,
   persistentObservationEventFromLocalChange,
   queueMovementRecognitionResult,
   scheduleRealtimeVisualEvent,
+  selectMovementAnalysisBackend,
   speakVisualResponse,
   speakMovementResult,
   startRealtimeConversation,
+  updatePersistentObservationGate,
   updateVisualContextFromResult,
   visualContextForRequest
 } from "../prototype/local-capture.js";
@@ -49,7 +52,7 @@ const advancedTemplateStart = bodyHtml.indexOf('<template id="advancedViewTempla
 const primaryHtml = advancedTemplateStart >= 0 ? bodyHtml.slice(0, advancedTemplateStart) : bodyHtml;
 const advancedHtml = advancedTemplateStart >= 0 ? bodyHtml.slice(advancedTemplateStart) : "";
 
-assert.equal(DEFAULT_VISUAL_COMPANION_MODEL, "HuggingFaceTB/SmolVLM2-2.2B-Instruct");
+assert.equal(DEFAULT_VISUAL_COMPANION_MODEL, "HuggingFaceTB/SmolVLM2-500M-Video-Instruct");
 assert.equal(DEFAULT_VISUAL_COMPANION_MODEL_REVISION, "main");
 assert.equal(providerContract.includes("Apache-2.0"), true, "model license is recorded");
 assert.equal(providerContract.includes("No Hugging Face routed inference providers"), true, "production path forbids HF router");
@@ -58,6 +61,8 @@ assert.equal(service.includes("snapshot_download"), false, "service runtime does
 assert.equal(service.includes("await asyncio.to_thread("), true, "voice synthesis does not block service health/observe routes");
 assert.equal(service.includes("safe_textual_model_output"), true, "local VLM natural-language output is not discarded as generic uncertainty");
 assert.equal(service.includes("can_use_summary"), true, "concrete local VLM summaries survive low-confidence JSON");
+assert.equal(service.includes("parse_compact_observation"), true, "observing mode uses a bounded compact response contract");
+assert.equal(service.includes("inferred_movement_label"), true, "gesture words can recover a canonical movement label");
 assert.equal(readFileSync(resolve("services/visual-companion/download_model.py"), "utf8").includes("snapshot_download"), true, "setup path downloads model assets explicitly");
 
 assert.equal(html.includes("Sensefield"), true, "product is renamed to Sensefield");
@@ -77,6 +82,32 @@ assert.equal(primaryHtml.includes("Open voice controls"), false, "microphone con
 assert.equal(primaryHtml.includes("stageVoiceShortcut"), false, "primary UI has no separate microphone control");
 assert.equal(advancedHtml.includes("dq-auto-speak-toggle"), true, "advanced mode retains mute preference");
 assert.equal(source.includes("VISUAL_COMPANION_CLIENT_CONFIG"), true, "frontend has visual companion client config");
+assert.equal(source.includes('selectMovementAnalysisBackend(target, { preferCloud: true })'), true, "conversation and observing avoid the slow local worker when guarded cloud inference is available");
+assert.equal(source.includes('error?.movement_code === "provider_busy"'), true, "internal model contention is never rendered or spoken as an assistant response");
+const quotaFetchOriginal = globalThis.fetch;
+const quotaFallbackRoutes = [];
+globalThis.fetch = async (url) => {
+  quotaFallbackRoutes.push(String(url));
+  const body = String(url).endsWith("/api/movement-recognition/health")
+    ? { ok: true, provider: "huggingface", model: "model:test", has_token: true, cloud_enabled: true, live_call_enabled: true, analyze_endpoint_ready: true }
+    : String(url).endsWith("/api/movement-recognition/usage")
+      ? { cloud_enabled: true, session: { used: 1, limit: 20 }, day: { used: 2, limit: 50 }, month: { used: 100, limit: 100 }, concurrent: { active: 0, limit: 1 } }
+      : { ok: true, provider: "local_visual_companion", model: DEFAULT_VISUAL_COMPANION_MODEL, status: "ready", observe_endpoint_ready: true };
+  return { ok: true, status: 200, async json() { return body; } };
+};
+try {
+  const quotaFallbackBackend = await selectMovementAnalysisBackend(createInitialState(), { preferCloud: true });
+  assert.equal(quotaFallbackBackend.kind, "local_visual", "exhausted cloud quota selects the available local visual model");
+  assert.deepEqual(quotaFallbackRoutes, [
+    "/api/movement-recognition/health",
+    "/api/movement-recognition/usage",
+    "/api/visual-companion/health"
+  ]);
+} finally {
+  globalThis.fetch = quotaFetchOriginal;
+}
+assert.equal(instantGesturesEnabledFromRecipes([{ enabled: true, execution_mode: "instant_local_gesture", consent: { run_instantly: true } }]), true, "explicitly consented saved actions enable the local gesture runtime");
+assert.equal(instantGesturesEnabledFromRecipes([{ enabled: true, execution_mode: "instant_local_gesture", consent: { run_instantly: false } }]), false, "saved actions without instant consent do not enable the gesture runtime");
 assert.equal(source.includes("/api/visual-companion/observe"), true, "frontend calls visual observe endpoint");
 assert.equal(source.includes("client_scene_change_score"), true, "scene-change score is sent symbolically");
 assert.equal(source.includes("clearMovementFrameBuffer(frames)"), true, "frame cleanup remains in finally path");
@@ -92,6 +123,19 @@ assert.deepEqual(REALTIME_AUDIO_CONSTRAINTS, {
   autoGainControl: true
 }, "microphone capture uses echo cancellation constraints");
 assert.equal(PERSISTENT_OBSERVATION.cooldownMs, 0, "distinct observations are not blocked by a cooldown");
+assert.equal(PERSISTENT_OBSERVATION.minTriggerIntervalMs >= 4000, true, "persistent observing cannot create a zero-interval request loop");
+const persistentGateState = { awaitingNeutral: false, neutralSinceMs: 0, lastTriggerAtMs: 0, lastSceneFingerprint: "" };
+const persistentGateEvent = { timestamp_ms: 1000, fingerprint: "center:0.2" };
+assert.equal(updatePersistentObservationGate(persistentGateState, persistentGateEvent, 1000).ready, true, "first distinct motion can trigger");
+persistentGateState.awaitingNeutral = true;
+persistentGateState.lastTriggerAtMs = 1000;
+persistentGateState.lastSceneFingerprint = persistentGateEvent.fingerprint;
+assert.equal(updatePersistentObservationGate(persistentGateState, { ...persistentGateEvent, timestamp_ms: 1300 }, 1300).reason, "awaiting_neutral", "continuous motion cannot retrigger");
+updatePersistentObservationGate(persistentGateState, null, 1400);
+assert.equal(updatePersistentObservationGate(persistentGateState, null, 2200).reason, "neutral", "a neutral window rearms observing");
+assert.equal(persistentGateState.awaitingNeutral, false, "neutral reset clears the motion latch");
+assert.equal(updatePersistentObservationGate(persistentGateState, { timestamp_ms: 2500, fingerprint: "left:0.3" }, 2500).reason, "minimum_interval", "rapid distinct motion is rate limited");
+assert.equal(updatePersistentObservationGate(persistentGateState, { timestamp_ms: 5200, fingerprint: "left:0.3" }, 5200).ready, true, "a later distinct motion can trigger");
 assert.equal(PERSISTENT_OBSERVATION.maxFrames >= 4 && PERSISTENT_OBSERVATION.maxFrames <= 8, true, "persistent capture window is bounded to 4-8 frames");
 assert.equal(PERSISTENT_OBSERVATION.windowMs >= 2000 && PERSISTENT_OBSERVATION.windowMs <= 4000, true, "persistent capture window is bounded to 2-4 seconds");
 assert.equal(source.includes("maxFrames: 1"), false, "local visual runtime preserves an ordered multi-frame movement window");

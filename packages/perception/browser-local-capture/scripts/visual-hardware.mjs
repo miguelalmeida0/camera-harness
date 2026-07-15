@@ -81,7 +81,7 @@ function selectRecommendedModel(input) {
   if (vram >= 24000) return "openbmb/MiniCPM-o-4_5";
   if (vram >= 16000) return "Qwen/Qwen2.5-Omni-7B";
   if (vram >= 10000) return "Qwen/Qwen2.5-Omni-3B";
-  if (input.apple_silicon?.available && ramGb >= 16) return "HuggingFaceTB/SmolVLM2-2.2B-Instruct";
+  if (input.apple_silicon?.available && ramGb >= 24) return "HuggingFaceTB/SmolVLM2-2.2B-Instruct";
   if (input.apple_silicon?.available || ramGb >= 8) return "HuggingFaceTB/SmolVLM2-500M-Video-Instruct";
   return "HuggingFaceTB/SmolVLM2-500M-Video-Instruct";
 }
