@@ -1,0 +1,14 @@
+{
+  "schema_version": "sensefield.neural-field.landmarks.v1",
+  "synthetic_only": true,
+  "coordinate_space": "normalized_viewport",
+  "scenarios": [
+    "no_hand", "left_hand", "right_hand", "two_hands", "stable_pinch",
+    "pinch_flicker", "release", "temporary_occlusion", "long_occlusion",
+    "slow_circle", "fast_circle", "ellipse", "rectangle", "triangle", "arrow",
+    "letter_a", "letter_i", "letters_a_and_i", "open_lasso",
+    "valid_lasso_around_one_object", "valid_lasso_around_two_objects", "tiny_lasso",
+    "self_intersecting_lasso", "lasso_at_viewport_edge", "lasso_on_mobile_aspect_ratio",
+    "jitter", "low_confidence", "sudden_hand_jump", "hand_leaves_frame"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": "sensefield.neural-field.scenarios.v1",
+  "flows": {
+    "airscript_circle": ["enter", "select_airscript", "stable_pinch", "slow_circle", "release", "classify", "exit_to_ask"],
+    "spatial_lasso_relation": ["enter", "select_spatial_lasso", "mug_left_of_laptop", "valid_lasso_around_one_object", "ground_mug", "select_laptop", "render_left_of", "move_mug", "update_relation", "object_leaves_frame", "clear_anchor", "exit_to_watch"],
+    "leak_cycle": ["ask", "airscript", "exit", "watch", "spatial_lasso", "exit", "ask"],
+    "replay": ["request_consent", "explicit_consent", "record_bounded", "explicit_save_or_discard", "revoke_object_url"]
+  }
+}
