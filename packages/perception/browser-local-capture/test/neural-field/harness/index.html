@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Neural Field deterministic browser proof</title>
+    <link rel="stylesheet" href="./harness.css">
+  </head>
+  <body>
+    <main id="app" class="app-shell" data-view="ask" data-active="false" data-tool="none">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="title-copy">
+            <p class="eyebrow">Deterministic evaluation</p>
+            <h1>Neural Field</h1>
+          </div>
+        </div>
+        <span class="test-only-badge">Test-only contracts</span>
+      </header>
+
+      <section id="home-view" class="home-view" aria-labelledby="home-title">
+        <div class="home-copy">
+          <p class="eyebrow">Current mode</p>
+          <h2 id="home-title">Ask</h2>
+          <p id="home-description">Ask remains ready before and after the Neural Field session.</p>
+        </div>
+        <div class="mode-actions" aria-label="Base mode">
+          <button id="base-ask" class="mode-button is-selected" type="button" aria-pressed="true">Ask</button>
+          <button id="base-watch" class="mode-button" type="button" aria-pressed="false">Watch</button>
+        </div>
+        <button id="enter-neural-field" class="primary-button" type="button">Enter Neural Field</button>
+      </section>
+
+      <section id="neural-field-view" class="field-view" aria-labelledby="field-title" hidden>
+        <div class="field-heading">
+          <div class="field-heading-copy">
+            <p class="eyebrow">Camera + current step</p>
+            <h2 id="field-title">Choose a tool</h2>
+          </div>
+          <button id="exit-neural-field" class="secondary-button" type="button">Exit</button>
+        </div>
+
+        <nav id="tool-controls" class="tool-controls" aria-label="Neural Field tools">
+          <button id="tool-airscript" class="tool-button" type="button" aria-pressed="false">AirScript</button>
+          <button id="tool-spatial-lasso" class="tool-button" type="button" aria-pressed="false">Spatial Lasso</button>
+        </nav>
+
+        <div class="field-grid">
+          <section class="camera-card" aria-label="Synthetic camera field">
+            <div class="camera-meta">
+              <span id="camera-state">Synthetic camera ready</span>
+              <span id="tracking-state">No hand</span>
+            </div>
+            <div id="field-stage" class="field-stage" data-render-state="idle">
+              <svg id="field-svg" viewBox="0 0 1000 600" role="img" aria-label="Synthetic Neural Field renderer">
+                <defs>
+                  <linearGradient id="stageWash" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#101c29"></stop>
+                    <stop offset="1" stop-color="#071018"></stop>
+                  </linearGradient>
+                  <filter id="strokeGlow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                    <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+                  </filter>
+                </defs>
+                <rect class="stage-background" x="0" y="0" width="1000" height="600"></rect>
+                <g id="scene-layer" aria-label="Grounded scene objects"></g>
+                <g id="relation-layer" aria-label="Spatial relations"></g>
+                <g id="trajectory-layer" aria-label="Hand trajectory">
+                  <polyline id="active-trajectory" class="active-trajectory" points="" hidden></polyline>
+                  <polyline id="stable-trajectory" class="stable-trajectory" points="" hidden></polyline>
+                </g>
+                <g id="selection-layer" aria-label="Selection state"></g>
+              </svg>
+              <div id="classification-chip" class="classification-chip" hidden>
+                <span class="classification-label">Classification</span>
+                <strong id="classification-value">Waiting</strong>
+              </div>
+              <div id="uncertainty-chip" class="uncertainty-chip" hidden>Manual confirmation required</div>
+            </div>
+          </section>
+
+          <aside class="step-card" aria-label="Current step and confirmation">
+            <p class="eyebrow">Current step</p>
+            <h3 id="step-title">Select AirScript or Spatial Lasso</h3>
+            <p id="step-detail">Synthetic fixtures will follow the same hand-event and renderer contracts.</p>
+            <div id="manual-confirmation" class="manual-confirmation">
+              <span class="confirmation-dot" aria-hidden="true"></span>
+              <span>Manual confirmation remains required</span>
+            </div>
+            <dl class="state-summary">
+              <div><dt>Tool</dt><dd id="summary-tool">None</dd></div>
+              <div><dt>Stroke</dt><dd id="summary-stroke">Idle</dd></div>
+              <div><dt>Selection</dt><dd id="summary-selection">None</dd></div>
+              <div><dt>Relation</dt><dd id="summary-relation">None</dd></div>
+            </dl>
+          </aside>
+        </div>
+
+        <details id="developer-tools" class="developer-tools">
+          <summary>Advanced / Developer Tools</summary>
+          <pre id="state-output" aria-label="Bounded runtime state"></pre>
+        </details>
+      </section>
+    </main>
+    <script type="module" src="./harness.js"></script>
+  </body>
+</html>

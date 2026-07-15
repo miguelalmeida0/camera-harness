@@ -1,0 +1,10 @@
+{
+  "schema_version": "sensefield.neural-field.scenes.v1",
+  "coordinate_space": "normalized_viewport",
+  "fixtures": [
+    "mug_and_laptop", "mug_left_of_laptop", "mug_in_front_of_laptop",
+    "mug_moving_toward_camera", "hand_approaching_mug", "two_overlapping_objects",
+    "ambiguous_lasso_region", "unsupported_empty_lasso", "object_leaves_frame",
+    "object_tracking_loss", "face_in_central_region", "low_light_hand", "cluttered_desk"
+  ]
+}

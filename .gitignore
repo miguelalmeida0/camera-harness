@@ -23,3 +23,9 @@ Camera Console.zip
 # deterministic Sensefield sensor-lab media (regenerated in CI)
 fixtures/sensefield-av/video/*.y4m
 fixtures/sensefield-av/audio/*.wav
+
+# Neural Field test-only failure and consented replay outputs
+test-results/neural-field/
+playwright-report/neural-field/
+runs/neural-field/replays/
+runs/neural-field/replays/*.webm
