@@ -4,6 +4,17 @@ import { normalizeStep, scoreLocalActions } from "./perception/local-action-scor
 import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
 import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
 import {
+  NEURAL_FIELD_LIMITS,
+  NEURAL_FIELD_TOOLS,
+  containsProhibitedNeuralFieldData,
+  createNeuralFieldEvent,
+  formatSpatialRelationForUser,
+  groundSpatialLasso,
+  normalizeSpatialRelation,
+  sanitizeNeuralFieldText,
+  shouldEscalateNeuralFieldEvent
+} from "./neural-field/neural-field-systems.js";
+import {
   analyzeSpatialWindow,
   clearSpatialTransient,
   createSpatialExperienceState,
@@ -103,6 +114,13 @@ const sensefieldTestRuntime = {
     speechStarted: 0,
     speechCompleted: 0,
     speechCancelled: 0,
+    neuralFieldWorkersStarted: 0,
+    neuralFieldWorkersStopped: 0,
+    neuralFieldRenderersStarted: 0,
+    neuralFieldRenderersStopped: 0,
+    neuralFieldSemanticRequests: 0,
+    neuralFieldReplaysStarted: 0,
+    neuralFieldReplaysStopped: 0,
     rawMediaPersistenceCount: 0
   }
 };
@@ -828,6 +846,11 @@ export function createCustomSkillDraft(skill, currentStep = 1) {
 }
 
 function attachRuntimeCompatibilityAliases(target) {
+  Object.defineProperty(target, "neuralField", {
+    enumerable: true,
+    configurable: true,
+    get: () => target.appState?.neuralField
+  });
   Object.defineProperty(target, "instantGestures", {
     enumerable: false,
     configurable: true,
@@ -925,6 +948,9 @@ function persistInteractionModePreference(mode) {
 export function assertInteractionStateInvariant(target = state) {
   const interaction = target.interactionState;
   if (!interaction) return true;
+  if (interaction.sessionActive && neuralFieldLifecycleActive(target)) {
+    throw new Error("Invalid interaction state: Neural Field cannot overlap Ask or Watch.");
+  }
   if (interaction.listeningActive && interaction.proactiveObservationActive) {
     throw new Error("Invalid interaction state: listening and proactive observation cannot both be active.");
   }
@@ -988,6 +1014,10 @@ function activeAudioTracks(target) {
   return (target.stream?.getAudioTracks?.() || []).filter((track) => track.readyState !== "ended");
 }
 
+function activeVideoTracks(target) {
+  return (target.stream?.getVideoTracks?.() || []).filter((track) => track.readyState !== "ended");
+}
+
 function interactionModeIs(target, mode) {
   return target.interactionState?.mode === mode;
 }
@@ -995,6 +1025,29 @@ function interactionModeIs(target, mode) {
 function modeRequestStillCurrent(target, mode, generationId) {
   return target.interactionState?.mode === mode &&
     Number(target.interactionState?.modeGenerationId || 0) === Number(generationId || 0);
+}
+
+function interactionStartStillCurrent(target, mode, generationId, sessionGenerationId) {
+  const owned = target.emergencyRuntimeController.snapshot();
+  return owned.selectedMode === mode && owned.session.status === "starting" &&
+    Number(owned.session.modeGeneration) === Number(generationId) &&
+    Number(owned.session.sessionGeneration) === Number(sessionGenerationId) &&
+    owned.neuralField?.status === "inactive";
+}
+
+function interactionLifecycleIsOwned(target, mode, generationId, sessionGenerationId) {
+  const owned = target.emergencyRuntimeController.snapshot();
+  return owned.selectedMode === mode && ["starting", "active"].includes(owned.session.status) &&
+    Number(owned.session.modeGeneration) === Number(generationId) &&
+    Number(owned.session.sessionGeneration) === Number(sessionGenerationId) &&
+    owned.neuralField?.status === "inactive";
+}
+
+function stopDetachedMediaStream(stream, target) {
+  if (!stream || stream === target.stream) return;
+  for (const track of stream.getTracks?.() || []) {
+    if (track.readyState !== "ended") track.stop?.();
+  }
 }
 
 function syncEmergencyRuntimeOwner(target) {
@@ -1271,6 +1324,7 @@ let lastMovementRevealResultId = "";
 let lastAutomationRenderKey = "";
 let localGestureEngine = null;
 let instantGestureCooldownTimer = null;
+const neuralFieldResourceOwners = new WeakMap();
 const perceptionRuntime = {
   rafId: null,
   canvas: null,
@@ -1332,6 +1386,7 @@ function installSensefieldRuntimeTestBridge() {
       interrupted_response_count: state.conversationMemory?.interruptedResponses?.length || 0
     }),
     getObservationMemorySummary: () => copy(state.observationMemory),
+    getNeuralFieldState: () => copy(neuralFieldInstrumentationSummary(state)),
     getSpatialExperienceSummary: () => copy({
       status: state.spatialExperience?.status,
       metadata: state.spatialExperience?.metadata,
@@ -1345,12 +1400,13 @@ function installSensefieldRuntimeTestBridge() {
     }),
     getResourceCounts: () => copy({
       ...sensefieldTestRuntime.resourceCounts,
+      ...neuralFieldResourceSummary(state),
       active_media_tracks: mediaTrackSnapshot().filter((track) => track.readyState !== "ended").length,
       active_inference: state.interactionState?.inferenceInFlight ? 1 : 0,
-      active_speech: state.interactionState?.assistantSpeaking ? 1 : 0,
+      active_speech: state.emergencyRuntimeController.snapshot().runtime.speechInFlight ? 1 : 0,
       queued_user_turns: state.interactionState?.queuedUserTurn ? 1 : 0,
       queued_visual_events: state.interactionState?.queuedVisualEvent ? 1 : 0,
-      scheduler_count: state.interactionState?.sessionActive ? 1 : 0
+      scheduler_count: state.interactionState?.sessionActive || neuralFieldLifecycleActive(state) ? 1 : 0
     })
   });
   recordSensefieldTestEvent("test_bridge_ready", { mode: state.interactionState.mode });
@@ -2082,6 +2138,15 @@ export async function startInteractionSession(target = state, options = {}) {
 }
 
 export async function startRealtimeConversation(target = state, options = {}) {
+  if (neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
+    const ended = await endNeuralField("start_conversation", { ...options, target, preserveCamera: true });
+    if (!ended.ok) {
+      target.errorMessage = "Neural Field resources are still closing.";
+      target.statusMessage = "Conversation did not start.";
+      render();
+      return target;
+    }
+  }
   if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) {
     return switchInteractionMode(target, "conversation", options);
   }
@@ -2125,12 +2190,34 @@ export async function startRealtimeConversation(target = state, options = {}) {
   stopInstantGestureEngine("off");
   render();
   try {
-    const stream = options.mediaStream || await withTimeout(
+    const reusableStream = activeVideoTracks(target).length > 0 ? target.stream : null;
+    const stream = reusableStream || options.mediaStream || await withTimeout(
       requestRealtimeConversationMedia(options),
       options.mediaTimeoutMs ?? 20000,
       "Camera and microphone permission timed out."
     );
-    await attachInteractionStreamToPreview(target, stream, "conversation");
+    if (!interactionStartStillCurrent(target, "conversation", generationId, sessionGenerationId)) {
+      stopDetachedMediaStream(stream, target);
+      return target;
+    }
+    await attachInteractionStreamToPreview(target, stream, "conversation", { countCreated: stream !== reusableStream });
+    if (!interactionStartStillCurrent(target, "conversation", generationId, sessionGenerationId)) return target;
+    const audioTracksBeforeMicrophoneRequest = new Set(target.stream?.getAudioTracks?.() || []);
+    if (activeAudioTracks(target).length === 0) {
+      await withTimeout(
+        ensureMicrophoneTrack(
+          target,
+          options,
+          () => interactionStartStillCurrent(target, "conversation", generationId, sessionGenerationId)
+        ),
+        options.mediaTimeoutMs ?? 20000,
+        "Microphone permission timed out."
+      );
+    }
+    if (!interactionStartStillCurrent(target, "conversation", generationId, sessionGenerationId)) {
+      stopAddedMicrophoneTracks(target, audioTracksBeforeMicrophoneRequest);
+      return target;
+    }
     startLocalPerception();
     const speechStarted = startRealtimeSpeechInput(target, options);
     if (!speechStarted) throw new Error("Speech recognition is unavailable in this browser.");
@@ -2162,6 +2249,13 @@ export async function startRealtimeConversation(target = state, options = {}) {
     target.statusMessage = "Listening.";
     target.objective = "Conversation mode active.";
   } catch (error) {
+    if (!interactionLifecycleIsOwned(target, "conversation", generationId, sessionGenerationId)) {
+      const latest = target.emergencyRuntimeController.snapshot();
+      if (latest.neuralField?.status !== "inactive" || latest.session.status === "inactive" || latest.selectedMode !== "conversation") {
+        stopMicrophoneTracks(target);
+      }
+      return target;
+    }
     target.emergencyRuntimeController.failSession(error?.message || "Conversation unavailable");
     applyInteractionState(target, {
       mode: "conversation",
@@ -2191,6 +2285,15 @@ export async function startRealtimeConversation(target = state, options = {}) {
 }
 
 export async function startRealtimeObserving(target = state, options = {}) {
+  if (neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
+    const ended = await endNeuralField("start_observing", { ...options, target, preserveCamera: true });
+    if (!ended.ok) {
+      target.errorMessage = "Neural Field resources are still closing.";
+      target.statusMessage = "Observing did not start.";
+      render();
+      return target;
+    }
+  }
   if (target.interactionState.sessionActive && interactionModeIs(target, "conversation")) {
     return switchInteractionMode(target, "observing", options);
   }
@@ -2233,14 +2336,22 @@ export async function startRealtimeObserving(target = state, options = {}) {
   target.statusMessage = "Starting observing…";
   render();
   try {
-    const stream = options.mediaStream || await withTimeout(
+    const reusableStream = activeVideoTracks(target).length > 0 ? target.stream : null;
+    const stream = reusableStream || options.mediaStream || await withTimeout(
       requestRealtimeObservingMedia(options),
       options.mediaTimeoutMs ?? 20000,
       "Camera permission timed out."
     );
-    await attachInteractionStreamToPreview(target, stream, "observing");
+    if (!interactionStartStillCurrent(target, "observing", generationId, sessionGenerationId)) {
+      stopDetachedMediaStream(stream, target);
+      return target;
+    }
+    stopMicrophoneTracks(target);
+    await attachInteractionStreamToPreview(target, stream, "observing", { countCreated: stream !== reusableStream });
+    if (!interactionStartStillCurrent(target, "observing", generationId, sessionGenerationId)) return target;
     startLocalPerception();
     await primeObservationBaseline(target);
+    if (!interactionStartStillCurrent(target, "observing", generationId, sessionGenerationId)) return target;
     syncInstantGestureEngine();
     const ownedRuntime = target.emergencyRuntimeController.activate("observing", { cameraActive: true, microphoneActive: false });
     applyInteractionState(target, {
@@ -2267,6 +2378,7 @@ export async function startRealtimeObserving(target = state, options = {}) {
     target.statusMessage = "Watching.";
     target.objective = "Observing mode active.";
   } catch (error) {
+    if (!interactionLifecycleIsOwned(target, "observing", generationId, sessionGenerationId)) return target;
     target.emergencyRuntimeController.failSession(error?.message || "Visual model unavailable");
     applyInteractionState(target, {
       mode: "observing",
@@ -2338,14 +2450,14 @@ function withTimeout(promise, timeoutMs, message) {
   });
 }
 
-async function attachInteractionStreamToPreview(target, stream, mode = target.interactionState?.mode || "conversation") {
+async function attachInteractionStreamToPreview(target, stream, mode = target.interactionState?.mode || "conversation", options = {}) {
   target.stream = stream;
   target.cameraReady = true;
   target.cameraStarted = true;
   target.cameraStatus = mode === "observing" ? "observing" : "conversation";
   target.statusMessage = mode === "observing" ? "Camera is ready." : "Camera and microphone are ready.";
   target.errorMessage = "";
-  if (target === state) {
+  if (target === state && options.countCreated !== false) {
     sensefieldTestRuntime.resourceCounts.mediaStreamsCreated += 1;
     recordSensefieldTestEvent("media_stream_started", {
       mode,
@@ -2481,13 +2593,22 @@ export async function switchInteractionMode(target = state, mode = "conversation
   startLocalPerception();
   try {
     await withTimeout(
-      ensureMicrophoneTrack(target, options),
+      ensureMicrophoneTrack(
+        target,
+        options,
+        () => interactionLifecycleIsOwned(target, "conversation", generationId, sessionGenerationId)
+      ),
       options.mediaTimeoutMs ?? 20000,
       "Microphone permission timed out."
     );
+    if (!interactionLifecycleIsOwned(target, "conversation", generationId, sessionGenerationId)) return target;
     const speechStarted = startRealtimeSpeechInput(target, options);
     if (!speechStarted) throw new Error("Speech recognition is unavailable in this browser.");
   } catch (error) {
+    if (!interactionLifecycleIsOwned(target, "conversation", generationId, sessionGenerationId)) {
+      if (target.neuralField?.status !== "inactive") stopMicrophoneTracks(target);
+      return target;
+    }
     stopRealtimeSpeechInput(target);
     stopMicrophoneTracks(target);
     target.movementRecognition.persistent.active = false;
@@ -2543,17 +2664,1356 @@ export async function switchInteractionMode(target = state, mode = "conversation
   return target;
 }
 
-async function ensureMicrophoneTrack(target, options = {}) {
-  if (activeAudioTracks(target).length > 0) return;
+export async function startNeuralField({ tool } = {}, options = {}) {
+  const target = options.target || state;
+  if (!NEURAL_FIELD_TOOLS.includes(String(tool))) {
+    return { ok: false, code: "neural_field_tool_invalid", state: target.neuralField };
+  }
+  if (target.neuralField?.status === "active") {
+    return target.neuralField.tool === tool
+      ? { ok: true, state: target.neuralField, reused: true }
+      : switchNeuralFieldTool(tool, options);
+  }
+  const previousModeOwnedCamera = target.interactionState?.sessionActive === true;
+  const owner = neuralFieldResourceOwner(target);
+  if (neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
+    const ended = await endNeuralField("restart", { ...options, target, preserveCamera: true });
+    if (!ended.ok) return { ok: false, code: ended.code || "neural_field_cleanup_failed", state: target.neuralField };
+  }
+
+  const cameraWasActive = activeVideoTracks(target).length > 0;
+  const starting = target.emergencyRuntimeController.beginNeuralField(tool, { cameraActive: cameraWasActive });
+  target.appState = starting;
+  syncEmergencyRuntimeOwner(target);
+  owner.lastCleanupError = null;
+  owner.preserveCameraOnExit = previousModeOwnedCamera;
+  const generation = starting.neuralField.generation;
+  const startToken = Object.freeze({ generation, sessionId: starting.neuralField.sessionId });
+  owner.startToken = startToken;
+  owner.workerSessionId = startToken.sessionId;
+  target.realtimeSession.state = "ending";
+  target.movementRecognition.activeRequestAbortController?.abort?.();
+  target.movementRecognition.activeRequestAbortController = null;
+  target.spatialExperience?.activeAbortController?.abort?.();
+  stopRealtimeSpeechInput(target);
+  await cancelVisualSpeech(target, options);
+  if (owner.startToken !== startToken || !neuralFieldStartIsCurrent(target, startToken)) {
+    return { ok: false, code: "stale_neural_field_start", state: target.neuralField };
+  }
+  stopMicrophoneTracks(target);
+  target.movementRecognition.requestInFlight = false;
+  target.movementRecognition.activeRequestId = null;
+  target.movementRecognition.persistent.active = false;
+  target.movementRecognition.persistent.pausedForVisibility = false;
+  target.movementRecognition.persistent.state = "inactive";
+  target.movementRecognition.persistent.queuedEvent = null;
+  target.realtimeSession.queuedUserTurn = null;
+  target.realtimeSession.queuedVisualEvent = null;
+  target.realtimeSession.queuedUserTurns = [];
+  clearTransientPresentationState(target);
+  dismissSpatialEvidenceOverlay(target);
+  if (target === state) {
+    stopInstantGestureEngine("off");
+    stopLocalPerception();
+  }
+  applyInteractionState(target, {
+    sessionActive: false,
+    cameraActive: cameraWasActive,
+    microphoneActive: false,
+    visualContextActive: cameraWasActive,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId: starting.session.sessionGeneration,
+    modeGenerationId: starting.session.modeGeneration
+  });
+
+  let acquiredCamera = false;
+  let acquiredStream = null;
+  try {
+    if (activeVideoTracks(target).length === 0) {
+      const stream = options.mediaStream || await withTimeout(
+        requestRealtimeObservingMedia(options),
+        options.mediaTimeoutMs ?? 20000,
+        "Camera permission timed out."
+      );
+      acquiredCamera = stream !== target.stream;
+      acquiredStream = stream;
+      if (!neuralFieldStartIsCurrent(target, startToken)) {
+        stopDetachedMediaStream(stream, target);
+        throw staleNeuralFieldStartError();
+      }
+      await attachInteractionStreamToPreview(target, stream, "neural_field", { countCreated: acquiredCamera });
+    } else if (dom?.preview && dom.preview.srcObject !== target.stream) {
+      dom.preview.srcObject = target.stream;
+      await dom.preview.play?.();
+    }
+    if (!neuralFieldStartIsCurrent(target, startToken)) throw staleNeuralFieldStartError();
+    stopMicrophoneTracks(target);
+    target.cameraReady = activeVideoTracks(target).length > 0;
+    target.cameraStarted = target.cameraReady;
+    target.cameraStatus = target.cameraReady ? "neural_field" : "idle";
+
+    const worker = createNeuralFieldHandWorker(target, generation, options);
+    owner.worker = worker;
+    owner.workerStarts += 1;
+    if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldWorkersStarted += 1;
+    await Promise.resolve(worker.start?.({ stream: target.stream, video: dom?.preview || null }));
+    if (!neuralFieldStartIsCurrent(target, startToken) || owner.worker !== worker) throw staleNeuralFieldStartError();
+
+    const renderer = createNeuralFieldRenderer(target, options, startToken);
+    owner.renderer = renderer;
+    owner.rendererStarts += 1;
+    if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldRenderersStarted += 1;
+    await Promise.resolve(renderer.start?.());
+    if (!neuralFieldStartIsCurrent(target, startToken) || owner.renderer !== renderer) throw staleNeuralFieldStartError();
+
+    const activated = target.emergencyRuntimeController.activateNeuralField(generation, {
+      cameraActive: target.cameraReady,
+      workerReady: worker.isReady?.() !== false
+    });
+    if (!activated?.neuralField) throw new Error("Neural Field start was superseded.");
+    target.appState = activated;
+    owner.startToken = null;
+    syncEmergencyRuntimeOwner(target);
+    target.realtimeSession.state = "inactive";
+    target.statusMessage = tool === "airscript" ? "AirScript ready." : "Spatial Lasso ready.";
+    target.objective = "Complete a gesture, then confirm it.";
+    if (target === state) recordSensefieldTestEvent("neural_field_started", {
+      tool,
+      generation,
+      worker_count: 1,
+      renderer_loop_count: 1
+    }, { modeGenerationId: activated.session.modeGeneration });
+    if (options.speakInstruction === true) {
+      const instruction = tool === "airscript"
+        ? "Pinch to draw, then release to complete the stroke."
+        : "Draw a loop around one object, then confirm it.";
+      await speakSensefieldResponse({ observationId: `neural_field_instruction_${generation}`, text: instruction }, {
+        ...options,
+        target,
+        neuralFieldOwnership: { generation, sessionId: activated.neuralField.sessionId }
+      });
+    }
+    render();
+    return { ok: true, state: target.neuralField };
+  } catch (error) {
+    const stale = error?.code === "stale_neural_field_start" || !neuralFieldStartIsCurrent(target, startToken);
+    if (owner.startToken === startToken) await stopNeuralFieldOwnedResources(target, "start_failed", startToken);
+    if (stale || !neuralFieldStartIsCurrent(target, startToken)) {
+      stopDetachedMediaStream(acquiredStream, target);
+      return { ok: false, code: "stale_neural_field_start", state: target.neuralField };
+    }
+    if (acquiredCamera) stopRealtimeMediaTracks(target);
+    const failed = target.emergencyRuntimeController.failNeuralField(error?.message || "Neural Field unavailable.", {
+      cameraActive: activeVideoTracks(target).length > 0
+    });
+    target.appState = failed;
+    syncEmergencyRuntimeOwner(target);
+    target.realtimeSession.state = "inactive";
+    target.errorMessage = "Neural Field is unavailable.";
+    target.statusMessage = "Neural Field did not start.";
+    render();
+    return { ok: false, code: "neural_field_start_failed", state: target.neuralField };
+  }
+}
+
+export async function switchNeuralFieldTool(tool, options = {}) {
+  const target = options.target || state;
+  if (!NEURAL_FIELD_TOOLS.includes(String(tool))) return { ok: false, code: "neural_field_tool_invalid", state: target.neuralField };
+  if (target.neuralField?.status !== "active") return { ok: false, code: "neural_field_inactive", state: target.neuralField };
+  if (target.neuralField.tool === tool) return { ok: true, state: target.neuralField, reused: true };
+  const owner = neuralFieldResourceOwner(target);
+  const generation = target.neuralField.generation;
+  const sessionId = target.neuralField.sessionId;
+  owner.semanticAbortController?.abort?.();
+  await cancelVisualSpeech(target, options);
+  if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) {
+    return { ok: false, code: "stale_neural_field_operation", state: target.neuralField };
+  }
+  owner.renderer?.clearTool?.(target.neuralField.tool);
+  const switched = target.emergencyRuntimeController.switchNeuralFieldTool(tool);
+  target.appState = switched;
+  syncEmergencyRuntimeOwner(target);
+  owner.renderer?.setTool?.(tool, target.neuralField.generation);
+  if (target === state) recordSensefieldTestEvent("neural_field_tool_switched", {
+    tool,
+    generation: target.neuralField.generation,
+    worker_count: owner.worker ? 1 : 0,
+    renderer_loop_count: owner.renderer ? 1 : 0
+  }, { modeGenerationId: switched.session.modeGeneration });
+  render();
+  return { ok: true, state: target.neuralField };
+}
+
+export async function cancelNeuralFieldOperation(reason = "cancelled", options = {}) {
+  const target = options.target || state;
+  if (!neuralFieldLifecycleActive(target)) return { ok: false, code: "neural_field_inactive", state: target.neuralField };
+  const owner = neuralFieldResourceOwner(target);
+  const generation = target.neuralField.generation;
+  const sessionId = target.neuralField.sessionId;
+  owner.semanticAbortController?.abort?.();
+  await cancelVisualSpeech(target, options);
+  if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) {
+    return { ok: false, code: "stale_neural_field_operation", state: target.neuralField };
+  }
+  owner.renderer?.clearTool?.(target.neuralField.tool);
+  const cancelled = target.emergencyRuntimeController.cancelNeuralFieldOperation(reason);
+  target.appState = cancelled;
+  syncEmergencyRuntimeOwner(target);
+  render();
+  return { ok: true, state: target.neuralField };
+}
+
+export async function endNeuralField(reason = "user_exit", options = {}) {
+  const target = options.target || state;
+  const owner = neuralFieldResourceOwner(target);
+  if (owner.endPromise) return owner.endPromise;
+  const operation = performNeuralFieldEnd(target, owner, reason, options);
+  owner.endPromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (owner.endPromise === operation) owner.endPromise = null;
+  }
+}
+
+async function performNeuralFieldEnd(target, owner, reason, options) {
+  if (!neuralFieldNeedsCleanup(target) && !neuralFieldHasOwnedResources(target)) {
+    return { ok: true, state: target.neuralField, alreadyInactive: true };
+  }
+  const ending = target.emergencyRuntimeController.beginNeuralFieldEnd(reason);
+  target.appState = ending;
+  syncEmergencyRuntimeOwner(target);
+  owner.startToken = null;
+  owner.semanticAbortController?.abort?.();
+  await cancelVisualSpeech(target, options);
+  const cleanupOk = await stopNeuralFieldOwnedResources(
+    target,
+    reason,
+    null,
+    boundedNeuralFieldCleanupTimeout(options.resourceCleanupTimeoutMs)
+  );
+  stopMicrophoneTracks(target);
+  dismissSpatialEvidenceOverlay(target);
+  clearTransientPresentationState(target);
+  const preserveCamera = (options.preserveCamera === true ||
+    (options.preserveCamera !== false && owner.preserveCameraOnExit === true)) && activeVideoTracks(target).length > 0;
+  if (!preserveCamera) stopRealtimeMediaTracks(target);
+  const finished = target.emergencyRuntimeController.finishNeuralFieldEnd({ cameraActive: preserveCamera });
+  target.appState = finished;
+  syncEmergencyRuntimeOwner(target);
+  applyInteractionState(target, {
+    sessionActive: false,
+    cameraActive: preserveCamera,
+    microphoneActive: false,
+    visualContextActive: preserveCamera,
+    proactiveObservationActive: false,
+    listeningActive: false,
+    userSpeaking: false,
+    inferenceInFlight: false,
+    assistantSpeaking: false,
+    queuedUserTurn: null,
+    queuedVisualEvent: null,
+    safeError: null,
+    sessionGenerationId: finished.session.sessionGeneration,
+    modeGenerationId: finished.session.modeGeneration
+  });
+  target.realtimeSession.state = "inactive";
+  target.realtimeSession.queuedUserTurns = [];
+  target.cameraReady = preserveCamera;
+  target.cameraStarted = preserveCamera;
+  target.cameraStatus = preserveCamera ? "ready" : "stopped";
+  owner.preserveCameraOnExit = false;
+  target.statusMessage = interactionModeIs(target, "observing") ? "Start observing." : "Start conversation.";
+  target.objective = target.statusMessage;
+  if (target === state) recordSensefieldTestEvent("neural_field_ended", {
+    reason: sanitizeNeuralFieldText(reason, 80),
+    camera_preserved: preserveCamera,
+    ...neuralFieldResourceSummary(target)
+  }, { modeGenerationId: finished.session.modeGeneration });
+  render();
+  return {
+    ok: cleanupOk,
+    ...(cleanupOk ? {} : { code: owner.lastCleanupError || "neural_field_cleanup_failed" }),
+    state: target.neuralField
+  };
+}
+
+function neuralFieldLifecycleActive(target) {
+  return ["starting", "active", "ending"].includes(String(target?.neuralField?.status || "inactive"));
+}
+
+function neuralFieldNeedsCleanup(target) {
+  return String(target?.neuralField?.status || "inactive") !== "inactive";
+}
+
+function neuralFieldHasOwnedResources(target) {
+  const owner = neuralFieldResourceOwner(target);
+  return Boolean(owner.worker || owner.renderer || owner.replay || owner.activeSemanticRequests > 0);
+}
+
+function neuralFieldStartIsCurrent(target, token) {
+  const current = target?.neuralField;
+  return current?.status === "starting" && current.generation === token?.generation && current.sessionId === token?.sessionId;
+}
+
+function neuralFieldOperationIsCurrent(target, generation, sessionId) {
+  const current = target?.neuralField;
+  return current?.status === "active" && current.generation === generation && current.sessionId === sessionId;
+}
+
+function neuralFieldSpeechOwnershipCurrent(target, ownership) {
+  const current = target?.neuralField;
+  return current?.status === "active" && current.generation === ownership?.generation && current.sessionId === ownership?.sessionId;
+}
+
+function staleNeuralFieldStartError() {
+  const error = new Error("Neural Field start was superseded.");
+  error.code = "stale_neural_field_start";
+  return error;
+}
+
+function neuralFieldResourceOwner(target) {
+  let owner = neuralFieldResourceOwners.get(target);
+  if (!owner) {
+    owner = {
+      worker: null,
+      workerSessionId: null,
+      renderer: null,
+      startToken: null,
+      endPromise: null,
+      semanticAbortController: null,
+      semanticPromise: null,
+      semanticRequestCount: 0,
+      activeSemanticRequests: 0,
+      maximumSemanticRequests: 0,
+      replay: null,
+      workerStarts: 0,
+      workerStops: 0,
+      rendererStarts: 0,
+      rendererStops: 0,
+      replayStarts: 0,
+      replayStops: 0,
+      lastCleanupError: null,
+      preserveCameraOnExit: false,
+      eventSequence: 0
+    };
+    neuralFieldResourceOwners.set(target, owner);
+  }
+  return owner;
+}
+
+function createNeuralFieldHandWorker(target, generation, options = {}) {
+  const sessionId = target.neuralField.sessionId;
+  const factory = options.handWorkerFactory || options.createHandWorker;
+  if (typeof factory === "function") {
+    return factory({
+      generation,
+      sessionId,
+      tool: target.neuralField.tool,
+      onEvent: (event) => target.neuralField?.sessionId === sessionId
+        ? applyNeuralFieldToolEvent(event, { target })
+        : { ok: false, code: "neural_field_event_stale", state: target.neuralField },
+      onHandFrame: (frame) => handleNeuralFieldHandFrame(target, frame, options, sessionId)
+    });
+  }
+  const preview = dom?.preview;
+  let workerReady = false;
+  const engine = createLocalGestureEngine({
+    directMainThread: false,
+    numHands: 2,
+    onStatusChange: ({ status }) => {
+      workerReady = ["ready", "ready_compatibility"].includes(status);
+      const current = target.neuralField;
+      if (!current || current.status !== "active" || current.sessionId !== sessionId) return;
+      updateNeuralFieldControllerState(target, current.generation, {
+        handTracking: { workerReady }
+      });
+    },
+    onLandmarks: (frame) => handleNeuralFieldHandFrame(target, frame, options, sessionId)
+  });
+  return {
+    start() {
+      if (!preview) throw new Error("Neural Field camera preview is unavailable.");
+      engine.start(preview);
+    },
+    stop: () => engine.stop(),
+    isReady: () => workerReady
+  };
+}
+
+function handleNeuralFieldHandFrame(target, frame, options = {}, sessionId = null) {
+  const current = target.neuralField;
+  if ((current?.status !== "active" && current?.status !== "starting") || current.sessionId !== sessionId) return false;
+  const hands = Array.isArray(frame?.hands) ? frame.hands : [];
+  const metadata = {
+    handCount: Math.min(2, hands.length),
+    dominantHand: sanitizeNeuralFieldText(frame?.dominant_hand || hands[0]?.handedness || "", 20) || null,
+    confidence: Number.isFinite(Number(frame?.confidence)) ? Number(frame.confidence) : null
+  };
+  if (!updateNeuralFieldControllerState(target, current.generation, {
+    handTracking: {
+      latestFrameTimestamp: Number(frame?.timestamp_ms || frame?.timestamp || Date.now()),
+      dominantHand: metadata.dominantHand,
+      confidence: metadata.confidence
+    }
+  })) return false;
+  if (current.tool === "spatial_lasso") {
+    options.onHandFrame?.(frame, null);
+    return true;
+  }
+  const event = createNeuralFieldEvent("hand_frame", {
+    eventId: nextNeuralFieldEventId(target, "hand_frame"),
+    neuralFieldGeneration: current.generation,
+    tool: current.tool,
+    timestamp: Number(frame?.timestamp_ms || frame?.timestamp || Date.now()),
+    metadata
+  });
+  const accepted = applyNeuralFieldToolEvent(event, { target });
+  if (accepted.ok) options.onHandFrame?.(frame, event);
+  return accepted.ok;
+}
+
+function createNeuralFieldRenderer(target, options = {}, ownership = {}) {
+  const factory = options.rendererFactory || options.createRenderer;
+  if (typeof factory === "function") {
+    return factory({
+      generation: target.neuralField.generation,
+      tool: target.neuralField.tool,
+      getState: () => target.neuralField
+    });
+  }
+  const requestFrame = options.requestAnimationFrame || globalThis.requestAnimationFrame?.bind(globalThis);
+  const cancelFrame = options.cancelAnimationFrame || globalThis.cancelAnimationFrame?.bind(globalThis);
+  let running = false;
+  let frameId = null;
+  const tick = (timestamp) => {
+    const current = target.neuralField;
+    if (!running || !["starting", "active"].includes(current?.status) || current.sessionId !== ownership.sessionId) return;
+    if (current.status === "active") options.onRenderFrame?.({ timestamp, neuralField: current });
+    frameId = requestFrame(tick);
+  };
+  return {
+    start() {
+      if (running) return;
+      if (typeof requestFrame !== "function") throw new Error("Neural Field rendering is unavailable.");
+      running = true;
+      frameId = requestFrame(tick);
+    },
+    stop() {
+      running = false;
+      if (frameId != null) cancelFrame?.(frameId);
+      frameId = null;
+    },
+    clearTool: () => {},
+    setTool: () => {},
+    isRunning: () => running
+  };
+}
+
+async function stopNeuralFieldOwnedResources(target, reason, startToken = null, cleanupTimeoutMs = 1000) {
+  const owner = neuralFieldResourceOwner(target);
+  if (startToken && owner.startToken !== startToken) return;
+  if (startToken) owner.startToken = null;
+  owner.lastCleanupError = null;
+  const worker = owner.worker;
+  const renderer = owner.renderer;
+  const semanticPromise = owner.semanticPromise;
+  const tasks = [];
+  if (worker) tasks.push(runBoundedNeuralFieldCleanup(() => worker.stop?.(reason), cleanupTimeoutMs).then((result) => {
+    if (result.ok) {
+      if (owner.worker === worker) {
+        owner.worker = null;
+        owner.workerSessionId = null;
+      }
+      owner.workerStops += 1;
+      if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldWorkersStopped += 1;
+    }
+    return result;
+  }));
+  if (renderer) tasks.push(runBoundedNeuralFieldCleanup(() => renderer.stop?.(reason), cleanupTimeoutMs).then((result) => {
+    if (result.ok) {
+      if (owner.renderer === renderer) owner.renderer = null;
+      owner.rendererStops += 1;
+      if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldRenderersStopped += 1;
+    }
+    return result;
+  }));
+  if (semanticPromise) tasks.push(runBoundedNeuralFieldCleanup(
+    () => Promise.resolve(semanticPromise).then(() => undefined, () => undefined),
+    cleanupTimeoutMs
+  ));
+  else if (owner.activeSemanticRequests > 0) tasks.push(Promise.resolve({ ok: false, code: "semantic_cleanup_pending" }));
+  tasks.push(Promise.resolve().then(() => releaseNeuralFieldReplay(target, { discard: true, reason })));
+  const results = await Promise.allSettled(tasks);
+  const failed = owner.activeSemanticRequests > 0 ||
+    results.some((result) => result.status === "rejected" || result.value?.ok === false);
+  if (failed) owner.lastCleanupError = owner.lastCleanupError || "neural_field_cleanup_failed";
+  return !failed;
+}
+
+function boundedNeuralFieldCleanupTimeout(value) {
+  const timeout = Number(value);
+  return Number.isFinite(timeout) ? Math.min(5000, Math.max(50, timeout)) : 1000;
+}
+
+async function runBoundedNeuralFieldCleanup(action, timeoutMs = 1000) {
+  let timer = null;
+  const operation = Promise.resolve().then(action).then(
+    () => ({ ok: true }),
+    () => ({ ok: false, code: "resource_cleanup_failed" })
+  );
+  const timeout = new Promise((resolve) => {
+    timer = globalThis.setTimeout?.(() => resolve({ ok: false, code: "resource_cleanup_timeout" }), boundedNeuralFieldCleanupTimeout(timeoutMs));
+  });
+  const result = await Promise.race([operation, timeout]);
+  if (timer != null) globalThis.clearTimeout?.(timer);
+  return result;
+}
+
+function updateNeuralFieldControllerState(target, generation, patch) {
+  const updated = target.emergencyRuntimeController.updateNeuralField(generation, patch);
+  if (!updated?.neuralField) return false;
+  target.appState = updated;
+  return true;
+}
+
+function nextNeuralFieldEventId(target, prefix = "event") {
+  const owner = neuralFieldResourceOwner(target);
+  owner.eventSequence += 1;
+  return `neural_field_${prefix}_${target.neuralField?.generation || 0}_${owner.eventSequence}`;
+}
+
+export function applyNeuralFieldToolEvent(input = {}, options = {}) {
+  const target = options.target || state;
+  const current = target.neuralField;
+  if (current?.status !== "active" && current?.status !== "starting") {
+    return { ok: false, code: "neural_field_inactive", state: current };
+  }
+  let event;
+  try {
+    event = createNeuralFieldEvent(input.type || input.eventType, {
+      eventId: input.eventId,
+      neuralFieldGeneration: input.neuralFieldGeneration,
+      tool: input.tool,
+      timestamp: input.timestamp,
+      metadata: input.metadata
+    });
+  } catch {
+    return { ok: false, code: "neural_field_event_invalid", state: current };
+  }
+  if (event.neuralFieldGeneration !== current.generation || event.tool !== current.tool) {
+    return { ok: false, code: "neural_field_event_stale", state: current };
+  }
+
+  const metadata = event.metadata || {};
+  const strokeId = sanitizeNeuralFieldText(metadata.strokeId || metadata.stroke_id || current.gesture.activeStrokeId || event.eventId, 128);
+  const previousStroke = current.gesture.activeStroke;
+  const point = normalizeNeuralFieldPoint(metadata.point || metadata.strokePoint || metadata.position, event.timestamp);
+  let patch = null;
+  if (["pinch_started", "stroke_started", "lasso_started"].includes(event.type)) {
+    patch = {
+      gesture: {
+        pinchActive: event.type !== "lasso_started",
+        activeStrokeId: strokeId,
+        activeStroke: { id: strokeId, hand: metadata.hand || null, startedAt: event.timestamp, points: point ? [point] : [] }
+      },
+      ...(current.tool === "spatial_lasso" ? { lasso: { candidateStrokeId: strokeId } } : {})
+    };
+  } else if (["pinch_updated", "stroke_point_added", "lasso_updated"].includes(event.type) && previousStroke && point) {
+    patch = {
+      gesture: {
+        activeStrokeId: current.gesture.activeStrokeId,
+        activeStroke: {
+          ...previousStroke,
+          points: [...(previousStroke.points || []), point].slice(-NEURAL_FIELD_LIMITS.maxStrokePoints)
+        }
+      }
+    };
+  } else if (event.type === "pinch_ended") {
+    patch = { gesture: { pinchActive: false } };
+  } else if (event.type === "stroke_completed") {
+    patch = {
+      gesture: {
+        pinchActive: false,
+        activeStrokeId: null,
+        activeStroke: null,
+        completedStrokeIds: [...current.gesture.completedStrokeIds, strokeId].slice(-NEURAL_FIELD_LIMITS.maxCompletedStrokeIds)
+      }
+    };
+  } else if (event.type === "lasso_completed") {
+    patch = {
+      gesture: {
+        pinchActive: false,
+        activeStrokeId: null,
+        activeStroke: null,
+        completedStrokeIds: [...current.gesture.completedStrokeIds, strokeId].slice(-NEURAL_FIELD_LIMITS.maxCompletedStrokeIds)
+      },
+      lasso: { candidateStrokeId: strokeId }
+    };
+  } else if (["stroke_cancelled", "lasso_cancelled", "stroke_expired"].includes(event.type)) {
+    patch = {
+      gesture: { pinchActive: false, activeStrokeId: null, activeStroke: null },
+      ...(current.tool === "spatial_lasso" ? { lasso: { candidateStrokeId: null, pendingSelection: null } } : {})
+    };
+  } else if (["object_grounded", "selection_grounded"].includes(event.type)) {
+    const objectId = sanitizeNeuralFieldText(metadata.objectId || metadata.object_id, 128);
+    if (objectId) patch = {
+      lasso: {
+        groundedObjectIds: [...current.lasso.groundedObjectIds, objectId].slice(-NEURAL_FIELD_LIMITS.maxSelectedObjects),
+        pendingSelection: null
+      }
+    };
+  } else if (event.type === "selection_ambiguous") {
+    patch = { lasso: { pendingSelection: metadata } };
+  } else if (event.type === "selection_lost") {
+    const objectId = sanitizeNeuralFieldText(metadata.objectId || metadata.object_id, 128);
+    patch = { lasso: { groundedObjectIds: current.lasso.groundedObjectIds.filter((id) => id !== objectId) } };
+  } else if (["relation_grounded", "relation_changed"].includes(event.type)) {
+    const relation = normalizeSpatialRelation(metadata.relation || metadata);
+    if (relation) patch = { lasso: { activeRelation: relation } };
+  } else if (event.type === "hand_frame") {
+    patch = {
+      handTracking: {
+        latestFrameTimestamp: event.timestamp,
+        dominantHand: metadata.dominantHand,
+        confidence: metadata.confidence
+      }
+    };
+  }
+  if (patch && !updateNeuralFieldControllerState(target, current.generation, patch)) {
+    return { ok: false, code: "neural_field_event_stale", state: target.neuralField };
+  }
+  recordNeuralFieldReplayEvent(target, event);
+  if (target === state) recordSensefieldTestEvent("neural_field_tool_event", {
+    event_type: event.type,
+    tool: event.tool,
+    generation: event.neuralFieldGeneration
+  });
+  return { ok: true, event, state: target.neuralField };
+}
+
+export async function commitNeuralFieldGesture(input = {}, options = {}) {
+  const target = options.target || state;
+  const current = target.neuralField;
+  if (current?.status !== "active") return { ok: false, code: "neural_field_inactive", state: current };
+  const relationRequested = current.tool === "spatial_lasso" && (input.requiresExplanation === true || input.type === "relation_requested");
+  const explicitlyCompleted = input.completed === true || relationRequested || ["stroke_completed", "lasso_completed", "relation_requested"].includes(input.type);
+  if (!explicitlyCompleted) return { ok: false, code: "neural_field_completion_required", state: current };
+
+  const strokeId = sanitizeNeuralFieldText(input.strokeId || current.gesture.activeStrokeId || nextNeuralFieldEventId(target, "stroke"), 128);
+  const eventType = current.tool === "airscript" ? "stroke_completed" : relationRequested ? "relation_requested" : "lasso_completed";
+  const groundingInput = current.tool === "spatial_lasso" && !relationRequested ? {
+    lassoPolygon: input.lassoPolygon || input.polygon || current.gesture.activeStroke?.points || [],
+    frameTimestamp: Number(input.frameTimestamp || current.handTracking.latestFrameTimestamp || Date.now()),
+    viewport: input.viewport,
+    candidateScene: input.candidateScene,
+    selectedObjectIds: input.selectedObjectIds || current.lasso.groundedObjectIds
+  } : null;
+  const grounding = groundingInput ? groundSpatialLasso(groundingInput) : null;
+  const event = createNeuralFieldEvent(eventType, {
+    eventId: sanitizeNeuralFieldText(input.eventId || nextNeuralFieldEventId(target, "commit"), 160),
+    neuralFieldGeneration: current.generation,
+    tool: current.tool,
+    timestamp: Number(input.timestamp || Date.now()),
+    metadata: {
+      strokeId,
+      classification: input.classification || (input.unknown === true ? "unknown" : null),
+      unknown: input.unknown === true,
+      requiresInterpretation: input.requiresInterpretation === true,
+      requiresObjectIdentity: input.requiresObjectIdentity === true || grounding?.code === "ambiguous_selection" || grounding?.code === "no_grounded_object",
+      ambiguity: grounding?.code || input.ambiguity || null,
+      evidenceFrameIndices: boundedFrameIndices(input.evidenceFrameIndices),
+      relationPredicate: input.relation?.predicate || null
+    }
+  });
+  const accepted = applyNeuralFieldToolEvent(event, { target });
+  if (!accepted.ok) return accepted;
+
+  if (current.tool === "airscript" && input.classification && String(input.classification).toLowerCase() !== "unknown") {
+    const text = airScriptMomentText(input);
+    recordNeuralFieldMoment(target, event.eventId, "AIRSCRIPT", text);
+    await maybeSpeakNeuralFieldBoundary(target, event.eventId, text, options);
+    return { ok: true, event, local: true, state: target.neuralField };
+  }
+
+  if (current.tool === "spatial_lasso" && input.relation && !relationRequested) {
+    const relation = normalizeSpatialRelation(input.relation);
+    const text = formatSpatialRelationForUser(relation, input.objects || input.candidateScene?.objects || []);
+    if (!relation || !text) return { ok: false, code: "relation_unavailable", event, state: target.neuralField };
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_grounded", {
+      eventId: `${event.eventId}_relation`,
+      neuralFieldGeneration: current.generation,
+      tool: "spatial_lasso",
+      timestamp: event.timestamp,
+      metadata: { relation }
+    }), { target });
+    recordNeuralFieldMoment(target, event.eventId, "SPATIAL", text);
+    await maybeSpeakNeuralFieldBoundary(target, event.eventId, text, options);
+    return { ok: true, event, relation, text, local: true, state: target.neuralField };
+  }
+
+  if (grounding?.ok === true) {
+    const selected = grounding.selectedObject;
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("selection_grounded", {
+      eventId: `${event.eventId}_selection`,
+      neuralFieldGeneration: current.generation,
+      tool: "spatial_lasso",
+      timestamp: event.timestamp,
+      metadata: { objectId: selected.id, label: selected.label, confidence: selected.confidence }
+    }), { target });
+    const text = `Selected ${sanitizeNeuralFieldText(selected.label, 80)}.`;
+    recordNeuralFieldMoment(target, event.eventId, "SPATIAL", text);
+    await maybeSpeakNeuralFieldBoundary(target, event.eventId, text, options);
+    return { ok: true, event, grounding, local: true, state: target.neuralField };
+  }
+
+  if (grounding?.code === "ambiguous_selection") {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("selection_ambiguous", {
+      eventId: `${event.eventId}_ambiguous`,
+      neuralFieldGeneration: current.generation,
+      tool: "spatial_lasso",
+      timestamp: event.timestamp,
+      metadata: { candidates: grounding.candidates, suggestedAction: grounding.suggestedAction }
+    }), { target });
+  }
+
+  const policy = shouldEscalateNeuralFieldEvent(event, {
+    maximumFrames: Math.min(NEURAL_FIELD_LIMITS.maximumFrames, Number(options.maximumFrames || NEURAL_FIELD_LIMITS.maximumFrames)),
+    maximumBodyBytes: Math.min(NEURAL_FIELD_LIMITS.maximumBodyBytes, Number(options.maximumBodyBytes || NEURAL_FIELD_LIMITS.maximumBodyBytes)),
+    neuralFieldGeneration: current.generation,
+    cloudEnabled: neuralFieldCloudEnabled(target, options),
+    requestInFlight: target.neuralField.semantic.requestInFlight,
+    requestAllowed: !neuralFieldRequestLimitReached(target, options)
+  });
+  if (!policy.shouldEscalate) {
+    const code = neuralFieldSemanticBlockCode(target, options) || (grounding?.code === "no_grounded_object" ? "no_grounded_object" : "semantic_not_required");
+    const message = grounding?.message || "Neural Field kept this interaction local.";
+    if (grounding?.code === "no_grounded_object") await maybeSpeakNeuralFieldBoundary(target, event.eventId, message, options);
+    return { ok: false, code, event, grounding, policy, state: target.neuralField };
+  }
+  return runNeuralFieldSemanticRequest(target, event, input, policy, options);
+}
+
+async function runNeuralFieldSemanticRequest(target, event, input, policy, options) {
+  const blockCode = neuralFieldSemanticBlockCode(target, options);
+  if (blockCode) return { ok: false, code: blockCode, event, policy, state: target.neuralField };
+  const semanticAdapter = options.semanticAdapter || options.semanticInference;
+  if (typeof semanticAdapter !== "function") return { ok: false, code: "semantic_unavailable", event, policy, state: target.neuralField };
+  const limiter = options.requestLimiter;
+  const requiredFrames = policy.requiredFrames.length
+    ? policy.requiredFrames
+    : boundedFrameIndices(input.evidenceFrameIndices).slice(0, policy.maximumFrames);
+  const sourceFrames = Array.isArray(input.evidenceFrames) ? input.evidenceFrames : [];
+  const evidenceFrames = requiredFrames.map((index) => sourceFrames[index]).filter(Boolean).slice(0, policy.maximumFrames);
+  const requestId = nextNeuralFieldEventId(target, "semantic_request");
+  const payload = {
+    requestId,
+    neuralFieldGeneration: event.neuralFieldGeneration,
+    sessionId: target.neuralField.sessionId,
+    tool: event.tool,
+    reason: policy.reason,
+    event,
+    evidenceFrameIndices: requiredFrames,
+    evidenceFrames,
+    maximumFrames: policy.maximumFrames,
+    maximumBodyBytes: policy.maximumBodyBytes
+  };
+  const bodyBytes = jsonByteLength(payload);
+  if (bodyBytes > policy.maximumBodyBytes) {
+    return { ok: false, code: "semantic_request_too_large", event, policy, state: target.neuralField };
+  }
+  if (!limiter || typeof limiter.beginRequest !== "function" || typeof limiter.finishRequest !== "function" ||
+      typeof limiter.recordLogicalRequest !== "function") {
+    return { ok: false, code: "semantic_request_limiter_required", event, policy, state: target.neuralField };
+  }
+  const frameTimestamps = evidenceFrames.map((frame) => Number(frame?.captured_at_ms ?? frame?.timestamp_ms)).filter(Number.isFinite);
+  const limiterInput = {
+    sessionId: target.neuralField.sessionId,
+    now: Date.now(),
+    frames: evidenceFrames,
+    windowMs: frameTimestamps.length > 1 ? Math.max(0, frameTimestamps.at(-1) - frameTimestamps[0]) : 0,
+    bodyBytes,
+    retryCount: 0
+  };
+  const allowed = limiter.checkRequestAllowed?.(limiterInput);
+  if (allowed && allowed.ok === false) return { ok: false, code: allowed.code || "request_limit_reached", event, policy, state: target.neuralField };
+  const begun = limiter.beginRequest(limiterInput);
+  if (!begun?.ok) return { ok: false, code: begun?.code || "request_limit_reached", event, policy, state: target.neuralField };
+  const owner = neuralFieldResourceOwner(target);
+  const AbortControllerApi = globalThis.AbortController;
+  const controller = typeof AbortControllerApi === "function" ? new AbortControllerApi() : null;
+  owner.semanticAbortController = controller;
+  owner.semanticRequestCount += 1;
+  owner.activeSemanticRequests += 1;
+  owner.maximumSemanticRequests = Math.max(owner.maximumSemanticRequests, owner.activeSemanticRequests);
+  if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldSemanticRequests += 1;
+  if (!updateNeuralFieldControllerState(target, event.neuralFieldGeneration, {
+    semantic: { requestInFlight: true, activeRequestId: requestId, queuedCommit: null }
+  })) {
+    controller?.abort?.();
+    owner.activeSemanticRequests -= 1;
+    if (owner.semanticAbortController === controller) owner.semanticAbortController = null;
+    limiter?.finishRequest?.({ ...limiterInput, success: false });
+    return { ok: false, code: "stale_semantic_request", event, policy, state: target.neuralField };
+  }
+  let resolveSemanticCleanup;
+  const semanticCleanupPromise = new Promise((resolve) => { resolveSemanticCleanup = resolve; });
+  owner.semanticPromise = semanticCleanupPromise;
+  try {
+    const accounted = limiter.recordLogicalRequest({ sessionId: limiterInput.sessionId, now: limiterInput.now });
+    if (accounted?.ok === false) {
+      updateNeuralFieldControllerState(target, event.neuralFieldGeneration, {
+        semantic: { requestInFlight: false, activeRequestId: null, queuedCommit: null }
+      });
+      limiter.recordFailure?.({ errorCode: accounted.code || "semantic_accounting_failed", now: limiterInput.now });
+      return { ok: false, code: accounted.code || "semantic_accounting_failed", event, policy, escalated: false, state: target.neuralField };
+    }
+    const result = await semanticAdapter(payload, { signal: controller?.signal });
+    const latest = target.neuralField;
+    if (controller?.signal?.aborted || latest.status !== "active" || latest.generation !== event.neuralFieldGeneration || latest.semantic.activeRequestId !== requestId) {
+      return { ok: false, code: "stale_semantic_response", event, policy, state: latest };
+    }
+    const prepared = prepareNeuralFieldSemanticResult(event, result, input);
+    updateNeuralFieldControllerState(target, event.neuralFieldGeneration, {
+      semantic: { requestInFlight: false, activeRequestId: null, queuedCommit: null }
+    });
+    if (!prepared.ok) {
+      limiter.recordFailure?.({ errorCode: prepared.code || "semantic_response_invalid", now: limiterInput.now });
+      return { ...prepared, event, policy, escalated: true, state: target.neuralField };
+    }
+    const applied = applyNeuralFieldSemanticResult(target, event, prepared);
+    if (applied.ok && applied.text) await maybeSpeakNeuralFieldBoundary(target, event.eventId, applied.text, options);
+    return { ...applied, event, policy, escalated: true, state: target.neuralField };
+  } catch (error) {
+    if (target.neuralField.generation !== event.neuralFieldGeneration || controller?.signal?.aborted) {
+      return { ok: false, code: "stale_semantic_response", event, policy, state: target.neuralField };
+    }
+    updateNeuralFieldControllerState(target, event.neuralFieldGeneration, {
+      semantic: { requestInFlight: false, activeRequestId: null, queuedCommit: null },
+      safeError: "Semantic interpretation is unavailable."
+    });
+    limiter.recordFailure?.({ errorCode: "semantic_unavailable", now: limiterInput.now });
+    return { ok: false, code: "semantic_unavailable", event, policy, state: target.neuralField };
+  } finally {
+    try {
+      limiter.finishRequest();
+    } catch {
+      owner.lastCleanupError = owner.lastCleanupError || "semantic_limiter_cleanup_failed";
+    } finally {
+      owner.activeSemanticRequests = Math.max(0, owner.activeSemanticRequests - 1);
+      resolveSemanticCleanup?.();
+      if (owner.semanticPromise === semanticCleanupPromise) owner.semanticPromise = null;
+      if (owner.semanticAbortController === controller) owner.semanticAbortController = null;
+    }
+  }
+}
+
+function prepareNeuralFieldSemanticResult(event, result = {}, input = {}) {
+  if (!result || typeof result !== "object" || containsProhibitedNeuralFieldData(result)) {
+    return { ok: false, code: "semantic_response_invalid" };
+  }
+  if (event.tool === "airscript") {
+    const classification = sanitizeNeuralFieldText(result.classification || result.symbol || result.text, 120);
+    if (!classification) return { ok: false, code: "stroke_classification_unavailable" };
+    const text = sanitizeNeuralFieldText(result.summary, 200) || `Drew ${classification}.`;
+    return { ok: true, kind: "airscript", classification, text };
+  }
+  const selected = validateSemanticGrounding(result.selectedObject || result.grounding?.selectedObject, result, input);
+  if (selected) {
+    return { ok: true, kind: "selection", selectedObject: selected, text: `Selected ${sanitizeNeuralFieldText(selected.label, 80)}.` };
+  }
+  const relation = normalizeSpatialRelation(result.relation);
+  const relationObjects = input.objects || input.candidateScene?.objects || [];
+  const relationIds = new Set(relationObjects.map((object) => String(object?.id || "")));
+  const relationGrounded = relation && relationIds.has(relation.subjectId) && (!relation.objectId || relationIds.has(relation.objectId));
+  const text = relationGrounded ? formatSpatialRelationForUser(relation, relationObjects) : "";
+  if (relationGrounded && text) return { ok: true, kind: "relation", relation, text };
+  return { ok: false, code: "grounding_unavailable" };
+}
+
+function applyNeuralFieldSemanticResult(target, event, prepared) {
+  if (prepared.kind === "airscript") {
+    recordNeuralFieldMoment(target, event.eventId, "AIRSCRIPT", prepared.text);
+    return { ok: true, classification: prepared.classification, text: prepared.text };
+  }
+  if (prepared.kind === "selection") {
+    const selected = prepared.selectedObject;
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("selection_grounded", {
+      eventId: `${event.eventId}_semantic_selection`,
+      neuralFieldGeneration: event.neuralFieldGeneration,
+      tool: "spatial_lasso",
+      timestamp: Date.now(),
+      metadata: { objectId: selected.id, label: selected.label, confidence: selected.confidence }
+    }), { target });
+    recordNeuralFieldMoment(target, event.eventId, "SPATIAL", prepared.text);
+    return { ok: true, selectedObject: selected, text: prepared.text };
+  }
+  if (prepared.kind === "relation") {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_grounded", {
+      eventId: `${event.eventId}_semantic_relation`,
+      neuralFieldGeneration: event.neuralFieldGeneration,
+      tool: "spatial_lasso",
+      timestamp: Date.now(),
+      metadata: { relation: prepared.relation }
+    }), { target });
+    recordNeuralFieldMoment(target, event.eventId, "SPATIAL", prepared.text);
+    return { ok: true, relation: prepared.relation, text: prepared.text };
+  }
+  return { ok: false, code: "grounding_unavailable" };
+}
+
+function validateSemanticGrounding(selected, result, input) {
+  if (!selected || typeof selected !== "object") return null;
+  const selectedId = sanitizeNeuralFieldText(selected.id, 128);
+  const candidates = Array.isArray(input.candidateScene?.objects) ? input.candidateScene.objects : [];
+  const candidate = candidates.find((object) => String(object?.id || "") === selectedId);
+  if (!candidate) return null;
+  const bbox = normalizeGroundingVector(candidate.bbox, 4);
+  const center = normalizeGroundingVector(candidate.center, 2) || (bbox ? [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] : null);
+  const label = sanitizeNeuralFieldText(selected.label || candidate.label, 80);
+  if (!bbox || !center || !label) return null;
+  const confidence = Number(selected.confidence ?? candidate.confidence);
+  return {
+    id: selectedId,
+    label,
+    bbox,
+    center,
+    relativeDepth: Number.isFinite(Number(candidate.relativeDepth ?? candidate.relative_depth)) ? Number(candidate.relativeDepth ?? candidate.relative_depth) : null,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    evidenceFrameIndices: boundedFrameIndices(result.grounding?.evidenceFrameIndices || selected.evidenceFrameIndices || candidate.evidenceFrameIndices)
+  };
+}
+
+function normalizeGroundingVector(value, length) {
+  if (!Array.isArray(value) || value.length < length) return null;
+  const numbers = value.slice(0, length).map(Number);
+  return numbers.every(Number.isFinite) ? numbers : null;
+}
+
+function neuralFieldCloudEnabled(target, options = {}) {
+  return options.cloudEnabled !== false && target.movementRecognition?.usage?.cloud_enabled !== false;
+}
+
+function neuralFieldRequestLimitReached(target, options = {}) {
+  if (options.requestAllowed === false || options.requestLimitReached === true) return true;
+  const usage = normalizeCloudUsage(target.movementRecognition?.usage);
+  return usage.session.remaining <= 0 || usage.day.remaining <= 0 || usage.month.remaining <= 0 || usage.concurrent.active >= usage.concurrent.limit;
+}
+
+function neuralFieldSemanticBlockCode(target, options = {}) {
+  if (target.neuralField?.semantic.requestInFlight || neuralFieldResourceOwner(target).activeSemanticRequests > 0) return "semantic_request_in_flight";
+  if (!neuralFieldCloudEnabled(target, options)) return "hf_cloud_disabled";
+  if (neuralFieldRequestLimitReached(target, options)) return "request_limit_reached";
+  return null;
+}
+
+function boundedFrameIndices(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(Number).filter((item) => Number.isInteger(item) && item >= 0))]
+    .sort((first, second) => first - second)
+    .slice(0, NEURAL_FIELD_LIMITS.maximumFrames);
+}
+
+function jsonByteLength(value) {
+  try {
+    const text = JSON.stringify(value);
+    return typeof TextEncoder === "function" ? new TextEncoder().encode(text).byteLength : text.length * 2;
+  } catch {
+    return Infinity;
+  }
+}
+
+function normalizeNeuralFieldPoint(value, timestamp) {
+  const x = Number(Array.isArray(value) ? value[0] : value?.x);
+  const y = Number(Array.isArray(value) ? value[1] : value?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)), timestamp: Number(timestamp || Date.now()) };
+}
+
+function airScriptMomentText(input = {}) {
+  const summary = sanitizeNeuralFieldText(input.summary, 200);
+  if (summary) return summary;
+  const classification = sanitizeNeuralFieldText(input.classification, 80).toLowerCase();
+  if (input.closed === true && ["circle", "circular", "closed_circle"].includes(classification)) return "Drew a closed circular stroke.";
+  return `Drew ${classification || "a completed stroke"}.`;
+}
+
+function recordNeuralFieldMoment(target, id, role, text) {
+  const clean = sanitizeNeuralFieldText(text, 300);
+  if (!clean) return false;
+  const recorded = target.emergencyRuntimeController.recordMoment("neural_field", {
+    id: sanitizeNeuralFieldText(id, 160),
+    role: role === "AIRSCRIPT" ? "AIRSCRIPT" : "SPATIAL",
+    text: clean,
+    createdAt: Date.now()
+  });
+  target.appState = target.emergencyRuntimeController.snapshot();
+  return recorded;
+}
+
+async function maybeSpeakNeuralFieldBoundary(target, observationId, text, options = {}) {
+  if (options.speak !== true || !text) return { ok: true, skipped: true };
+  const ownership = { generation: target.neuralField?.generation, sessionId: target.neuralField?.sessionId };
+  return speakSensefieldResponse({ observationId, text }, { ...options, target, neuralFieldOwnership: ownership });
+}
+
+export async function requestReplayConsent(options = {}) {
+  const target = options.target || state;
+  if (target.neuralField?.status !== "active") return { ok: false, code: "neural_field_inactive", state: target.neuralField };
+  const generation = target.neuralField.generation;
+  const sessionId = target.neuralField.sessionId;
+  const consentGranted = options.consentGranted === true || (typeof options.requestConsent === "function" && await options.requestConsent() === true);
+  if (!consentGranted) return { ok: false, code: "replay_consent_required", state: target.neuralField };
+  if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) return { ok: false, code: "stale_replay_consent", state: target.neuralField };
+  updateNeuralFieldControllerState(target, generation, { replay: { consentGranted: true, recording: false, recorderId: null } });
+  return { ok: true, state: target.neuralField };
+}
+
+export async function startNeuralFieldReplay(options = {}) {
+  const target = options.target || state;
+  const current = target.neuralField;
+  if (current?.status !== "active") return { ok: false, code: "neural_field_inactive", state: current };
+  if (current.replay.consentGranted !== true) return { ok: false, code: "replay_consent_required", state: current };
+  const owner = neuralFieldResourceOwner(target);
+  if (owner.replay?.recording) return { ok: true, state: current, reused: true };
+  if (owner.replay) {
+    const replacedReplay = owner.replay;
+    const released = await releaseNeuralFieldReplay(target, { discard: true, reason: "replaced", replay: replacedReplay });
+    if (!released.ok) return { ok: false, code: released.code || "replay_cleanup_failed", state: target.neuralField };
+    if (!neuralFieldOperationIsCurrent(target, current.generation, current.sessionId)) {
+      return { ok: false, code: "stale_replay_start", state: target.neuralField };
+    }
+  }
+  const recorderId = nextNeuralFieldEventId(target, "replay");
+  const ReplayAbortController = globalThis.AbortController;
+  const startAbortController = typeof ReplayAbortController === "function" ? new ReplayAbortController() : null;
+  let recorder = null;
+  try {
+    recorder = typeof options.replayRecorderFactory === "function"
+      ? options.replayRecorderFactory({
+        recorderId,
+        localOnly: true,
+        maximumDurationMs: NEURAL_FIELD_LIMITS.maxReplayDurationMs,
+        signal: startAbortController?.signal
+      })
+      : null;
+  } catch {
+    return { ok: false, code: "replay_unavailable", state: target.neuralField };
+  }
+  const replay = {
+    recorderId,
+    recorder,
+    tool: current.tool,
+    events: [],
+    startedAt: Date.now(),
+    recording: false,
+    phase: "starting",
+    saved: false,
+    generation: current.generation,
+    sessionId: current.sessionId,
+    timer: null,
+    clearTimer: options.clearTimeout || globalThis.clearTimeout,
+    stopCounted: false,
+    stopComplete: false,
+    startAbortController,
+    startTeardownWaitMs: Math.min(1000, Math.max(0, Number(options.replayStartTeardownWaitMs ?? 250))),
+    teardownTimeoutMs: boundedNeuralFieldCleanupTimeout(options.replayTeardownTimeoutMs),
+    startPromise: null,
+    startSucceeded: false,
+    startAbandoned: false,
+    startSettledBeforeTeardown: false,
+    stopPromise: null,
+    releasePromise: null
+  };
+  owner.replay = replay;
+  owner.replayStarts += 1;
+  if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldReplaysStarted += 1;
+  replay.startPromise = Promise.resolve().then(() => recorder?.start?.());
+  void replay.startPromise.then(() => {
+    if (replay.startAbandoned) void releaseStaleNeuralFieldReplayStart(target, replay).catch(() => {});
+  }, () => {});
+  const started = await runBoundedNeuralFieldCleanup(
+    () => replay.startPromise,
+    boundedNeuralFieldCleanupTimeout(options.replayStartTimeoutMs ?? 5000)
+  );
+  if (!started.ok) {
+    replay.startAbandoned = true;
+    replay.startAbortController?.abort?.();
+    const released = await releaseNeuralFieldReplay(target, { discard: true, reason: "start_failed", replay });
+    if (!released.ok) return { ok: false, code: released.code || "replay_cleanup_failed", state: target.neuralField };
+    return {
+      ok: false,
+      code: started.code === "resource_cleanup_timeout" ? "replay_start_timeout" : "replay_unavailable",
+      state: target.neuralField
+    };
+  }
+  replay.startSucceeded = true;
+  if (!neuralFieldOperationIsCurrent(target, replay.generation, replay.sessionId) || owner.replay !== replay || replay.phase !== "starting") {
+    await releaseStaleNeuralFieldReplayStart(target, replay);
+    return { ok: false, code: "stale_replay_start", state: target.neuralField };
+  }
+  replay.phase = "recording";
+  replay.recording = true;
+  const setTimer = options.setTimeout || globalThis.setTimeout;
+  const maximumDurationMs = Math.min(NEURAL_FIELD_LIMITS.maxReplayDurationMs, Math.max(1, Number(options.maximumDurationMs || NEURAL_FIELD_LIMITS.maxReplayDurationMs)));
+  replay.timer = setTimer?.(() => {
+    void stopNeuralFieldReplay({ target, expectedReplay: replay }).catch(() => {});
+  }, maximumDurationMs) || null;
+  if (!updateNeuralFieldControllerState(target, current.generation, { replay: { consentGranted: true, recording: true, recorderId } })) {
+    await releaseStaleNeuralFieldReplayStart(target, replay);
+    return { ok: false, code: "stale_replay_start", state: target.neuralField };
+  }
+  return { ok: true, state: target.neuralField };
+}
+
+export async function stopNeuralFieldReplay(options = {}) {
+  const target = options.target || state;
+  const owner = neuralFieldResourceOwner(target);
+  const replay = options.expectedReplay || owner.replay;
+  if (!replay || owner.replay !== replay) return { ok: true, state: target.neuralField, alreadyStopped: true };
+  if (options.clearTimeout) replay.clearTimer = options.clearTimeout;
+  const stopped = await stopOwnedNeuralFieldReplayRecorder(target, owner, replay);
+  return { ...stopped, state: target.neuralField };
+}
+
+export async function discardNeuralFieldReplay(options = {}) {
+  const target = options.target || state;
+  const owner = neuralFieldResourceOwner(target);
+  const replay = options.expectedReplay || owner.replay;
+  if (!replay || owner.replay !== replay) return { ok: true, state: target.neuralField, alreadyDiscarded: true };
+  const released = await releaseNeuralFieldReplay(target, { discard: true, reason: "discarded", replay });
+  if (owner.replay == null && neuralFieldOperationIsCurrent(target, replay.generation, replay.sessionId)) {
+    updateNeuralFieldControllerState(target, replay.generation, { replay: { consentGranted: target.neuralField.replay.consentGranted, recording: false, recorderId: null } });
+  }
+  return { ok: released.ok, ...(released.ok ? {} : { code: released.code }), state: target.neuralField };
+}
+
+export async function saveNeuralFieldReplay(options = {}) {
+  const target = options.target || state;
+  const owner = neuralFieldResourceOwner(target);
+  const replay = owner.replay;
+  if (!replay) return { ok: false, code: "replay_unavailable", state: target.neuralField };
+  const stopped = await stopNeuralFieldReplay({ target, expectedReplay: replay });
+  if (!stopped.ok) return stopped;
+  if (owner.replay !== replay) return { ok: false, code: "stale_replay_operation", state: target.neuralField };
+  const artifact = {
+    schemaVersion: "sensefield.neural-field-replay.v1",
+    tool: replay.tool,
+    createdAt: replay.startedAt,
+    durationMs: Math.min(NEURAL_FIELD_LIMITS.maxReplayDurationMs, Math.max(0, Date.now() - replay.startedAt)),
+    events: replay.events.slice(0, NEURAL_FIELD_LIMITS.maxReplayEvents),
+    containsRawMedia: false,
+    localOnly: true
+  };
+  if (containsProhibitedNeuralFieldData(artifact)) {
+    await releaseNeuralFieldReplay(target, { discard: true, reason: "privacy_violation", replay });
+    return { ok: false, code: "replay_privacy_violation", state: target.neuralField };
+  }
+  try {
+    if (typeof options.save === "function") await options.save(artifact);
+    replay.saved = true;
+    const released = await releaseNeuralFieldReplay(target, { discard: false, reason: "saved", replay });
+    if (!released.ok) return { ok: false, code: released.code, artifact, state: target.neuralField };
+    return { ok: true, artifact, state: target.neuralField };
+  } catch {
+    await releaseNeuralFieldReplay(target, { discard: true, reason: "save_failed", replay });
+    return { ok: false, code: "replay_save_failed", state: target.neuralField };
+  }
+}
+
+function recordNeuralFieldReplayEvent(target, event) {
+  const owner = neuralFieldResourceOwner(target);
+  const replay = owner.replay;
+  if (!replay?.recording) return;
+  if (Date.now() - replay.startedAt >= NEURAL_FIELD_LIMITS.maxReplayDurationMs || replay.events.length >= NEURAL_FIELD_LIMITS.maxReplayEvents) {
+    void stopNeuralFieldReplay({ target, expectedReplay: replay }).catch(() => {});
+    return;
+  }
+  replay.events.push(event);
+  try {
+    const recorded = replay.recorder?.record?.(event);
+    Promise.resolve(recorded).catch(() => {
+      if (neuralFieldResourceOwner(target).replay === replay) {
+        void stopNeuralFieldReplay({ target, expectedReplay: replay }).catch(() => {});
+      }
+    });
+  } catch {
+    void stopNeuralFieldReplay({ target, expectedReplay: replay }).catch(() => {});
+  }
+}
+
+async function releaseNeuralFieldReplay(target, { discard, reason, replay: expectedReplay } = {}) {
+  const owner = neuralFieldResourceOwner(target);
+  const replay = expectedReplay || owner.replay;
+  if (!replay) return { ok: true };
+  if (replay.releasePromise) return replay.releasePromise;
+  const operation = (async () => {
+    if (replay.timer) (replay.clearTimer || globalThis.clearTimeout)?.(replay.timer);
+    replay.timer = null;
+    let failed = false;
+    const stopped = await stopOwnedNeuralFieldReplayRecorder(target, owner, replay, reason);
+    if (!stopped.ok) failed = true;
+    replay.phase = "releasing";
+    if (discard !== false) {
+      const discarded = await runBoundedNeuralFieldCleanup(() => replay.recorder?.discard?.(), replay.teardownTimeoutMs);
+      if (!discarded.ok) failed = true;
+    }
+    const released = await runBoundedNeuralFieldCleanup(() => replay.recorder?.release?.(), replay.teardownTimeoutMs);
+    if (!released.ok) failed = true;
+    replay.recording = false;
+    if (owner.replay === replay && neuralFieldOperationIsCurrent(target, replay.generation, replay.sessionId)) {
+      updateNeuralFieldControllerState(target, replay.generation, {
+        replay: { consentGranted: target.neuralField.replay.consentGranted, recording: false, recorderId: null }
+      });
+    }
+    if (released.ok) {
+      replay.phase = "released";
+      if (owner.replay === replay) owner.replay = null;
+    } else {
+      replay.phase = "release_failed";
+    }
+    if (failed) {
+      owner.lastCleanupError = "replay_cleanup_failed";
+      return { ok: false, code: "replay_cleanup_failed" };
+    }
+    return { ok: true };
+  })();
+  replay.releasePromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (replay.releasePromise === operation) replay.releasePromise = null;
+  }
+}
+
+async function stopOwnedNeuralFieldReplayRecorder(target, owner, replay, reason = "stopped") {
+  if (replay.stopComplete || replay.phase === "released") return { ok: true, alreadyStopped: true };
+  if (replay.stopPromise) return replay.stopPromise;
+  if (replay.timer) (replay.clearTimer || globalThis.clearTimeout)?.(replay.timer);
+  replay.timer = null;
+  replay.phase = "stopping";
+  replay.recording = false;
+  const operation = (async () => {
+    await settleNeuralFieldReplayStartForTeardown(replay);
+    const stopped = await runBoundedNeuralFieldCleanup(() => replay.recorder?.stop?.(reason), replay.teardownTimeoutMs);
+    if (stopped.ok) {
+      replay.phase = "stopped";
+      replay.recording = false;
+      replay.stopComplete = true;
+      countNeuralFieldReplayStop(target, owner, replay);
+      if (owner.replay === replay && neuralFieldOperationIsCurrent(target, replay.generation, replay.sessionId)) {
+        updateNeuralFieldControllerState(target, replay.generation, { replay: { consentGranted: true, recording: false, recorderId: null } });
+      }
+      return { ok: true };
+    }
+    replay.phase = "stop_failed";
+    replay.recording = true;
+    replay.stopComplete = false;
+    owner.lastCleanupError = stopped.code === "resource_cleanup_timeout" ? "replay_stop_timeout" : "replay_stop_failed";
+    if (owner.replay === replay && neuralFieldOperationIsCurrent(target, replay.generation, replay.sessionId)) {
+      updateNeuralFieldControllerState(target, replay.generation, { replay: { consentGranted: true, recording: true, recorderId: replay.recorderId } });
+    }
+    return { ok: false, code: owner.lastCleanupError };
+  })();
+  replay.stopPromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (replay.stopPromise === operation) replay.stopPromise = null;
+  }
+}
+
+async function settleNeuralFieldReplayStartForTeardown(replay) {
+  replay.startAbortController?.abort?.();
+  if (!replay.startPromise || replay.startSucceeded) return;
+  const waitMs = Number.isFinite(replay.startTeardownWaitMs) ? replay.startTeardownWaitMs : 250;
+  let timer = null;
+  let startSettled = false;
+  await Promise.race([
+    Promise.resolve(replay.startPromise).then(
+      () => { startSettled = true; },
+      () => { startSettled = true; }
+    ),
+    new Promise((resolve) => { timer = globalThis.setTimeout?.(resolve, waitMs); })
+  ]);
+  replay.startSettledBeforeTeardown = startSettled;
+  if (timer != null) globalThis.clearTimeout?.(timer);
+}
+
+async function releaseStaleNeuralFieldReplayStart(target, replay) {
+  let priorRelease = null;
+  if (replay.releasePromise) priorRelease = await replay.releasePromise;
+  if (replay.phase === "released" && replay.startSettledBeforeTeardown) return priorRelease || { ok: true };
+  replay.phase = replay.startSettledBeforeTeardown && replay.stopComplete ? "stopped" : "late_started";
+  replay.recording = !replay.stopComplete;
+  if (!replay.startSettledBeforeTeardown) replay.stopComplete = false;
+  replay.stopPromise = null;
+  return releaseNeuralFieldReplay(target, { discard: true, reason: "stale_start", replay });
+}
+
+function countNeuralFieldReplayStop(target, owner, replay) {
+  if (replay.stopCounted) return;
+  replay.stopCounted = true;
+  owner.replayStops += 1;
+  if (target === state) sensefieldTestRuntime.resourceCounts.neuralFieldReplaysStopped += 1;
+}
+
+export function neuralFieldResourceSummary(target = state) {
+  const owner = neuralFieldResourceOwner(target);
+  return {
+    neural_field_worker_count: owner.worker ? 1 : 0,
+    neural_field_renderer_loop_count: owner.renderer ? 1 : 0,
+    neural_field_semantic_request_count: owner.semanticRequestCount,
+    neural_field_active_semantic_requests: owner.activeSemanticRequests,
+    neural_field_maximum_semantic_requests: owner.maximumSemanticRequests,
+    neural_field_replay_count: owner.replay ? 1 : 0
+  };
+}
+
+function neuralFieldInstrumentationSummary(target) {
+  const neural = target.neuralField;
+  return {
+    status: neural?.status || "inactive",
+    tool: neural?.tool || null,
+    generation: Number(neural?.generation || 0),
+    session_id: neural?.sessionId || null,
+    worker_count: neuralFieldResourceSummary(target).neural_field_worker_count,
+    renderer_loop_count: neuralFieldResourceSummary(target).neural_field_renderer_loop_count,
+    stroke_count: (neural?.gesture?.activeStrokeId ? 1 : 0) + (neural?.gesture?.completedStrokeIds?.length || 0),
+    selected_object_ids: [...(neural?.lasso?.groundedObjectIds || [])].slice(0, NEURAL_FIELD_LIMITS.maxSelectedObjects),
+    active_relation_predicate: neural?.lasso?.activeRelation?.predicate || null,
+    semantic_request_count: neuralFieldResourceSummary(target).neural_field_semantic_request_count,
+    semantic_request_in_flight: neural?.semantic?.requestInFlight === true,
+    replay_status: neural?.replay?.recording ? "recording" : neural?.replay?.consentGranted ? "consented" : "inactive",
+    contains_raw_media: false
+  };
+}
+
+async function ensureMicrophoneTrack(target, options = {}, ownershipIsCurrent = () => true) {
+  if (activeAudioTracks(target).length > 0) return true;
   const audioStream = options.audioStream || await requestRealtimeMicrophoneMedia(options);
   const tracks = audioStream.getAudioTracks?.() || [];
+  if (!ownershipIsCurrent()) {
+    for (const track of tracks) {
+      if (track.readyState !== "ended") track.stop?.();
+    }
+    return false;
+  }
   if (!target.stream) {
     target.stream = audioStream;
-    return;
+    return true;
   }
   if (typeof target.stream.addTrack === "function") {
     for (const track of tracks) target.stream.addTrack(track);
   }
+  return true;
 }
 
 function stopMicrophoneTracks(target) {
@@ -2563,6 +4023,15 @@ function stopMicrophoneTracks(target) {
       track.__sensefieldStopped = true;
       if (target === state) recordSensefieldTestEvent("media_track_stopped", { kind: "audio" });
     }
+  }
+}
+
+function stopAddedMicrophoneTracks(target, existingTracks = new Set()) {
+  for (const track of target.stream?.getAudioTracks?.() || []) {
+    if (existingTracks.has(track) || track.readyState === "ended" || track.__sensefieldStopped === true) continue;
+    track.stop?.();
+    track.__sensefieldStopped = true;
+    if (target === state) recordSensefieldTestEvent("media_track_stopped", { kind: "audio" });
   }
 }
 
@@ -4347,11 +5816,15 @@ export async function speakSensefieldResponse({ observationId = "", text = "" } 
     render();
     return { ok: false, code: "visual_voice_empty" };
   }
+  await cancelVisualSpeech(target, options);
+  if (options.neuralFieldOwnership && !neuralFieldSpeechOwnershipCurrent(target, options.neuralFieldOwnership)) {
+    return { ok: false, code: "visual_speech_stale" };
+  }
   target.movementRecognition.latestSpokenResponse = cleanText;
   target.movementRecognition.lastSpokenMovement = cleanText;
-  await cancelVisualSpeech(target, options);
-  const runtimeSpeechToken = target.interactionState?.sessionActive ? target.emergencyRuntimeController.beginSpeech() : null;
-  if (target.interactionState?.sessionActive && !runtimeSpeechToken) return { ok: false, code: "visual_speech_busy" };
+  const ownsRuntimeSpeech = target.interactionState?.sessionActive || target.neuralField?.status === "active";
+  const runtimeSpeechToken = ownsRuntimeSpeech ? target.emergencyRuntimeController.beginSpeech() : null;
+  if (ownsRuntimeSpeech && !runtimeSpeechToken) return { ok: false, code: "visual_speech_busy" };
   const speechGenerationId = Number(target.interactionState?.speechGenerationId || 0) + 1;
   if (target.interactionState) applyInteractionState(target, { speechGenerationId });
   const ownership = {
@@ -5068,13 +6541,13 @@ function pauseRealtimeSpeechInputForAssistant(target) {
 }
 
 function resumeRealtimeSpeechInputAfterAssistant(target) {
-  if (!target.interactionState?.sessionActive || !interactionModeIs(target, "conversation")) return;
+  if (neuralFieldLifecycleActive(target) || !target.interactionState?.sessionActive || !interactionModeIs(target, "conversation")) return;
   const recognition = target.realtimeSession.speechRecognition;
   if (!recognition) return;
   target.realtimeSession.speechStopping = false;
   if (target.realtimeSession.speechRestartTimer) clearTimeout(target.realtimeSession.speechRestartTimer);
   target.realtimeSession.speechRestartTimer = setTimeout(() => {
-    if (!target.interactionState?.sessionActive || !interactionModeIs(target, "conversation") || target.interactionState.assistantSpeaking) return;
+    if (neuralFieldLifecycleActive(target) || !target.interactionState?.sessionActive || !interactionModeIs(target, "conversation") || target.interactionState.assistantSpeaking) return;
     try { recognition.start(); } catch {}
   }, 120);
 }
@@ -6969,6 +8442,9 @@ export async function analyzeMovementInState(target = state, options = {}) {
   }
   target.movementRecognition.requestInFlight = true;
   target.movementRecognition.activeRequestId = requestId;
+  const RequestAbortController = globalThis.AbortController;
+  const requestAbortController = typeof RequestAbortController === "function" ? new RequestAbortController() : null;
+  target.movementRecognition.activeRequestAbortController = requestAbortController;
   if (target.interactionState?.sessionActive) applyInteractionState(target, { inferenceInFlight: true });
   if (options.persistent) target.movementRecognition.persistent.state = "active";
   if (options.directUserTurn) void cancelVisualSpeech(target);
@@ -7064,7 +8540,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
           memory_mode: target.visualContext.memoryMode,
           interaction_mode: requestMode,
           mode_generation_id: requestGenerationId
-        })
+        }, { signal: requestAbortController?.signal })
       : requestMovementRecognition({
           frames,
           allowed_actions: MOVEMENT_RECOGNITION_ALLOWED_ACTIONS,
@@ -7077,7 +8553,7 @@ export async function analyzeMovementInState(target = state, options = {}) {
           interaction_mode: requestMode,
           mode_generation_id: requestGenerationId,
           window_ms: captureConfig.windowMs
-        }, target);
+        }, target, { signal: requestAbortController?.signal });
     const rawResult = await withTimeout(
       inferenceRequest,
       options.inferenceTimeoutMs ?? 45000,
@@ -7190,6 +8666,9 @@ export async function analyzeMovementInState(target = state, options = {}) {
     if (ownsLegacyLock) {
       target.movementRecognition.requestInFlight = false;
       target.movementRecognition.activeRequestId = null;
+    }
+    if (target.movementRecognition.activeRequestAbortController === requestAbortController) {
+      target.movementRecognition.activeRequestAbortController = null;
     }
     if (ownsLegacyLock && target.interactionState?.sessionActive && requestStillOwned()) {
       applyInteractionState(target, { inferenceInFlight: false });
@@ -7595,7 +9074,7 @@ async function captureSyntheticSmokeFrame() {
   };
 }
 
-async function requestMovementRecognition(payload, target = state) {
+async function requestMovementRecognition(payload, target = state, options = {}) {
   const send = globalThis[["fet", "ch"].join("")];
   if (typeof send !== "function") throw new Error("Movement recognition endpoint is unavailable.");
   let response;
@@ -7606,7 +9085,8 @@ async function requestMovementRecognition(payload, target = state) {
         "Content-Type": "application/json",
         "X-DarkQuest-Session-Id": darkQuestSessionId()
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
   } catch (error) {
     throw movementRecognitionError("Network error while contacting movement recognition.", "network_error", { reason: error?.message ?? "fetch_failed" });
@@ -7635,7 +9115,7 @@ async function requestMovementRecognition(payload, target = state) {
   return normalizeMovementRecognitionResult(body);
 }
 
-async function requestVisualCompanionObservation(payload) {
+async function requestVisualCompanionObservation(payload, options = {}) {
   const send = globalThis[["fet", "ch"].join("")];
   if (typeof send !== "function") throw new Error("Visual companion endpoint is unavailable.");
   const endpoint = payload.interaction_mode === "conversation"
@@ -7654,7 +9134,8 @@ async function requestVisualCompanionObservation(payload) {
     response = await send(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options.signal
     });
   } catch (error) {
     recordSensefieldTestRequest("failed", { endpoint, error: "network_error" }, { correlationId, modeGenerationId: payload.mode_generation_id });
@@ -10292,6 +11773,16 @@ function primarySavedActionDescription(target, recipe) {
 
 function recentMomentsSummaryHtml(target) {
   const app = canonicalAppState(target);
+  if (app.neuralField?.status === "active") {
+    const entries = (app.persistentMemory.neuralFieldMoments || []).slice(-3).reverse();
+    if (!entries.length) return '<p class="dq-movement-hint">Completed Neural Field moments will appear here.</p>';
+    return entries.map((entry) => `
+      <div class="sf-moment-row text-contained">
+        <span class="sf-moment-time">${escapeHtml(relativeMomentTime(entry.createdAt))}</span>
+        <span class="sf-moment-copy"><strong>${escapeHtml(entry.role)}</strong> ${escapeHtml(narratorSentence(entry.text))}</span>
+      </div>
+    `).join("");
+  }
   if (app.selectedMode === "conversation") {
     const turns = app.persistentMemory.conversationMoments.slice(-3).reverse();
     if (!turns.length) return '<p class="dq-movement-hint">Your recent conversational moments will appear here.</p>';

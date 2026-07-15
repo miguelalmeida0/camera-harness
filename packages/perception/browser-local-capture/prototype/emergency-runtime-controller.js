@@ -1,3 +1,16 @@
+import {
+  activateNeuralFieldState,
+  assertNeuralFieldStateInvariants,
+  beginNeuralFieldEndState,
+  beginNeuralFieldState,
+  cancelNeuralFieldOperationState,
+  createNeuralFieldState,
+  failNeuralFieldState,
+  finishNeuralFieldEndState,
+  patchNeuralFieldState,
+  switchNeuralFieldToolState
+} from "./neural-field/neural-field-systems.js";
+
 const MODES = new Set(["conversation", "observing"]);
 
 export function createEmergencyRuntimeController(options = {}) {
@@ -15,6 +28,7 @@ export function createEmergencyRuntimeController(options = {}) {
 
   function beginStart(mode = state.selectedMode) {
     const selectedMode = normalizeMode(mode);
+    const neuralField = resetNeuralFieldForAskWatchStart(state.neuralField);
     state = {
       ...state,
       selectedMode,
@@ -27,6 +41,7 @@ export function createEmergencyRuntimeController(options = {}) {
       media: { cameraActive: false, microphoneActive: false },
       runtime: initialRuntime(),
       currentTurn: initialCurrentTurn(),
+      neuralField,
       safeError: null
     };
     assertInvariants(state);
@@ -56,6 +71,7 @@ export function createEmergencyRuntimeController(options = {}) {
   }
 
   function beginEnd() {
+    if (state.neuralField.status !== "inactive") return beginNeuralFieldEnd("runtime_end");
     state = {
       ...state,
       session: {
@@ -68,10 +84,12 @@ export function createEmergencyRuntimeController(options = {}) {
       currentTurn: initialCurrentTurn(),
       safeError: null
     };
+    assertInvariants(state);
     return snapshot();
   }
 
   function finishEnd() {
+    if (["ending", "error"].includes(state.neuralField.status)) return finishNeuralFieldEnd({ cameraActive: false });
     state = {
       ...state,
       session: { ...state.session, status: "inactive", sessionId: null },
@@ -90,6 +108,7 @@ export function createEmergencyRuntimeController(options = {}) {
   }
 
   function failSession(error = "") {
+    if (state.neuralField.status !== "inactive") return failNeuralField(error, { cameraActive: false });
     state = {
       ...state,
       session: {
@@ -158,6 +177,162 @@ export function createEmergencyRuntimeController(options = {}) {
     state.runtime.listening = state.selectedMode === "conversation" && microphoneActive && !state.runtime.speechInFlight;
     state.runtime.watching = state.selectedMode === "observing" && cameraActive;
     state.runtime.proactiveObservationActive = state.runtime.watching;
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function beginNeuralField(tool, capabilities = {}) {
+    const cameraActive = capabilities.cameraActive === true || state.media.cameraActive;
+    const neuralField = beginNeuralFieldState(state.neuralField, {
+      tool,
+      sessionId: nextId("neural_field_session")
+    });
+    state = {
+      ...state,
+      session: {
+        ...state.session,
+        status: "inactive",
+        sessionId: null,
+        sessionGeneration: state.session.sessionGeneration + 1,
+        modeGeneration: state.session.modeGeneration + 1
+      },
+      media: { cameraActive, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField,
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function activateNeuralField(generation, options = {}) {
+    if (!neuralFieldGenerationIsCurrent(generation)) return rejection("stale_neural_field_generation");
+    state = {
+      ...state,
+      session: { ...state.session, status: "inactive", sessionId: null },
+      media: { cameraActive: options.cameraActive === true || state.media.cameraActive, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField: activateNeuralFieldState(state.neuralField, {
+        handTracking: { workerReady: options.workerReady === true }
+      }),
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function updateNeuralField(generation, patch = {}) {
+    if (!neuralFieldGenerationIsCurrent(generation)) return rejection("stale_neural_field_generation");
+    if (!["starting", "active"].includes(state.neuralField.status)) return rejection("neural_field_inactive");
+    const neuralField = patchNeuralFieldState(state.neuralField, boundedNeuralFieldPatch(patch));
+    if (neuralField.generation !== state.neuralField.generation || neuralField.status !== state.neuralField.status ||
+        neuralField.tool !== state.neuralField.tool || neuralField.sessionId !== state.neuralField.sessionId) {
+      return rejection("neural_field_owner_patch_rejected");
+    }
+    state = {
+      ...state,
+      session: { ...state.session, status: "inactive", sessionId: null },
+      media: { cameraActive: state.media.cameraActive, microphoneActive: false },
+      runtime: clearAskWatchRuntimePreservingSpeech(state.runtime),
+      neuralField,
+      safeError: neuralField.safeError
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function neuralFieldGenerationIsCurrent(generation) {
+    const normalized = Number(generation);
+    return Number.isInteger(normalized) && normalized === state.neuralField.generation;
+  }
+
+  function switchNeuralFieldTool(tool) {
+    const neuralField = switchNeuralFieldToolState(state.neuralField, tool);
+    if (neuralField.generation === state.neuralField.generation) return snapshot();
+    state = {
+      ...state,
+      session: { ...state.session, status: "inactive", sessionId: null, modeGeneration: state.session.modeGeneration + 1 },
+      media: { cameraActive: state.media.cameraActive, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField,
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function cancelNeuralFieldOperation(reason = "") {
+    const neuralField = cancelNeuralFieldOperationState(state.neuralField, reason);
+    if (neuralField.generation === state.neuralField.generation) return snapshot();
+    state = {
+      ...state,
+      session: { ...state.session, status: "inactive", sessionId: null, modeGeneration: state.session.modeGeneration + 1 },
+      media: { cameraActive: state.media.cameraActive, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField,
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function beginNeuralFieldEnd(reason = "") {
+    const neuralField = beginNeuralFieldEndState(state.neuralField, reason);
+    if (neuralField.status === state.neuralField.status && neuralField.generation === state.neuralField.generation) return snapshot();
+    state = {
+      ...state,
+      session: {
+        ...state.session,
+        status: "inactive",
+        sessionId: null,
+        sessionGeneration: state.session.sessionGeneration + 1,
+        modeGeneration: state.session.modeGeneration + 1
+      },
+      media: { cameraActive: state.media.cameraActive, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField,
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function finishNeuralFieldEnd(options = {}) {
+    const neuralField = finishNeuralFieldEndState(state.neuralField);
+    state = {
+      ...state,
+      session: { ...state.session, status: "inactive", sessionId: null },
+      media: { cameraActive: options.cameraActive === true, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField,
+      safeError: null
+    };
+    assertInvariants(state);
+    return snapshot();
+  }
+
+  function failNeuralField(error = "", options = {}) {
+    state = {
+      ...state,
+      session: {
+        ...state.session,
+        status: "inactive",
+        sessionId: null,
+        sessionGeneration: state.session.sessionGeneration + 1,
+        modeGeneration: state.session.modeGeneration + 1
+      },
+      media: { cameraActive: options.cameraActive === true, microphoneActive: false },
+      runtime: initialRuntime(),
+      currentTurn: initialCurrentTurn(),
+      neuralField: failNeuralFieldState(state.neuralField, error),
+      safeError: safeError(error || "Neural Field is unavailable")
+    };
     assertInvariants(state);
     return snapshot();
   }
@@ -241,15 +416,22 @@ export function createEmergencyRuntimeController(options = {}) {
   }
 
   function recordMoment(mode, entry = {}) {
-    const selectedMode = normalizeMode(mode);
     const text = normalizeResponseText(entry.text);
     if (!text) return false;
-    const key = selectedMode === "conversation" ? "conversationMoments" : "observationMoments";
+    const neuralFieldMoment = String(mode) === "neural_field";
+    const selectedMode = neuralFieldMoment ? null : normalizeMode(mode);
+    const key = neuralFieldMoment
+      ? "neuralFieldMoments"
+      : selectedMode === "conversation" ? "conversationMoments" : "observationMoments";
+    const neuralFieldRole = String(entry.role || "").toUpperCase();
+    if (neuralFieldMoment && !["AIRSCRIPT", "SPATIAL"].includes(neuralFieldRole)) return false;
     const id = String(entry.id || `${entry.role || "moment"}_${entry.createdAt || Date.now()}_${text}`);
     if (state.persistentMemory[key].some((item) => item.id === id)) return false;
     state.persistentMemory[key].push({
       id,
-      role: String(entry.role || (selectedMode === "conversation" ? "SENSEFIELD" : "MOVEMENT")),
+      role: neuralFieldMoment
+        ? neuralFieldRole
+        : String(entry.role || (selectedMode === "conversation" ? "SENSEFIELD" : "MOVEMENT")),
       text,
       createdAt: Number(entry.createdAt || Date.now())
     });
@@ -258,7 +440,8 @@ export function createEmergencyRuntimeController(options = {}) {
   }
 
   function beginSpeech() {
-    if (state.session.status !== "active" || state.runtime.speechInFlight) return null;
+    const speechOwnerActive = state.session.status === "active" || state.neuralField.status === "active";
+    if (!speechOwnerActive || state.runtime.speechInFlight) return null;
     state.runtime.speechInFlight = true;
     state.runtime.speechStarted = false;
     state.runtime.activeSpeechId = nextId("speech");
@@ -281,7 +464,7 @@ export function createEmergencyRuntimeController(options = {}) {
     state.runtime.speechInFlight = false;
     state.runtime.speechStarted = false;
     state.runtime.activeSpeechId = null;
-    state.runtime.listening = state.selectedMode === "conversation" && state.media.microphoneActive;
+    state.runtime.listening = conversationListeningAllowed(state);
     state.currentTurn.speechStatus = completed ? "complete" : "unavailable";
     state.safeError = completed ? null : safeError(outcome.error || "Voice unavailable");
     assertInvariants(state);
@@ -293,7 +476,7 @@ export function createEmergencyRuntimeController(options = {}) {
     state.runtime.speechInFlight = false;
     state.runtime.speechStarted = false;
     state.runtime.activeSpeechId = null;
-    state.runtime.listening = state.session.status === "active" && state.selectedMode === "conversation" && state.media.microphoneActive;
+    state.runtime.listening = conversationListeningAllowed(state);
     if (ownedSpeech) {
       state.currentTurn.speechStatus = error ? "unavailable" : "idle";
       state.safeError = error ? safeError(error) : null;
@@ -308,10 +491,14 @@ export function createEmergencyRuntimeController(options = {}) {
   }
 
   function isCurrent(value, idKey, activeId) {
+    const neuralFieldOwned = value?.neuralFieldSessionId != null;
     return Boolean(value && value[idKey] === activeId &&
       value.sessionGeneration === state.session.sessionGeneration &&
       value.modeGeneration === state.session.modeGeneration &&
-      value.mode === state.selectedMode);
+      value.mode === state.selectedMode &&
+      (!neuralFieldOwned || (state.neuralField.status === "active" &&
+        value.neuralFieldSessionId === state.neuralField.sessionId &&
+        value.neuralFieldGeneration === state.neuralField.generation)));
   }
 
   function token(type, payload) {
@@ -320,21 +507,29 @@ export function createEmergencyRuntimeController(options = {}) {
       ...payload,
       sessionGeneration: state.session.sessionGeneration,
       modeGeneration: state.session.modeGeneration,
-      mode: state.selectedMode
+      mode: state.selectedMode,
+      neuralFieldGeneration: state.neuralField.generation,
+      neuralFieldSessionId: state.neuralField.status === "active" ? state.neuralField.sessionId : null
     };
   }
 
   return Object.freeze({
     activate,
+    activateNeuralField,
     beginEnd,
+    beginNeuralField,
+    beginNeuralFieldEnd,
     beginSpeech,
     beginStart,
+    cancelNeuralFieldOperation,
     cancelSpeech,
     clearCurrentTurn,
     deactivate,
     endSession,
     failSession,
+    failNeuralField,
     finishEnd,
+    finishNeuralFieldEnd,
     finishInference,
     finishSpeech,
     heartbeat,
@@ -348,7 +543,9 @@ export function createEmergencyRuntimeController(options = {}) {
     setCurrentResponse,
     snapshot,
     switchMode,
-    takeNextTask
+    switchNeuralFieldTool,
+    takeNextTask,
+    updateNeuralField
   });
 }
 
@@ -363,7 +560,8 @@ function initialState(selectedMode = "conversation") {
     media: { cameraActive: false, microphoneActive: false },
     runtime: initialRuntime(),
     currentTurn: initialCurrentTurn(),
-    persistentMemory: { conversationMoments: [], observationMoments: [] },
+    neuralField: createNeuralFieldState(),
+    persistentMemory: { conversationMoments: [], observationMoments: [], neuralFieldMoments: [] },
     safeError: null
   };
 }
@@ -401,13 +599,59 @@ function initialCurrentTurn() {
 }
 
 function assertInvariants(value) {
-  if (!value?.session || !value?.runtime || !value?.media) throw new Error("runtime_state_shape_invalid");
+  if (!value?.session || !value?.runtime || !value?.media || !value?.neuralField) throw new Error("runtime_state_shape_invalid");
+  if (!MODES.has(value.selectedMode)) throw new Error("runtime_mode_invalid");
+  assertNeuralFieldStateInvariants(value.neuralField);
+  const neuralFieldLifecycleActive = value.neuralField.status !== "inactive";
+  const askWatchLifecycleActive = !["inactive", "error"].includes(value.session.status);
+  if (neuralFieldLifecycleActive && askWatchLifecycleActive) throw new Error("runtime_neural_field_mode_conflict");
+  if (neuralFieldLifecycleActive && (value.media.microphoneActive || value.runtime.listening || value.runtime.watching ||
+      value.runtime.proactiveObservationActive || value.runtime.inferenceInFlight || value.runtime.thinking ||
+      value.runtime.processingTranscript || value.runtime.queuedUserTurn || value.runtime.queuedVisualEvent ||
+      value.runtime.activeRequestId)) {
+    throw new Error("runtime_neural_field_pipeline_conflict");
+  }
   if (value.runtime.listening && value.runtime.proactiveObservationActive) throw new Error("runtime_listening_observing_conflict");
   if (value.selectedMode === "conversation" && value.runtime.proactiveObservationActive) throw new Error("runtime_conversation_observer_conflict");
   if (value.selectedMode === "observing" && (value.media.microphoneActive || value.runtime.listening)) throw new Error("runtime_observing_microphone_conflict");
   if (!value.runtime.inferenceInFlight && value.runtime.activeRequestId) throw new Error("runtime_request_owner_conflict");
   if (!value.runtime.speechInFlight && value.runtime.activeSpeechId) throw new Error("runtime_speech_owner_conflict");
   return true;
+}
+
+function resetNeuralFieldForAskWatchStart(neuralField) {
+  if (neuralField.status === "inactive") return neuralField;
+  const ending = neuralField.status === "ending"
+    ? neuralField
+    : beginNeuralFieldEndState(neuralField, "ask_watch_start");
+  return finishNeuralFieldEndState(ending);
+}
+
+function boundedNeuralFieldPatch(patch = {}) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return {};
+  return {
+    ...(patch.handTracking && typeof patch.handTracking === "object" ? { handTracking: patch.handTracking } : {}),
+    ...(patch.gesture && typeof patch.gesture === "object" ? { gesture: patch.gesture } : {}),
+    ...(patch.lasso && typeof patch.lasso === "object" ? { lasso: patch.lasso } : {}),
+    ...(patch.rendering && typeof patch.rendering === "object" ? { rendering: patch.rendering } : {}),
+    ...(patch.semantic && typeof patch.semantic === "object" ? { semantic: patch.semantic } : {}),
+    ...(patch.replay && typeof patch.replay === "object" ? { replay: patch.replay } : {}),
+    ...(patch.safeError !== undefined ? { safeError: patch.safeError } : {})
+  };
+}
+
+function clearAskWatchRuntimePreservingSpeech(runtime) {
+  return {
+    ...initialRuntime(),
+    speechInFlight: runtime.speechInFlight === true,
+    speechStarted: runtime.speechStarted === true,
+    activeSpeechId: runtime.activeSpeechId || null
+  };
+}
+
+function conversationListeningAllowed(value) {
+  return value.neuralField.status === "inactive" && value.session.status === "active" &&
+    value.selectedMode === "conversation" && value.media.microphoneActive;
 }
 
 function normalizeMode(mode) {
