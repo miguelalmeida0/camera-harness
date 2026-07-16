@@ -57,6 +57,7 @@
     "voice:benchmark": "node packages/perception/browser-local-capture/scripts/voice-benchmark.mjs",
     "voice:serve": ".venv-voice/bin/python services/visual-companion/app.py",
     "voice:doctor": "node packages/perception/browser-local-capture/scripts/voice-doctor.mjs",
+    "test:voice-warmup": "node packages/perception/browser-local-capture/test/voice-warmup.test.mjs && .venv-voice/bin/python services/visual-companion/test/voice-warmup.test.py",
     "test:voice-startup": "node packages/perception/browser-local-capture/test/voice-startup.test.mjs",
     "test:voice-latency": "node packages/perception/browser-local-capture/test/voice-latency.test.mjs",
     "voice:benchmark-latency": "node packages/perception/browser-local-capture/scripts/voice-latency-benchmark.mjs",

@@ -2,6 +2,7 @@ import io
 import os
 import platform
 import re
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -10,6 +11,34 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import soundfile as sf
+
+
+def configure_voice_temp_directory() -> bool:
+    try:
+        with tempfile.NamedTemporaryFile(prefix="sensefield-voice-"):
+            return True
+    except OSError:
+        pass
+    candidates = [
+        os.getenv("SENSEFIELD_VOICE_TMPDIR", "").strip(),
+        os.getenv("TMPDIR", "").strip(),
+        os.path.abspath(os.path.join(os.getcwd(), ".models")),
+    ]
+    for candidate in candidates:
+        if not candidate or not os.path.isdir(candidate):
+            continue
+        try:
+            with tempfile.NamedTemporaryFile(prefix="sensefield-voice-", dir=candidate):
+                pass
+        except OSError:
+            continue
+        os.environ["TMPDIR"] = candidate
+        tempfile.tempdir = candidate
+        return True
+    return False
+
+
+VOICE_TEMP_READY = configure_voice_temp_directory()
 
 
 BENCHMARK_PHRASES = [
@@ -68,7 +97,30 @@ VOICE_CANDIDATES = [
 
 
 class VoiceRuntimeError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "synthesis_failed"):
+        super().__init__(message)
+        self.code = code
+
+
+SAFE_VOICE_ERROR_MESSAGES = {
+    "kokoro_import_failed": "Kokoro could not be loaded.",
+    "voice_not_found": "The configured neural voice was not found.",
+    "model_initialization_failed": "The neural voice model could not be initialized.",
+    "synthesis_empty": "Neural voice synthesis produced no audio.",
+    "synthesis_invalid": "Neural voice synthesis produced invalid samples.",
+    "synthesis_failed": "Neural voice synthesis failed.",
+    "invalid_sample_rate": "Neural voice synthesis returned an invalid sample rate.",
+    "wav_encoding_failed": "Neural voice synthesis could not encode WAV audio.",
+}
+
+
+def safe_voice_error_code(error: Any) -> str:
+    code = str(getattr(error, "code", "") or "")
+    return code if code in SAFE_VOICE_ERROR_MESSAGES else "model_initialization_failed"
+
+
+def safe_voice_error_message(error: Any) -> str:
+    return SAFE_VOICE_ERROR_MESSAGES[safe_voice_error_code(error)]
 
 
 @dataclass
@@ -97,6 +149,8 @@ class SensefieldVoiceRuntime:
         self._cancel_generation = 0
         self._warmed = False
         self._warmup_lock = threading.Lock()
+        self._synthesis_lock = threading.RLock()
+        self._warmup_summary: Dict[str, Any] = {}
 
     def health(self, lazy: bool = True) -> Dict[str, Any]:
         candidate = candidate_by_id(self.selected_model) or candidate_by_id("kokoro_82m")
@@ -145,31 +199,44 @@ class SensefieldVoiceRuntime:
     def warmup(self) -> Dict[str, Any]:
         with self._warmup_lock:
             if self._warmed:
-                return {"ok": True, "voice_warmed": True, "already_warm": True}
+                return {**self._warmup_summary, "ok": True, "voice_warmed": True, "already_warm": True}
             started = time.time()
             result = self.synthesize("Sensefield is ready.")
-            self._warmed = True
-            return {
+            validate_synthesis_result(result)
+            summary = {
                 "ok": True,
                 "voice_warmed": True,
                 "already_warm": False,
                 "warmup_ms": int((time.time() - started) * 1000),
                 "audio_duration_ms": result.output_duration_ms,
+                "audio_bytes": len(result.audio_bytes),
+                "sample_rate": result.sample_rate,
+                "voice": self.profile["id"],
+                "model_initialized": self._adapter is not None,
             }
+            self._warmup_summary = summary
+            self._warmed = True
+            return summary
 
     def synthesize(self, text: str, observation_id: str = "", voice: str = "sensefield_default", style: str = "warm_conversational") -> SynthesisResult:
         clean_text = prepare_spoken_text(text)
         if not clean_text:
-            raise VoiceRuntimeError("No speakable text supplied.")
+            raise VoiceRuntimeError("No speakable text supplied.", "synthesis_empty")
+        if voice != self.profile["id"]:
+            raise VoiceRuntimeError("The requested voice is not configured.", "voice_not_found")
         try:
-            adapter = self._ensure_adapter(self.selected_model)
-            result = adapter.synthesize(clean_text, self.profile)
-            self._warmed = True
+            with self._synthesis_lock:
+                adapter = self._ensure_adapter(self.selected_model)
+                result = adapter.synthesize(clean_text, self.profile)
+                validate_synthesis_result(result)
             return result
         except Exception as error:
-            self._load_error = f"{self.selected_model}: {error}"
+            normalized = error if isinstance(error, VoiceRuntimeError) else VoiceRuntimeError("Neural voice synthesis failed.", "synthesis_failed")
+            self._load_error = safe_voice_error_message(normalized)
             self._adapter = None
-            raise VoiceRuntimeError(str(error)) from error
+            if normalized is error:
+                raise
+            raise normalized from error
 
     def _ensure_adapter(self, candidate_id: str):
         if self._adapter and self._adapter.candidate_id == candidate_id:
@@ -182,7 +249,7 @@ class SensefieldVoiceRuntime:
             return self._adapter
         if candidate_id == "cosyvoice3":
             raise VoiceRuntimeError("CosyVoice 3 is not installed in this local runtime.")
-        raise VoiceRuntimeError(f"Unsupported voice model: {candidate_id}")
+        raise VoiceRuntimeError("The selected neural voice model is unsupported.", "model_initialization_failed")
 
 
 class KokoroAdapter:
@@ -196,9 +263,19 @@ class KokoroAdapter:
 
     def load(self):
         started = time.time()
-        from kokoro import KPipeline
-
-        self.pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M", device=self.device)
+        try:
+            from kokoro import KPipeline
+        except Exception as error:
+            raise VoiceRuntimeError("Kokoro import failed.", "kokoro_import_failed") from error
+        try:
+            self.pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M", device=self.device)
+        except Exception as error:
+            raise VoiceRuntimeError("Kokoro model initialization failed.", "model_initialization_failed") from error
+        try:
+            self.pipeline.load_voice(VOICE_PROFILE["voice"])
+        except Exception as error:
+            self.pipeline = None
+            raise VoiceRuntimeError("The configured Kokoro voice was not found.", "voice_not_found") from error
         self.load_time_ms = int((time.time() - started) * 1000)
         return self
 
@@ -208,15 +285,24 @@ class KokoroAdapter:
         started = time.time()
         first_audio_ms = 0
         chunks = []
-        for _graphemes, _phonemes, audio in self.pipeline(text, voice=profile["voice"], speed=profile["pace"]):
-            if not first_audio_ms:
-                first_audio_ms = int((time.time() - started) * 1000)
-            chunks.append(np.asarray(audio, dtype=np.float32))
+        try:
+            for _graphemes, _phonemes, audio in self.pipeline(text, voice=profile["voice"], speed=profile["pace"]):
+                if not first_audio_ms:
+                    first_audio_ms = int((time.time() - started) * 1000)
+                chunks.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+        except Exception as error:
+            raise VoiceRuntimeError("Kokoro synthesis failed.", "synthesis_failed") from error
         if not chunks:
-            raise VoiceRuntimeError("Kokoro did not return audio.")
+            raise VoiceRuntimeError("Kokoro did not return audio.", "synthesis_empty")
         waveform = np.concatenate(chunks)
+        if waveform.size == 0:
+            raise VoiceRuntimeError("Kokoro returned an empty waveform.", "synthesis_empty")
+        if not np.isfinite(waveform).all():
+            raise VoiceRuntimeError("Kokoro returned invalid samples.", "synthesis_invalid")
         wav = wav_bytes(waveform, self.sample_rate)
         duration_ms = int((len(waveform) / self.sample_rate) * 1000)
+        if duration_ms <= 0:
+            raise VoiceRuntimeError("Kokoro returned zero-duration audio.", "synthesis_empty")
         return SynthesisResult(
             audio_bytes=wav,
             sample_rate=self.sample_rate,
@@ -288,9 +374,31 @@ def prepare_spoken_text(text: str) -> str:
 
 
 def wav_bytes(waveform: np.ndarray, sample_rate: int) -> bytes:
+    values = np.asarray(waveform, dtype=np.float32).reshape(-1)
+    if int(sample_rate) <= 0:
+        raise VoiceRuntimeError("Invalid WAV sample rate.", "invalid_sample_rate")
+    if values.size == 0:
+        raise VoiceRuntimeError("Cannot encode an empty waveform.", "synthesis_empty")
+    if not np.isfinite(values).all():
+        raise VoiceRuntimeError("Cannot encode invalid audio samples.", "synthesis_invalid")
     buffer = io.BytesIO()
-    sf.write(buffer, waveform, sample_rate, format="WAV", subtype="PCM_16")
-    return buffer.getvalue()
+    try:
+        sf.write(buffer, values, sample_rate, format="WAV", subtype="PCM_16")
+    except Exception as error:
+        raise VoiceRuntimeError("WAV encoding failed.", "wav_encoding_failed") from error
+    audio = buffer.getvalue()
+    if len(audio) <= 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        raise VoiceRuntimeError("WAV encoding returned invalid audio.", "wav_encoding_failed")
+    return audio
+
+
+def validate_synthesis_result(result: SynthesisResult) -> None:
+    if int(result.sample_rate) <= 0:
+        raise VoiceRuntimeError("Invalid synthesis sample rate.", "invalid_sample_rate")
+    if int(result.output_duration_ms) <= 0 or len(result.audio_bytes) <= 44:
+        raise VoiceRuntimeError("Synthesis returned empty audio.", "synthesis_empty")
+    if result.audio_bytes[:4] != b"RIFF" or result.audio_bytes[8:12] != b"WAVE":
+        raise VoiceRuntimeError("Synthesis returned invalid WAV audio.", "wav_encoding_failed")
 
 
 def candidate_by_id(candidate_id: str) -> Optional[Dict[str, Any]]:

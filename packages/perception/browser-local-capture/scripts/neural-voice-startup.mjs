@@ -48,6 +48,17 @@ export function discoverVoiceRuntime({
   };
 }
 
+export function voiceProcessEnvironment(root = resolve("."), env = process.env) {
+  const configuredTemp = String(env.SENSEFIELD_VOICE_TMPDIR || "").trim();
+  const candidates = [
+    configuredTemp ? resolveConfiguredPath(root, configuredTemp) : "",
+    String(env.TMPDIR || "").trim(),
+    join(root, ".models")
+  ].filter(Boolean);
+  const tempDir = candidates.find((candidate) => writableDirectory(candidate));
+  return tempDir ? { ...env, TMPDIR: tempDir } : { ...env };
+}
+
 export function probeVoicePython(runtime, { root = resolve("."), env = process.env, run = spawnSync } = {}) {
   if (!runtime?.python) return { ok: false, stage: "runtime_discovery", missing: ["python"] };
   const selectedModel = String(env.SENSEFIELD_VOICE_MODEL || "kokoro_82m");
@@ -56,18 +67,18 @@ export function probeVoicePython(runtime, { root = resolve("."), env = process.e
   const program = [
     "import importlib, json, sys",
     `names=${JSON.stringify(packages)}`,
-    "result={'imports':{},'version':sys.version.split()[0]}",
+    "result={'imports':{},'errors':{},'version':sys.version.split()[0]}",
     "for name in names:",
     " try:",
     "  importlib.import_module(name); result['imports'][name]=True",
-    " except Exception:",
-    "  result['imports'][name]=False",
+    " except Exception as error:",
+    "  result['imports'][name]=False; result['errors'][name]=type(error).__name__",
     "print(json.dumps(result))",
     "sys.exit(0 if all(result['imports'].values()) else 2)"
   ].join("\n");
   const result = run(runtime.python, ["-c", program], {
     cwd: root,
-    env,
+    env: voiceProcessEnvironment(root, env),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
     timeout: 20000
@@ -75,11 +86,14 @@ export function probeVoicePython(runtime, { root = resolve("."), env = process.e
   let details = {};
   try { details = JSON.parse(String(result.stdout || "{}").trim() || "{}"); } catch {}
   const missing = packages.filter((name) => details.imports?.[name] !== true);
+  const code = missing.includes("kokoro") ? "kokoro_import_failed" : "dependency_import_failed";
   return {
     ok: result.status === 0 && missing.length === 0,
     stage: result.status === 0 && missing.length === 0 ? "dependencies_ready" : "dependency_import",
     version: details.version || "",
-    missing
+    missing,
+    errorTypes: details.errors || {},
+    code
   };
 }
 
@@ -128,14 +142,14 @@ export async function ensureNeuralVoiceService({
   const serviceUrl = String(env.VISUAL_COMPANION_URL || DEFAULT_VOICE_SERVICE_URL);
   const initialHealth = await healthCheck(serviceUrl);
   if (initialHealth.ready) {
-    const warmup = initialHealth.warmed ? { ok: true, alreadyWarm: true } : await warmUp(serviceUrl);
-    if (!warmup.ok) throw voiceStartupError("Neural voice warm-up failed.", "warmup_failed");
+    const warmup = await warmUp(serviceUrl);
+    if (!warmup.ok) throw voiceStartupError(warmup.message || "Neural voice warm-up failed.", warmup.code || "warmup_failed");
     return { ready: true, owned: false, child: null, runtime, health: { ...initialHealth, warmed: true }, warmup, serviceUrl: safeServiceUrl(serviceUrl) };
   }
   if (initialHealth.reachable) throw voiceStartupError("Neural voice health endpoint responded but the selected voice is not ready.", "health_not_ready");
   if (!runtime.ok) throw voiceStartupError("Neural voice runtime was not found.", "runtime_not_found");
   const probe = await pythonProbe(runtime);
-  if (!probe.ok) throw voiceStartupError(`Neural voice dependency import failed${probe.missing?.length ? `: ${probe.missing.join(", ")}` : "."}`, "dependency_import_failed");
+  if (!probe.ok) throw voiceStartupError(probe.code === "kokoro_import_failed" ? "Kokoro could not be imported by the configured voice runtime." : `Neural voice dependency import failed${probe.missing?.length ? `: ${probe.missing.join(", ")}` : "."}`, probe.code || "dependency_import_failed");
   const child = spawnVoice({ root, env, runtime, serviceUrl });
   const startedAt = now();
   while (now() - startedAt < timeoutMs) {
@@ -148,7 +162,7 @@ export async function ensureNeuralVoiceService({
       const warmup = await warmUp(serviceUrl);
       if (!warmup.ok) {
         stopOwnedVoiceService({ owned: true, child });
-        throw voiceStartupError("Neural voice warm-up failed.", "warmup_failed");
+        throw voiceStartupError(warmup.message || "Neural voice warm-up failed.", warmup.code || "warmup_failed");
       }
       return { ready: true, owned: true, child, runtime, health: { ...health, warmed: true }, warmup, serviceUrl: safeServiceUrl(serviceUrl) };
     }
@@ -167,14 +181,37 @@ export async function warmNeuralVoiceService(serviceUrl, {
       headers: { Accept: "application/json" },
       signal: timeoutSignal(timeoutMs)
     });
-    const body = await response.json().catch(() => ({}));
-    return {
-      ok: response.ok && body?.ok === true && body?.voice_warmed === true,
-      alreadyWarm: body?.already_warm === true,
-      warmupMs: Math.max(0, Number(body?.warmup_ms || 0))
-    };
-  } catch {
-    return { ok: false, alreadyWarm: false, warmupMs: 0 };
+    const mimeType = String(response.headers?.get?.("content-type") || "").split(";")[0].trim().toLowerCase();
+    const body = await response.json().catch(() => null);
+    if (mimeType !== "application/json" || !body || typeof body !== "object") {
+      return warmupFailure("service_contract_mismatch", response.status, mimeType);
+    }
+    const hasAudioProof = body.model_initialized === true
+      && body.voice === "sensefield_default"
+      && Number(body.sample_rate) > 0
+      && Number(body.audio_duration_ms) > 0
+      && Number(body.audio_bytes) > 44;
+    if (response.ok && body.ok === true && body.voice_warmed === true && hasAudioProof) {
+      return {
+        ok: true,
+        alreadyWarm: body.already_warm === true,
+        warmupMs: Math.max(0, Number(body.warmup_ms || 0)),
+        audioDurationMs: Math.max(0, Number(body.audio_duration_ms || 0)),
+        audioBytes: Math.max(0, Number(body.audio_bytes || 0)),
+        sampleRate: Math.max(0, Number(body.sample_rate || 0)),
+        voice: String(body.voice || ""),
+        modelInitialized: true,
+        httpStatus: response.status,
+        mimeType
+      };
+    }
+    if (response.ok && (body.ok === true || body.voice_warmed === true)) {
+      return warmupFailure("service_contract_mismatch", response.status, mimeType);
+    }
+    return warmupFailure(normalizeWarmupCode(body.code, response.status), response.status, mimeType);
+  } catch (error) {
+    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+    return warmupFailure(timedOut ? "warmup_timeout" : "service_unreachable", 0, "");
   }
 }
 
@@ -182,7 +219,7 @@ export function spawnVoiceService({ root, env, runtime, serviceUrl }) {
   const url = localServiceUrl(serviceUrl);
   return spawn(runtime.python, [runtime.serviceScript, "--host", url.hostname, "--port", url.port || "80"], {
     cwd: root,
-    env: { ...env, PYTHONUNBUFFERED: "1" },
+    env: { ...voiceProcessEnvironment(root, env), PYTHONUNBUFFERED: "1" },
     stdio: ["ignore", "ignore", "ignore"]
   });
 }
@@ -269,6 +306,54 @@ function gitCommonRepoRoot(root) {
 
 function executableExists(path) {
   try { accessSync(path, constants.X_OK); return true; } catch { return false; }
+}
+
+function writableDirectory(path) {
+  try { accessSync(path, constants.R_OK | constants.W_OK); return true; } catch { return false; }
+}
+
+function normalizeWarmupCode(value, httpStatus) {
+  const code = String(value || "");
+  const allowed = new Set([
+    "kokoro_import_failed",
+    "voice_not_found",
+    "model_initialization_failed",
+    "synthesis_empty",
+    "synthesis_invalid",
+    "synthesis_failed",
+    "invalid_sample_rate",
+    "wav_encoding_failed",
+    "warmup_timeout",
+    "service_contract_mismatch"
+  ]);
+  if (allowed.has(code)) return code;
+  if (httpStatus === 404 || httpStatus === 405) return "service_contract_mismatch";
+  return "model_initialization_failed";
+}
+
+function warmupFailure(code, httpStatus, mimeType) {
+  const messages = {
+    kokoro_import_failed: "Kokoro could not be imported by the neural voice service.",
+    voice_not_found: "The configured Kokoro voice was not found.",
+    model_initialization_failed: "The neural voice model could not be initialized.",
+    synthesis_empty: "Neural voice warm-up produced no audio.",
+    synthesis_invalid: "Neural voice warm-up produced invalid audio samples.",
+    synthesis_failed: "Neural voice warm-up synthesis failed.",
+    invalid_sample_rate: "Neural voice warm-up returned an invalid sample rate.",
+    wav_encoding_failed: "Neural voice warm-up could not encode valid WAV audio.",
+    warmup_timeout: "Neural voice warm-up exceeded the measured startup bound.",
+    service_contract_mismatch: "The neural voice warm-up response did not match the required contract.",
+    service_unreachable: "The neural voice service became unreachable during warm-up."
+  };
+  return {
+    ok: false,
+    alreadyWarm: false,
+    warmupMs: 0,
+    code,
+    message: messages[code] || "Neural voice warm-up failed.",
+    httpStatus,
+    mimeType
+  };
 }
 
 function resolveConfiguredPath(root, value) {

@@ -4,24 +4,30 @@ import base64
 import builtins
 import io
 import json
+import logging
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from spatial_runtime import run_spatial_observations, spatial_runtime_health
 from voice_chunking import chunk_spoken_text
 
+logger = logging.getLogger("sensefield.voice")
+
 try:
-    from voice_runtime import SensefieldVoiceRuntime, synthesis_result_headers
+    from voice_runtime import SensefieldVoiceRuntime, safe_voice_error_code, safe_voice_error_message, synthesis_result_headers
 except Exception as voice_import_error:  # pragma: no cover - exercised by runtime health.
+    logger.exception("Neural voice runtime import failed.")
     SensefieldVoiceRuntime = None
+    safe_voice_error_code = None
+    safe_voice_error_message = None
     synthesis_result_headers = None
-    VOICE_IMPORT_ERROR = str(voice_import_error)[:240]
+    VOICE_IMPORT_ERROR = "Neural voice runtime could not be loaded."
 else:
     VOICE_IMPORT_ERROR = ""
 
@@ -240,18 +246,20 @@ async def speak(request: Request):
             headers=synthesis_result_headers(result),
         )
     except Exception as error:
-        return local_voice_unavailable(str(error)[:240])
+        return local_voice_unavailable(error)
 
 
 @app.post("/warmup")
 async def warmup():
     if not voice_runtime:
-        return local_voice_unavailable(VOICE_IMPORT_ERROR)
+        return voice_warmup_unavailable()
     try:
         result = await asyncio.to_thread(voice_runtime.warmup)
         return {**result, "contains_raw_media": False}
     except Exception as error:
-        return local_voice_unavailable(str(error)[:240])
+        code = safe_voice_error_code(error) if safe_voice_error_code else "model_initialization_failed"
+        logger.exception("Neural voice warm-up failed at %s.", code)
+        return voice_warmup_unavailable(error)
 
 
 @app.post("/speak-stream")
@@ -285,7 +293,7 @@ async def speak_stream(request: Request):
                     "type": "error",
                     "index": index,
                     "code": "local_voice_unavailable",
-                    "safe_error": str(error)[:160],
+                    "safe_error": safe_voice_error_message(error) if safe_voice_error_message else VOICE_IMPORT_ERROR,
                     "contains_raw_media": False,
                 }) + "\n"
                 break
@@ -322,17 +330,30 @@ def cancel():
     return {"ok": True, "cancelled": True}
 
 
-def local_voice_unavailable(error: str = "") -> Dict[str, Any]:
+def local_voice_unavailable(error: Any = "") -> Dict[str, Any]:
     return {
         "ok": False,
         "engine": "unavailable",
         "code": "local_voice_unavailable",
         "voice_status": "Voice unavailable",
-        "safe_error": str(error or "")[:240],
+        "safe_error": safe_voice_error_message(error) if error and safe_voice_error_message else (VOICE_IMPORT_ERROR if error else ""),
         "audio_duration_ms": 0,
         "time_to_first_audio_ms": 0,
         "contains_raw_media": False,
     }
+
+
+def voice_warmup_unavailable(error: Any = "") -> JSONResponse:
+    code = safe_voice_error_code(error) if error and safe_voice_error_code else "model_initialization_failed"
+    return JSONResponse(status_code=503, content={
+        "ok": False,
+        "engine": "unavailable",
+        "code": code,
+        "voice_status": "Voice unavailable",
+        "safe_error": safe_voice_error_message(error) if error and safe_voice_error_message else (VOICE_IMPORT_ERROR or "The neural voice model could not be initialized."),
+        "voice_warmed": False,
+        "contains_raw_media": False,
+    })
 
 
 def contains_raw_media_marker(value: Any) -> bool:

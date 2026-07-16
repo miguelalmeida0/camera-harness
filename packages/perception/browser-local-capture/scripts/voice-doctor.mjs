@@ -18,12 +18,13 @@ try {
   if (!runtime.ok) throw Object.assign(new Error("Neural voice runtime was not found."), { code: "runtime_not_found" });
   console.log("Voice runtime: found");
   const python = probeVoicePython(runtime, { root, env: process.env });
-  if (!python.ok) throw Object.assign(new Error(`Required dependency import failed${python.missing.length ? `: ${python.missing.join(", ")}` : "."}`), { code: "dependency_import_failed" });
+  if (!python.ok) throw Object.assign(new Error(python.code === "kokoro_import_failed" ? "Kokoro could not be imported by the configured voice runtime." : `Required dependency import failed${python.missing.length ? `: ${python.missing.join(", ")}` : "."}`), { code: python.code || "dependency_import_failed" });
   console.log(`Voice Python: ready (${python.version})`);
   console.log(`Voice model: ${process.env.SENSEFIELD_VOICE_MODEL || "kokoro_82m"}`);
   service = await ensureNeuralVoiceService({ root, env: process.env, runtime, pythonProbe: () => python });
   console.log(`Voice service: ${service.owned ? "started" : "already healthy"}`);
   console.log(`Voice health: ready (${service.serviceUrl})`);
+  console.log(`Voice warm-up: ${service.warmup.voice || "sensefield_default"}, ${service.warmup.sampleRate || 0} Hz, ${service.warmup.audioDurationMs || 0} ms, ${service.warmup.audioBytes || 0} bytes`);
   const sample = await requestVoiceDoctorSample(service.serviceUrl);
   console.log(`Voice /speak: HTTP ${sample.httpStatus}, ${sample.mimeType}, ${sample.audioBytes} bytes`);
   console.log(`Decoded duration: ${sample.decodedDurationMs} ms`);
