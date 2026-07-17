@@ -2,6 +2,10 @@ import { candidateKey, withRejectedCooldown } from "./perception/action-cooldown
 import { createLocalPerceptionFrame } from "./perception/zone-motion-engine.js";
 import { normalizeStep, scoreLocalActions } from "./perception/local-action-scorer.js";
 import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
+import {
+  createHandGeometryTracker,
+  createNeuralFieldPerceptionPipeline
+} from "./perception/neural-field-perception.js";
 import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
 import { mountNeuralField } from "./neural-field/neural-field-controller.js";
 import {
@@ -1098,6 +1102,7 @@ function clearTransientPresentationState(target) {
 }
 
 export function createInitialState() {
+  const initialInteractionMode = loadInteractionModePreference();
   const target = {
     stream: null,
     cameraReady: false,
@@ -1204,8 +1209,10 @@ export function createInitialState() {
         neutralSinceMs: 0
       }
     },
-    interactionState: createInteractionState(),
-    emergencyRuntimeController: createEmergencyRuntimeController({ selectedMode: loadInteractionModePreference() }),
+    primarySurfaceMode: initialInteractionMode,
+    neuralFieldPreferredTool: "airscript",
+    interactionState: createInteractionState(initialInteractionMode),
+    emergencyRuntimeController: createEmergencyRuntimeController({ selectedMode: initialInteractionMode }),
     conversationMemory: createConversationMemoryState(),
     observationMemory: createObservationMemoryState(),
     realtimeSession: createRealtimeSessionState(),
@@ -1362,18 +1369,23 @@ if (typeof document !== "undefined") {
     dismissEvidence: document.querySelector("#dismissNeuralFieldEvidence"),
     relationText: document.querySelector("#neuralFieldRelationText"),
     isCameraActive: () => state.cameraReady === true,
+    keepControlsMounted: true,
+    externalPerception: true,
     testMode: sensefieldTestModeEnabled(),
     fixture: new URLSearchParams(String(globalThis.location?.search || "")).get("neural-field-fixture") || "",
     onActiveChange: (active) => {
-      if (active && state.spatialExperience?.lastResult?.ok) neuralField?.ingestSpatialResult(state.spatialExperience.lastResult);
-      syncInstantGestureEngine();
+      if (!active && neuralFieldLifecycleActive(state)) return;
       render();
-    }
+    },
+    onToolRequest: (tool) => void handleNeuralFieldToolSelection(tool)
   }) : null;
   buildCalibrationForm(dom, state);
   bindEvents(dom);
   bindPersistentObservationVisibility();
-  globalThis.addEventListener?.("pagehide", () => neuralField?.dispose(), { once: true });
+  globalThis.addEventListener?.("pagehide", () => {
+    void endNeuralField("page_hidden", { target: state, preserveCamera: false })
+      .finally(() => neuralField?.dispose());
+  }, { once: true });
   render();
   refreshCloudUsageStatus(state);
   installP0RuntimeTestHook();
@@ -1574,6 +1586,27 @@ function bindDom() {
     stopCamera: document.querySelector("#stopCamera"),
     analyzeMovement: document.querySelector("#analyzeMovement"),
     interactionModeSelector: document.querySelector("#interactionModeSelector"),
+    neuralFieldPanel: document.querySelector("#neuralFieldPanel"),
+    neuralFieldToolSelector: document.querySelector("#neuralFieldToolSelector"),
+    neuralFieldCameraState: document.querySelector("#neuralFieldCameraState"),
+    neuralFieldHandState: document.querySelector("#neuralFieldHandState"),
+    neuralFieldStrokeState: document.querySelector("#neuralFieldStrokeState"),
+    neuralFieldResultState: document.querySelector("#neuralFieldResultState"),
+    neuralFieldGroundingState: document.querySelector("#neuralFieldGroundingState"),
+    neuralFieldRelationState: document.querySelector("#neuralFieldRelationState"),
+    startNeuralFieldCamera: document.querySelector("#startNeuralFieldCamera"),
+    stopNeuralFieldCamera: document.querySelector("#stopNeuralFieldCamera"),
+    clearNeuralField: document.querySelector("#clearNeuralField"),
+    refreshNeuralFieldTracking: document.querySelector("#refreshNeuralFieldTracking"),
+    releaseNeuralFieldAnchor: document.querySelector("#releaseNeuralFieldAnchor"),
+    exitNeuralField: document.querySelector("#exitNeuralField"),
+    neuralFieldReplayStatus: document.querySelector("#neuralFieldReplayStatus"),
+    enableNeuralFieldReplay: document.querySelector("#enableNeuralFieldReplay"),
+    neuralFieldReplayControls: document.querySelector("#neuralFieldReplayControls"),
+    startNeuralFieldReplay: document.querySelector("#startNeuralFieldReplay"),
+    stopNeuralFieldReplay: document.querySelector("#stopNeuralFieldReplay"),
+    discardNeuralFieldReplay: document.querySelector("#discardNeuralFieldReplay"),
+    saveNeuralFieldReplay: document.querySelector("#saveNeuralFieldReplay"),
     movementControlHelp: document.querySelector("#movementControlHelp"),
     movementSummaryRow: document.querySelector("#movementSummaryRow"),
     savedActionsList: document.querySelector("#savedActionsList"),
@@ -1831,6 +1864,48 @@ function bindEvents(boundDom) {
     const button = event.target?.closest?.("[data-interaction-mode]");
     if (!button) return;
     void setInteractionModeInState(state, button.getAttribute("data-interaction-mode"));
+  });
+  boundDom.startNeuralFieldCamera?.addEventListener("click", () => {
+    void startNeuralField({ tool: state.neuralFieldPreferredTool }, { target: state });
+  });
+  boundDom.stopNeuralFieldCamera?.addEventListener("click", () => {
+    void endNeuralField("user_stop", { target: state, preserveCamera: false });
+  });
+  boundDom.clearNeuralField?.addEventListener("click", () => {
+    if (neuralFieldLifecycleActive(state)) void cancelNeuralFieldOperation("user_clear", { target: state });
+    else neuralField?.clear?.();
+  });
+  boundDom.refreshNeuralFieldTracking?.addEventListener("click", () => {
+    void refreshNeuralFieldSpatialTracking({ target: state });
+  });
+  boundDom.releaseNeuralFieldAnchor?.addEventListener("click", () => {
+    void cancelNeuralFieldOperation("release_anchor", { target: state });
+    neuralField?.releaseAnchor?.();
+  });
+  boundDom.exitNeuralField?.addEventListener("click", async () => {
+    await endNeuralField("user_exit", { target: state, preserveCamera: false });
+    state.primarySurfaceMode = state.interactionState.mode;
+    render();
+  });
+  boundDom.enableNeuralFieldReplay?.addEventListener("click", async () => {
+    await requestReplayConsent({ target: state, consentGranted: true });
+    render();
+  });
+  boundDom.startNeuralFieldReplay?.addEventListener("click", async () => {
+    await startNeuralFieldReplay({ target: state, replayRecorderFactory: createLocalEventReplayRecorder });
+    render();
+  });
+  boundDom.stopNeuralFieldReplay?.addEventListener("click", async () => {
+    await stopNeuralFieldReplay({ target: state });
+    render();
+  });
+  boundDom.discardNeuralFieldReplay?.addEventListener("click", async () => {
+    await discardNeuralFieldReplay({ target: state });
+    render();
+  });
+  boundDom.saveNeuralFieldReplay?.addEventListener("click", async () => {
+    await saveNeuralFieldReplay({ target: state, save: saveLocalNeuralFieldReplayArtifact });
+    render();
   });
   boundDom.instantGestures?.addEventListener("change", () => {
     state.instantGestureRuntimeState.userEnabled = boundDom.instantGestures.checked === true;
@@ -2130,8 +2205,12 @@ function openPrimarySavedAction() {
 }
 
 function handlePrimaryAction() {
-  if (neuralField?.isActive()) {
-    neuralField.exit();
+  if (state.primarySurfaceMode === "neural_field") {
+    if (neuralFieldLifecycleActive(state)) {
+      void endNeuralField("user_stop", { target: state, preserveCamera: false });
+    } else {
+      void startNeuralField({ tool: state.neuralFieldPreferredTool }, { target: state });
+    }
     return;
   }
   if (state.interactionState.sessionActive || state.realtimeSession.state === "active") {
@@ -2144,8 +2223,17 @@ function handlePrimaryAction() {
 }
 
 export async function setInteractionModeInState(target = state, mode = "conversation", options = {}) {
+  if (String(mode) === "neural_field") return enterNeuralFieldLanding(target, options);
   const nextMode = normalizeInteractionMode(mode);
-  if (nextMode === target.interactionState.mode) return target;
+  if (target.primarySurfaceMode === "neural_field" || neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
+    const ended = await endNeuralField("mode_selected", { ...options, target, preserveCamera: false });
+    if (!ended.ok) return target;
+  }
+  target.primarySurfaceMode = nextMode;
+  if (nextMode === target.interactionState.mode) {
+    render();
+    return target;
+  }
   persistInteractionModePreference(nextMode);
   if (target.interactionState.sessionActive) {
     return switchInteractionMode(target, nextMode, options);
@@ -2158,6 +2246,35 @@ export async function setInteractionModeInState(target = state, mode = "conversa
   target.statusMessage = nextMode === "conversation" ? "Conversation mode selected." : "Observing mode selected.";
   render();
   return target;
+}
+
+async function enterNeuralFieldLanding(target = state, options = {}) {
+  if (target.interactionState?.sessionActive || target.realtimeSession?.state !== "inactive" || target.cameraStartInFlight) {
+    await endInteractionSession(target, options);
+  }
+  if (neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
+    await endNeuralField("return_to_landing", { ...options, target, preserveCamera: false });
+  }
+  target.primarySurfaceMode = "neural_field";
+  target.errorMessage = "";
+  target.statusMessage = "Choose a tool, then request camera access.";
+  target.objective = "Use your hand to draw in space or select physical objects.";
+  render();
+  return target;
+}
+
+function normalizeNeuralFieldTool(tool) {
+  return String(tool || "").replace(/-/g, "_") === "spatial_lasso" ? "spatial_lasso" : "airscript";
+}
+
+async function handleNeuralFieldToolSelection(tool) {
+  const normalized = normalizeNeuralFieldTool(tool);
+  state.neuralFieldPreferredTool = normalized;
+  if (state.neuralField?.status === "active" && state.neuralField.tool !== normalized) {
+    await switchNeuralFieldTool(normalized, { target: state });
+  }
+  render();
+  return normalized;
 }
 
 export async function startInteractionSession(target = state, options = {}) {
@@ -2516,8 +2633,8 @@ export async function endInteractionSession(target = state, options = {}) {
   target.movementRecognition.activeRequestAbortController?.abort?.();
   target.movementRecognition.activeRequestAbortController = null;
   stopRealtimeSpeechInput(target);
-  await cancelVisualSpeech(target, options);
   stopMicrophoneTracks(target);
+  await cancelVisualSpeech(target, options);
   target.movementRecognition.requestInFlight = false;
   target.movementRecognition.persistent.active = false;
   target.movementRecognition.persistent.pausedForVisibility = false;
@@ -2698,11 +2815,16 @@ export async function startNeuralField({ tool } = {}, options = {}) {
   if (!NEURAL_FIELD_TOOLS.includes(String(tool))) {
     return { ok: false, code: "neural_field_tool_invalid", state: target.neuralField };
   }
+  if (target.interactionState?.sessionActive || target.realtimeSession?.state !== "inactive" || target.cameraStartInFlight) {
+    await endInteractionSession(target, options);
+  }
   if (target.neuralField?.status === "active") {
     return target.neuralField.tool === tool
       ? { ok: true, state: target.neuralField, reused: true }
       : switchNeuralFieldTool(tool, options);
   }
+  target.primarySurfaceMode = "neural_field";
+  target.neuralFieldPreferredTool = tool;
   const previousModeOwnedCamera = target.interactionState?.sessionActive === true;
   const owner = neuralFieldResourceOwner(target);
   if (neuralFieldNeedsCleanup(target) || neuralFieldHasOwnedResources(target)) {
@@ -2725,11 +2847,11 @@ export async function startNeuralField({ tool } = {}, options = {}) {
   target.movementRecognition.activeRequestAbortController = null;
   target.spatialExperience?.activeAbortController?.abort?.();
   stopRealtimeSpeechInput(target);
+  stopMicrophoneTracks(target);
   await cancelVisualSpeech(target, options);
   if (owner.startToken !== startToken || !neuralFieldStartIsCurrent(target, startToken)) {
     return { ok: false, code: "stale_neural_field_start", state: target.neuralField };
   }
-  stopMicrophoneTracks(target);
   target.movementRecognition.requestInFlight = false;
   target.movementRecognition.activeRequestId = null;
   target.movementRecognition.persistent.active = false;
@@ -2787,6 +2909,7 @@ export async function startNeuralField({ tool } = {}, options = {}) {
     target.cameraReady = activeVideoTracks(target).length > 0;
     target.cameraStarted = target.cameraReady;
     target.cameraStatus = target.cameraReady ? "neural_field" : "idle";
+    bindNeuralFieldCameraTrackEnd(target, generation, startToken.sessionId);
 
     const worker = createNeuralFieldHandWorker(target, generation, options);
     owner.worker = worker;
@@ -2860,12 +2983,18 @@ export async function switchNeuralFieldTool(tool, options = {}) {
   const owner = neuralFieldResourceOwner(target);
   const generation = target.neuralField.generation;
   const sessionId = target.neuralField.sessionId;
+  invalidateNeuralFieldSpatialRequest(owner);
   owner.semanticAbortController?.abort?.();
+  target.spatialExperience?.activeAbortController?.abort?.();
+  await releaseNeuralFieldReplay(target, { discard: true, reason: "tool_switch" });
   await cancelVisualSpeech(target, options);
   if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) {
     return { ok: false, code: "stale_neural_field_operation", state: target.neuralField };
   }
   owner.renderer?.clearTool?.(target.neuralField.tool);
+  for (const resetEvent of owner.perceptionPipeline?.reset?.("tool_switch", Date.now()) || []) {
+    neuralField?.ingestPerceptionEvent?.(resetEvent);
+  }
   const switched = target.emergencyRuntimeController.switchNeuralFieldTool(tool);
   target.appState = switched;
   syncEmergencyRuntimeOwner(target);
@@ -2886,12 +3015,17 @@ export async function cancelNeuralFieldOperation(reason = "cancelled", options =
   const owner = neuralFieldResourceOwner(target);
   const generation = target.neuralField.generation;
   const sessionId = target.neuralField.sessionId;
+  invalidateNeuralFieldSpatialRequest(owner);
   owner.semanticAbortController?.abort?.();
+  target.spatialExperience?.activeAbortController?.abort?.();
   await cancelVisualSpeech(target, options);
   if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) {
     return { ok: false, code: "stale_neural_field_operation", state: target.neuralField };
   }
   owner.renderer?.clearTool?.(target.neuralField.tool);
+  for (const resetEvent of owner.perceptionPipeline?.reset?.(reason, Date.now()) || []) {
+    neuralField?.ingestPerceptionEvent?.(rendererSafePerceptionEvent(resetEvent));
+  }
   const cancelled = target.emergencyRuntimeController.cancelNeuralFieldOperation(reason);
   target.appState = cancelled;
   syncEmergencyRuntimeOwner(target);
@@ -2920,7 +3054,10 @@ async function performNeuralFieldEnd(target, owner, reason, options) {
   target.appState = ending;
   syncEmergencyRuntimeOwner(target);
   owner.startToken = null;
+  invalidateNeuralFieldSpatialRequest(owner);
   owner.semanticAbortController?.abort?.();
+  target.spatialExperience?.activeAbortController?.abort?.();
+  stopMicrophoneTracks(target);
   await cancelVisualSpeech(target, options);
   const cleanupOk = await stopNeuralFieldOwnedResources(
     target,
@@ -2928,7 +3065,6 @@ async function performNeuralFieldEnd(target, owner, reason, options) {
     null,
     boundedNeuralFieldCleanupTimeout(options.resourceCleanupTimeoutMs)
   );
-  stopMicrophoneTracks(target);
   dismissSpatialEvidenceOverlay(target);
   clearTransientPresentationState(target);
   const preserveCamera = (options.preserveCamera === true ||
@@ -2984,7 +3120,7 @@ function neuralFieldNeedsCleanup(target) {
 
 function neuralFieldHasOwnedResources(target) {
   const owner = neuralFieldResourceOwner(target);
-  return Boolean(owner.worker || owner.renderer || owner.replay || owner.activeSemanticRequests > 0);
+  return Boolean(owner.worker || owner.renderer || owner.replay || owner.cameraTrackCleanup || owner.activeSemanticRequests > 0);
 }
 
 function neuralFieldStartIsCurrent(target, token) {
@@ -2995,6 +3131,51 @@ function neuralFieldStartIsCurrent(target, token) {
 function neuralFieldOperationIsCurrent(target, generation, sessionId) {
   const current = target?.neuralField;
   return current?.status === "active" && current.generation === generation && current.sessionId === sessionId;
+}
+
+function beginNeuralFieldSpatialRequest(target) {
+  const owner = neuralFieldResourceOwner(target);
+  target.spatialExperience?.activeAbortController?.abort?.();
+  owner.spatialRequestSequence += 1;
+  owner.activeSpatialRequestId = owner.spatialRequestSequence;
+  return owner.activeSpatialRequestId;
+}
+
+function neuralFieldSpatialRequestIsCurrent(target, requestId, generation, sessionId) {
+  const owner = neuralFieldResourceOwner(target);
+  return owner.activeSpatialRequestId === requestId && neuralFieldOperationIsCurrent(target, generation, sessionId) &&
+    target.neuralField?.tool === "spatial_lasso";
+}
+
+function finishNeuralFieldSpatialRequest(target, requestId) {
+  const owner = neuralFieldResourceOwner(target);
+  if (owner.activeSpatialRequestId === requestId) owner.activeSpatialRequestId = null;
+}
+
+function invalidateNeuralFieldSpatialRequest(owner) {
+  if (!owner) return;
+  owner.activeSpatialRequestId = null;
+}
+
+function bindNeuralFieldCameraTrackEnd(target, generation, sessionId) {
+  const owner = neuralFieldResourceOwner(target);
+  owner.cameraTrackCleanup?.();
+  owner.cameraTrackCleanup = null;
+  const track = activeVideoTracks(target)[0];
+  if (!track?.addEventListener) return;
+  const onEnded = () => {
+    const current = target.neuralField;
+    if (!current || current.generation !== generation || current.sessionId !== sessionId || !["starting", "active"].includes(current.status)) return;
+    owner.cameraTrackCleanup?.();
+    owner.cameraTrackCleanup = null;
+    target.cameraReady = false;
+    target.cameraStarted = false;
+    applyInteractionState(target, { cameraActive: false, visualContextActive: false });
+    if (target === state) recordSensefieldTestEvent("neural_field_camera_track_ended", { generation });
+    void endNeuralField("camera_track_ended", { target, preserveCamera: false });
+  };
+  track.addEventListener("ended", onEnded, { once: true });
+  owner.cameraTrackCleanup = () => track.removeEventListener?.("ended", onEnded);
 }
 
 function neuralFieldSpeechOwnershipCurrent(target, ownership) {
@@ -3022,6 +3203,15 @@ function neuralFieldResourceOwner(target) {
       semanticRequestCount: 0,
       activeSemanticRequests: 0,
       maximumSemanticRequests: 0,
+      handGeometry: null,
+      perceptionPipeline: null,
+      spatialAdapter: null,
+      spatialTestMode: false,
+      lastSpatialScene: null,
+      lastPanelRenderMs: 0,
+      spatialRequestSequence: 0,
+      activeSpatialRequestId: null,
+      cameraTrackCleanup: null,
       replay: null,
       workerStarts: 0,
       workerStops: 0,
@@ -3040,6 +3230,11 @@ function neuralFieldResourceOwner(target) {
 
 function createNeuralFieldHandWorker(target, generation, options = {}) {
   const sessionId = target.neuralField.sessionId;
+  const owner = neuralFieldResourceOwner(target);
+  owner.handGeometry = createHandGeometryTracker({ minimumConfidence: 0.45 });
+  owner.perceptionPipeline = createNeuralFieldPerceptionPipeline();
+  owner.spatialAdapter = options.spatialAdapter || null;
+  owner.spatialTestMode = options.spatialTestMode === true;
   const factory = options.handWorkerFactory || options.createHandWorker;
   if (typeof factory === "function") {
     return factory({
@@ -3056,14 +3251,31 @@ function createNeuralFieldHandWorker(target, generation, options = {}) {
   let workerReady = false;
   const engine = createLocalGestureEngine({
     directMainThread: false,
+    maxFps: 30,
     numHands: 2,
     onStatusChange: ({ status }) => {
       workerReady = ["ready", "ready_compatibility"].includes(status);
+      if (target === state) neuralField?.setTrackingAvailability?.({
+        status,
+        available: status !== "unavailable",
+        reason: status === "unavailable" ? "Hand tracking is unavailable." : ""
+      });
       const current = target.neuralField;
       if (!current || current.status !== "active" || current.sessionId !== sessionId) return;
       updateNeuralFieldControllerState(target, current.generation, {
         handTracking: { workerReady }
       });
+    },
+    onObservation: (observation) => {
+      if (Number(observation?.hand_count || 0) === 0) {
+        handleNeuralFieldHandFrame(target, {
+          timestamp_ms: Number(observation?.timestamp_ms || Date.now()),
+          hands: [],
+          mirrored: true,
+          contains_raw_media: false
+        }, options, sessionId);
+      }
+      return { code: "neural_field_hand_observed" };
     },
     onLandmarks: (frame) => handleNeuralFieldHandFrame(target, frame, options, sessionId)
   });
@@ -3072,7 +3284,12 @@ function createNeuralFieldHandWorker(target, generation, options = {}) {
       if (!preview) throw new Error("Neural Field camera preview is unavailable.");
       engine.start(preview);
     },
-    stop: () => engine.stop(),
+    stop() {
+      owner.perceptionPipeline?.reset?.("worker_stopped", Date.now());
+      owner.handGeometry?.dispose?.();
+      return engine.stop();
+    },
+    ingestLandmarks: (frame) => handleNeuralFieldHandFrame(target, frame, options, sessionId),
     isReady: () => workerReady
   };
 }
@@ -3080,33 +3297,355 @@ function createNeuralFieldHandWorker(target, generation, options = {}) {
 function handleNeuralFieldHandFrame(target, frame, options = {}, sessionId = null) {
   const current = target.neuralField;
   if ((current?.status !== "active" && current?.status !== "starting") || current.sessionId !== sessionId) return false;
-  const hands = Array.isArray(frame?.hands) ? frame.hands : [];
+  const owner = neuralFieldResourceOwner(target);
+  const rawHands = Array.isArray(frame?.hands) ? frame.hands : [];
+  const timestamp = Number(frame?.timestamp_ms ?? frame?.timestamp ?? frame?.timestampMs ?? Date.now());
+  const normalizedFrame = frame?.type === "hand_frame" && rawHands.every((hand) => hand?.indexTip && hand?.palmWidth)
+    ? frame
+    : owner.handGeometry?.process?.({
+        landmarks: rawHands.map((hand) => hand?.landmarks || []),
+        handedness: rawHands.map((hand) => [{
+          categoryName: hand?.handedness || "unknown",
+          score: Number.isFinite(Number(hand?.confidence)) ? Number(hand.confidence) : 1
+        }])
+      }, {
+        timestamp,
+        frameWidth: Number(dom?.preview?.videoWidth || 1),
+        frameHeight: Number(dom?.preview?.videoHeight || 1),
+        mirrored: frame?.mirrored !== false
+      });
+  const hands = Array.isArray(normalizedFrame?.hands) ? normalizedFrame.hands : [];
   const metadata = {
     handCount: Math.min(2, hands.length),
     dominantHand: sanitizeNeuralFieldText(frame?.dominant_hand || hands[0]?.handedness || "", 20) || null,
-    confidence: Number.isFinite(Number(frame?.confidence)) ? Number(frame.confidence) : null
+    confidence: hands.length ? Math.max(...hands.map((hand) => Number(hand?.confidence || 0))) : null
   };
   if (!updateNeuralFieldControllerState(target, current.generation, {
     handTracking: {
-      latestFrameTimestamp: Number(frame?.timestamp_ms || frame?.timestamp || Date.now()),
+      latestFrameTimestamp: timestamp,
       dominantHand: metadata.dominantHand,
       confidence: metadata.confidence
     }
   })) return false;
-  if (current.tool === "spatial_lasso") {
-    options.onHandFrame?.(frame, null);
-    return true;
-  }
-  const event = createNeuralFieldEvent("hand_frame", {
+  const event = current.tool === "airscript" ? createNeuralFieldEvent("hand_frame", {
     eventId: nextNeuralFieldEventId(target, "hand_frame"),
     neuralFieldGeneration: current.generation,
     tool: current.tool,
-    timestamp: Number(frame?.timestamp_ms || frame?.timestamp || Date.now()),
+    timestamp,
     metadata
+  }) : null;
+  const accepted = event ? applyNeuralFieldToolEvent(event, { target }) : { ok: true };
+  if (!accepted.ok) return false;
+  neuralField?.ingestPerceptionEvent?.({
+    type: "hand_frame",
+    timestamp,
+    handCount: metadata.handCount,
+    dominantHand: metadata.dominantHand,
+    confidence: metadata.confidence
   });
-  const accepted = applyNeuralFieldToolEvent(event, { target });
-  if (accepted.ok) options.onHandFrame?.(frame, event);
+  options.onHandFrame?.(normalizedFrame, event);
+  const perception = owner.perceptionPipeline?.processFrame?.(normalizedFrame);
+  for (const perceptionEvent of perception?.events || []) {
+    neuralField?.ingestPerceptionEvent?.(rendererSafePerceptionEvent(perceptionEvent, perception?.activeStroke, normalizedFrame?.mirrored === true));
+    void handleNeuralFieldPerceptionEvent(target, perceptionEvent, perception?.activeStroke, options, sessionId, normalizedFrame?.mirrored === true);
+  }
+  if (target === state) {
+    const panelRenderMs = Date.now();
+    if (panelRenderMs - owner.lastPanelRenderMs >= 66) {
+      owner.lastPanelRenderMs = panelRenderMs;
+      renderNeuralFieldPanel(target);
+    }
+  }
   return accepted.ok;
+}
+
+function rendererSafePerceptionEvent(event = {}, activeStroke = null, mirrored = false) {
+  const { hand: transientHand, ...safe } = event;
+  safe.mirrored = mirrored === true;
+  const point = transientHand?.indexTip || activeStroke?.points?.at?.(-1) || event.point || null;
+  if (point) safe.point = {
+    x: Number(point.x),
+    y: Number(point.y),
+    z: Number(point.z || 0),
+    timestamp: Number(point.timestamp || event.timestamp || Date.now()),
+    confidence: Number(event.confidence ?? transientHand?.confidence ?? point.confidence ?? 0)
+  };
+  for (const key of ["rawPoints", "smoothedPoints", "simplifiedPoints"]) {
+    if (Array.isArray(event[key])) safe[key] = event[key].slice(0, NEURAL_FIELD_LIMITS.maxStrokePoints).map((item) => ({
+      x: Number(item.x),
+      y: Number(item.y),
+      z: Number(item.z || 0),
+      timestamp: Number(item.timestamp || 0),
+      confidence: Number(item.confidence || 0)
+    }));
+  }
+  return safe;
+}
+
+async function handleNeuralFieldPerceptionEvent(target, perceptionEvent, activeStroke, options, sessionId, mirrored = false) {
+  const current = target.neuralField;
+  if (current?.status !== "active" || current.sessionId !== sessionId) return false;
+  const rawPoint = perceptionEvent?.hand?.indexTip || activeStroke?.points?.at?.(-1) || null;
+  const point = rawPoint ? {
+    x: Number(rawPoint.x),
+    y: Number(rawPoint.y),
+    z: Number(rawPoint.z || 0),
+    timestamp: Number(rawPoint.timestamp || perceptionEvent.timestamp || Date.now()),
+    confidence: Number(perceptionEvent.confidence ?? perceptionEvent.hand?.confidence ?? rawPoint.confidence ?? 0)
+  } : null;
+  const baseMetadata = {
+    strokeId: perceptionEvent.strokeId || activeStroke?.id || null,
+    handedness: sanitizeNeuralFieldText(perceptionEvent.handedness || activeStroke?.handedness || "", 20) || null,
+    confidence: Number.isFinite(Number(perceptionEvent.confidence)) ? Number(perceptionEvent.confidence) : null,
+    pinchDistance: Number.isFinite(Number(perceptionEvent.pinchDistance)) ? Number(perceptionEvent.pinchDistance) : null,
+    ...(point ? { point } : {})
+  };
+  const mappedType = current.tool === "spatial_lasso"
+    ? ({ stroke_started: "lasso_started", stroke_updated: "lasso_updated", stroke_cancelled: "lasso_cancelled" })[perceptionEvent.type]
+    : ({ stroke_updated: "stroke_point_added", pinch_cancelled: "stroke_cancelled" })[perceptionEvent.type] || perceptionEvent.type;
+  if (["pinch_started", "pinch_updated", "pinch_ended", "pinch_cancelled", "stroke_started", "stroke_updated", "stroke_cancelled"].includes(perceptionEvent.type)) {
+    if (current.tool === "spatial_lasso" && !mappedType) return true;
+    const accepted = applyNeuralFieldToolEvent(createNeuralFieldEvent(mappedType || perceptionEvent.type, {
+      eventId: nextNeuralFieldEventId(target, mappedType || perceptionEvent.type),
+      neuralFieldGeneration: current.generation,
+      tool: current.tool,
+      timestamp: Number(perceptionEvent.timestamp || Date.now()),
+      metadata: baseMetadata
+    }), { target });
+    return accepted.ok;
+  }
+  if (perceptionEvent.type !== "stroke_completed") return true;
+  const classification = sanitizeNeuralFieldText(
+    perceptionEvent.classification?.classification || perceptionEvent.classification || "freeform",
+    40
+  ).toLowerCase();
+  const points = perceptionEvent.smoothedPoints || perceptionEvent.rawPoints || [];
+  if (current.tool === "airscript") {
+    const result = await commitNeuralFieldGesture({
+      completed: true,
+      strokeId: perceptionEvent.strokeId,
+      timestamp: perceptionEvent.timestamp,
+      classification,
+      unknown: classification === "freeform",
+      confidence: perceptionEvent.classification?.confidence,
+      points
+    }, { ...options, target });
+    render();
+    return result.ok;
+  }
+  return completeSpatialLassoFromPerception(target, perceptionEvent, points, options, sessionId, mirrored);
+}
+
+async function completeSpatialLassoFromPerception(target, perceptionEvent, points, options, sessionId, mirrored = false) {
+  const current = target.neuralField;
+  if (current?.status !== "active" || current.sessionId !== sessionId) return false;
+  const generation = current.generation;
+  const lasso = perceptionEvent.lasso || {};
+  if (lasso.valid !== true) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("lasso_cancelled", {
+      eventId: nextNeuralFieldEventId(target, "lasso_cancelled"),
+      neuralFieldGeneration: current.generation,
+      tool: "spatial_lasso",
+      timestamp: Number(perceptionEvent.timestamp || Date.now()),
+      metadata: {
+        strokeId: perceptionEvent.strokeId,
+        reason: sanitizeNeuralFieldText(lasso.rejectionReason || "lasso_incomplete", 80)
+      }
+    }), { target });
+    render();
+    return false;
+  }
+  const spatialRequestId = beginNeuralFieldSpatialRequest(target);
+  try {
+  const scene = await acquireNeuralFieldSpatialScene(target, options, sessionId);
+  if (!neuralFieldSpatialRequestIsCurrent(target, spatialRequestId, generation, sessionId)) return false;
+  if (!scene?.ok) {
+    if (target.neuralField.lasso.activeRelation) {
+      applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_unavailable", {
+        eventId: nextNeuralFieldEventId(target, "relation_unavailable"),
+        neuralFieldGeneration: target.neuralField.generation,
+        tool: "spatial_lasso",
+        timestamp: Number(perceptionEvent.timestamp || Date.now())
+      }), { target });
+    }
+    neuralField?.ingestSpatialResult?.({ ok: false, code: "spatial_service_unavailable" });
+    render();
+    return false;
+  }
+  const candidateScene = neuralFieldCandidateScene(scene);
+  const lassoPolygon = mapNeuralFieldPolygonToPreview(lasso.polygon?.length ? lasso.polygon : points, mirrored);
+  const selectedIdsBefore = [...target.neuralField.lasso.groundedObjectIds];
+  const result = await commitNeuralFieldGesture({
+    completed: true,
+    strokeId: perceptionEvent.strokeId,
+    timestamp: perceptionEvent.timestamp,
+    lassoPolygon,
+    candidateScene,
+    selectedObjectIds: target.neuralField.lasso.groundedObjectIds,
+    viewport: {
+      width: Number(dom?.preview?.videoWidth || 1),
+      height: Number(dom?.preview?.videoHeight || 1)
+    }
+  }, { ...options, target });
+  if (!neuralFieldSpatialRequestIsCurrent(target, spatialRequestId, generation, sessionId)) return false;
+  const selectedId = result?.grounding?.selectedObject?.id || null;
+  const selectedIds = target.neuralField?.lasso?.groundedObjectIds || [];
+  const selectedObjectsChanged = selectedIds.join("\u0000") !== selectedIdsBefore.join("\u0000");
+  const relation = selectedIds.length > 1 ? relationForSelectedObjects(scene, selectedIds) : null;
+  if (relation) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_grounded", {
+      eventId: nextNeuralFieldEventId(target, "relation_grounded"),
+      neuralFieldGeneration: target.neuralField.generation,
+      tool: "spatial_lasso",
+      timestamp: Number(perceptionEvent.timestamp || Date.now()),
+      metadata: { relation }
+    }), { target });
+  } else if (selectedObjectsChanged && target.neuralField.lasso.activeRelation) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_unavailable", {
+      eventId: nextNeuralFieldEventId(target, "relation_unavailable"),
+      neuralFieldGeneration: target.neuralField.generation,
+      tool: "spatial_lasso",
+      timestamp: Number(perceptionEvent.timestamp || Date.now())
+    }), { target });
+  }
+  neuralFieldResourceOwner(target).lastSpatialScene = scene;
+  const selectionStatus = result?.grounding?.code === "ambiguous_selection" ? "ambiguous"
+    : result?.grounding?.code === "no_grounded_object" ? "no_object" : selectedId ? "grounded" : "";
+  neuralField?.ingestSpatialResult?.({
+    ...scene,
+    objects: candidateScene.objects,
+    relations: relation ? [relation] : [],
+    ...(selectionStatus ? { selection: { status: selectionStatus, ...(selectedId ? { object_id: selectedId } : {}) } } : {}),
+    ...(selectedId ? { selected_object_id: selectedId } : {})
+  });
+  render();
+  return result.ok;
+  } finally {
+    finishNeuralFieldSpatialRequest(target, spatialRequestId);
+  }
+}
+
+function mapNeuralFieldPolygonToPreview(points, mirrored) {
+  if (!mirrored) return points;
+  return (Array.isArray(points) ? points : []).map((point) => Array.isArray(point)
+    ? [1 - Number(point[0]), Number(point[1]), ...point.slice(2)]
+    : { ...point, x: 1 - Number(point?.x) });
+}
+
+async function acquireNeuralFieldSpatialScene(target, options = {}, sessionId = null) {
+  const owner = neuralFieldResourceOwner(target);
+  const frames = [];
+  try {
+    if (!dom?.preview || activeVideoTracks(target).length === 0) return null;
+    frames.push(...await captureMovementFrameWindow(dom.preview, {
+      ...VISUAL_COMPANION_CLIENT_CONFIG,
+      maxFrames: 2,
+      windowMs: 120
+    }));
+    if (target.neuralField?.sessionId !== sessionId) return null;
+    const outcome = await analyzeSpatialExperienceForWindow(target, frames, {
+      mode: "conversation",
+      query: "Identify visible objects inside the completed lasso and report relations between selected objects.",
+      calibration: target.spatialExperience?.calibration || null,
+      spatialAdapter: owner.spatialAdapter || options.spatialAdapter,
+      spatialTestMode: owner.spatialTestMode || options.spatialTestMode === true,
+      spatialFetch: options.spatialFetch
+    });
+    return outcome?.result || null;
+  } finally {
+    clearMovementFrameBuffer(frames);
+  }
+}
+
+function neuralFieldCandidateScene(scene) {
+  const evidence = Array.isArray(scene?.evidence) ? scene.evidence : [];
+  const objects = (Array.isArray(scene?.objects) ? scene.objects : []).map((object) => {
+    if (object?.bbox || object?.bounding_box || object?.boundingBox) return object;
+    const match = evidence.find((item) => String(item?.label || "").toLowerCase() === String(object?.label || object?.object_label || "").toLowerCase());
+    const region = match?.normalized_region || match?.region || null;
+    if (!region) return object;
+    const x = Number(region.x || 0);
+    const y = Number(region.y || 0);
+    const width = Number(region.width || 0);
+    const height = Number(region.height || 0);
+    return {
+      ...object,
+      bbox: [x, y, x + width, y + height],
+      confidence: Number(object?.confidence ?? match?.confidence ?? 0)
+    };
+  });
+  return { ...scene, objects };
+}
+
+function relationForSelectedObjects(scene, selectedIds = []) {
+  const selected = new Set(selectedIds.map(String));
+  return (Array.isArray(scene?.relations) ? scene.relations : []).find((relation) => {
+    const subjectId = String(relation?.subjectId || relation?.subject_id || "");
+    const objectId = String(relation?.objectId || relation?.object_id || relation?.referenceId || relation?.reference_id || "");
+    return selected.has(subjectId) && selected.has(objectId);
+  }) || null;
+}
+
+async function refreshNeuralFieldSpatialTracking(options = {}) {
+  const target = options.target || state;
+  const current = target.neuralField;
+  if (current?.status !== "active" || current.tool !== "spatial_lasso") {
+    return { ok: false, code: "neural_field_inactive", state: current };
+  }
+  const spatialRequestId = beginNeuralFieldSpatialRequest(target);
+  try {
+  const scene = await acquireNeuralFieldSpatialScene(target, options, current.sessionId);
+  if (!neuralFieldSpatialRequestIsCurrent(target, spatialRequestId, current.generation, current.sessionId)) {
+    return { ok: false, code: "stale_spatial_response", state: target.neuralField };
+  }
+  if (!scene?.ok) {
+    if (target.neuralField.lasso.activeRelation) {
+      applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_unavailable", {
+        eventId: nextNeuralFieldEventId(target, "relation_unavailable"),
+        neuralFieldGeneration: target.neuralField.generation,
+        tool: "spatial_lasso",
+        timestamp: Date.now()
+      }), { target });
+    }
+    neuralField?.ingestSpatialResult?.({ ok: false, code: "spatial_service_unavailable" });
+    render();
+    return { ok: false, code: "spatial_service_unavailable", state: target.neuralField };
+  }
+  const candidateScene = neuralFieldCandidateScene(scene);
+  const visibleIds = new Set(candidateScene.objects.map((object) => String(object?.id || object?.object_id || "")).filter(Boolean));
+  for (const objectId of target.neuralField.lasso.groundedObjectIds.filter((id) => !visibleIds.has(String(id)))) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("selection_lost", {
+      eventId: nextNeuralFieldEventId(target, "selection_lost"),
+      neuralFieldGeneration: target.neuralField.generation,
+      tool: "spatial_lasso",
+      timestamp: Date.now(),
+      metadata: { objectId }
+    }), { target });
+  }
+  const relation = relationForSelectedObjects(scene, target.neuralField.lasso.groundedObjectIds);
+  if (relation) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_changed", {
+      eventId: nextNeuralFieldEventId(target, "relation_changed"),
+      neuralFieldGeneration: target.neuralField.generation,
+      tool: "spatial_lasso",
+      timestamp: Date.now(),
+      metadata: { relation }
+    }), { target });
+  } else if (target.neuralField.lasso.activeRelation) {
+    applyNeuralFieldToolEvent(createNeuralFieldEvent("relation_unavailable", {
+      eventId: nextNeuralFieldEventId(target, "relation_unavailable"),
+      neuralFieldGeneration: target.neuralField.generation,
+      tool: "spatial_lasso",
+      timestamp: Date.now()
+    }), { target });
+  }
+  neuralFieldResourceOwner(target).lastSpatialScene = scene;
+  neuralField?.ingestSpatialResult?.({ ...scene, objects: candidateScene.objects, relations: relation ? [relation] : [] });
+  render();
+  return { ok: true, relation, state: target.neuralField };
+  } finally {
+    finishNeuralFieldSpatialRequest(target, spatialRequestId);
+  }
 }
 
 function createNeuralFieldRenderer(target, options = {}, ownership = {}) {
@@ -3117,6 +3656,25 @@ function createNeuralFieldRenderer(target, options = {}, ownership = {}) {
       tool: target.neuralField.tool,
       getState: () => target.neuralField
     });
+  }
+  if (target === state && neuralField) {
+    return {
+      start() {
+        neuralField.setCameraActive?.(target.cameraReady === true);
+        neuralField.selectTool?.(target.neuralField.tool, false);
+        if (!neuralField.activate?.()) throw new Error("Neural Field renderer did not start.");
+      },
+      stop() {
+        neuralField.exit?.({ restoreFocus: false });
+      },
+      clearTool() {
+        neuralField.clear?.();
+      },
+      setTool(tool) {
+        neuralField.selectTool?.(tool, false);
+      },
+      isRunning: () => neuralField.getSnapshot?.().running === true
+    };
   }
   const requestFrame = options.requestAnimationFrame || globalThis.requestAnimationFrame?.bind(globalThis);
   const cancelFrame = options.cancelAnimationFrame || globalThis.cancelAnimationFrame?.bind(globalThis);
@@ -3150,6 +3708,9 @@ async function stopNeuralFieldOwnedResources(target, reason, startToken = null, 
   const owner = neuralFieldResourceOwner(target);
   if (startToken && owner.startToken !== startToken) return;
   if (startToken) owner.startToken = null;
+  invalidateNeuralFieldSpatialRequest(owner);
+  owner.cameraTrackCleanup?.();
+  owner.cameraTrackCleanup = null;
   owner.lastCleanupError = null;
   const worker = owner.worker;
   const renderer = owner.renderer;
@@ -3181,6 +3742,15 @@ async function stopNeuralFieldOwnedResources(target, reason, startToken = null, 
   else if (owner.activeSemanticRequests > 0) tasks.push(Promise.resolve({ ok: false, code: "semantic_cleanup_pending" }));
   tasks.push(Promise.resolve().then(() => releaseNeuralFieldReplay(target, { discard: true, reason })));
   const results = await Promise.allSettled(tasks);
+  if (!owner.worker) {
+    owner.perceptionPipeline?.reset?.("resources_released", Date.now());
+    owner.handGeometry?.dispose?.();
+    owner.perceptionPipeline = null;
+    owner.handGeometry = null;
+    owner.spatialAdapter = null;
+    owner.spatialTestMode = false;
+    owner.lastSpatialScene = null;
+  }
   const failed = owner.activeSemanticRequests > 0 ||
     results.some((result) => result.status === "rejected" || result.value?.ok === false);
   if (failed) owner.lastCleanupError = owner.lastCleanupError || "neural_field_cleanup_failed";
@@ -3303,10 +3873,19 @@ export function applyNeuralFieldToolEvent(input = {}, options = {}) {
     patch = { lasso: { pendingSelection: metadata } };
   } else if (event.type === "selection_lost") {
     const objectId = sanitizeNeuralFieldText(metadata.objectId || metadata.object_id, 128);
-    patch = { lasso: { groundedObjectIds: current.lasso.groundedObjectIds.filter((id) => id !== objectId) } };
+    const relation = current.lasso.activeRelation;
+    const relationUsesObject = relation && [relation.subjectId, relation.objectId].some((id) => id === objectId);
+    patch = {
+      lasso: {
+        groundedObjectIds: current.lasso.groundedObjectIds.filter((id) => id !== objectId),
+        ...(relationUsesObject ? { activeRelation: null } : {})
+      }
+    };
   } else if (["relation_grounded", "relation_changed"].includes(event.type)) {
     const relation = normalizeSpatialRelation(metadata.relation || metadata);
     if (relation) patch = { lasso: { activeRelation: relation } };
+  } else if (event.type === "relation_unavailable") {
+    patch = { lasso: { activeRelation: null } };
   } else if (event.type === "hand_frame") {
     patch = {
       handTracking: {
@@ -3703,6 +4282,32 @@ export async function requestReplayConsent(options = {}) {
   if (!neuralFieldOperationIsCurrent(target, generation, sessionId)) return { ok: false, code: "stale_replay_consent", state: target.neuralField };
   updateNeuralFieldControllerState(target, generation, { replay: { consentGranted: true, recording: false, recorderId: null } });
   return { ok: true, state: target.neuralField };
+}
+
+function createLocalEventReplayRecorder() {
+  let recording = false;
+  return {
+    start() { recording = true; },
+    stop() { recording = false; },
+    discard() { recording = false; },
+    release() { recording = false; },
+    record() { return recording; }
+  };
+}
+
+async function saveLocalNeuralFieldReplayArtifact(artifact) {
+  const payload = JSON.stringify(artifact, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `sensefield-neural-field-replay-${Date.now()}.json`;
+    link.rel = "noopener";
+    link.click();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export async function startNeuralFieldReplay(options = {}) {
@@ -6514,11 +7119,11 @@ export async function cancelVisualSpeech(target = state, options = {}) {
   const send = options.fetch || globalThis.fetch;
   if (typeof send === "function") {
     try {
-      await send(VISUAL_COMPANION_CLIENT_CONFIG.cancelEndpoint, {
+      void Promise.resolve(send(VISUAL_COMPANION_CLIENT_CONFIG.cancelEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contains_raw_media: false })
-      });
+      })).catch(() => {});
     } catch {
       // Neural cancellation is best-effort after local ownership is invalidated.
     }
@@ -7982,13 +8587,13 @@ function syncInstantGestureEngine() {
     && recipe.consent?.run_instantly === true).length;
   const instantRequested = runtime.userEnabled === true;
   const trainerRequested = state.customSkillWizard?.open === true && state.customSkillDraft != null;
-  const neuralFieldRequested = neuralField?.isActive() === true;
   const primaryConversation = isPrimaryView() && state.interactionState?.mode === "conversation";
-  const engineRequested = (instantRequested || trainerRequested || neuralFieldRequested)
+  const engineRequested = (instantRequested || trainerRequested)
     && runtime.cameraActive
     && runtime.documentVisible
     && Boolean(dom?.preview)
-    && (!primaryConversation || neuralFieldRequested);
+    && !primaryConversation
+    && !neuralFieldLifecycleActive(state);
   if (!engineRequested) {
     stopInstantGestureEngine(runtime.userEnabled && !runtime.cameraActive ? "waiting_camera" : runtime.userEnabled ? "starting_inference" : "off");
     return;
@@ -8020,10 +8625,7 @@ function syncInstantGestureEngine() {
       }
     },
     onDiagnosticsChange: (diagnostics) => setInstantGestureDiagnostics(diagnostics),
-    onLandmarks: (frame) => {
-      neuralField?.ingestHandFrame(frame);
-      return handleCustomSkillLandmarksInState(state, frame);
-    },
+    onLandmarks: (frame) => handleCustomSkillLandmarksInState(state, frame),
     onObservation: (observation) => handleLocalGestureObservation(observation, { physicalSmokeTest: true })
   });
   if (!localGestureEngine.isRunning()) {
@@ -8378,6 +8980,9 @@ export async function analyzeSpatialExperienceForWindow(target, frames, options 
       result = validateSpatialResult(await options.spatialAdapter.analyzeSpatialWindow(input));
     } else {
       result = await analyzeSpatialWindow(input, { fetch: options.spatialFetch || globalThis.fetch, signal: controller?.signal });
+    }
+    if (controller?.signal?.aborted || spatialState.activeAbortController !== controller) {
+      return { requested: true, result: null, unavailable: true, stale: true, intent };
     }
     const suggestedView = result.uncertainty.suggested_view || result.partial_observation?.suggested_view || "";
     if (suggestedView && suggestedView === spatialState.memory.lastSuggestedView) {
@@ -10926,6 +11531,9 @@ function render() {
 }
 
 function renderPrimaryView(target) {
+  const neuralSurface = target.primarySurfaceMode === "neural_field";
+  document.body.classList.toggle("sf-neural-field-surface", neuralSurface);
+  document.body.dataset.primarySurface = neuralSurface ? "neural_field" : target.interactionState.mode;
   document.body.classList.toggle("dq-camera-live", target.cameraReady);
   dom.cameraFrame?.classList.toggle("is-live", target.cameraReady);
   neuralField?.setCameraActive(target.cameraReady === true);
@@ -10951,6 +11559,89 @@ function renderPrimaryView(target) {
   if (dom.voiceStatus) dom.voiceStatus.textContent = primarySpeechState(target);
   if (dom.savedActionsList) dom.savedActionsList.innerHTML = savedActionsSummaryHtml(target);
   if (dom.recentMomentsList) dom.recentMomentsList.innerHTML = recentMomentsSummaryHtml(target);
+  renderNeuralFieldPanel(target);
+}
+
+function renderNeuralFieldPanel(target) {
+  if (!dom.neuralFieldPanel) return;
+  const visible = target.primarySurfaceMode === "neural_field";
+  dom.neuralFieldPanel.hidden = !visible;
+  if (!visible) return;
+  const active = target.neuralField?.status === "active";
+  const starting = target.neuralField?.status === "starting";
+  const ending = target.neuralField?.status === "ending";
+  const tool = target.neuralField?.tool || target.neuralFieldPreferredTool || "airscript";
+  const snapshot = neuralField?.getSnapshot?.() || {};
+  const completed = snapshot.paths?.completed?.at?.(-1) || null;
+  const anchors = Array.isArray(snapshot.anchors) ? snapshot.anchors : [];
+  const relation = Array.isArray(snapshot.relations) ? snapshot.relations.at(-1) : null;
+  const confidence = target.neuralField?.handTracking?.confidence;
+  const replay = target.neuralField?.replay || {};
+  const replayOwner = neuralFieldResourceOwner(target).replay;
+  for (const button of dom.neuralFieldToolSelector?.querySelectorAll?.("[data-neural-field-tool]") || []) {
+    const selected = normalizeNeuralFieldTool(button.getAttribute("data-neural-field-tool")) === tool;
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+    button.disabled = starting || ending;
+  }
+  if (dom.neuralFieldCameraState) {
+    dom.neuralFieldCameraState.textContent = starting ? "Requesting camera" : active && target.cameraReady
+      ? "Camera active"
+      : target.errorMessage && /camera|neural field/i.test(target.errorMessage) ? "Camera failed" : "Camera off";
+  }
+  if (dom.neuralFieldHandState) {
+    dom.neuralFieldHandState.textContent = !active || confidence == null ? "Waiting for hand"
+      : Number(confidence) < 0.6 ? "Low confidence"
+      : target.neuralField.gesture?.pinchActive ? `Hand detected · ${Math.round(Number(confidence) * 100)}% · pinch active`
+      : `Hand detected · ${Math.round(Number(confidence) * 100)}%`;
+  }
+  if (dom.neuralFieldStrokeState) {
+    dom.neuralFieldStrokeState.textContent = active ? String(snapshot.status || (tool === "airscript" ? "Pinch ready" : "Waiting for lasso")) : "Waiting";
+  }
+  if (dom.neuralFieldResultState) {
+    const label = String(completed?.label || completed?.classification || "").trim();
+    const certain = label && label.toLowerCase() !== "freeform" && Number(completed?.confidence || 0) >= 0.65;
+    dom.neuralFieldResultState.textContent = certain
+      ? `Recognized: ${neuralFieldDisplayLabel(label)} · candidate, confirm`
+      : label ? "Uncertain freeform stroke" : "No completed gesture";
+  }
+  if (dom.neuralFieldGroundingState) {
+    const lost = anchors.find((anchor) => anchor.state === "lost");
+    const tracked = anchors.filter((anchor) => anchor.state !== "lost");
+    dom.neuralFieldGroundingState.textContent = lost ? `Tracking lost: ${lost.label || "object"}`
+      : tracked.length ? `Object grounded: ${tracked.map((anchor) => anchor.label || anchor.id).join(", ")} · candidate, confirm`
+      : target.neuralField?.lasso?.groundedObjectIds?.length ? "Tracking object" : "No object anchored";
+  }
+  if (dom.neuralFieldRelationState) {
+    const relationLabel = relation?.label || relation?.text || relation?.predicate || target.neuralField?.lasso?.activeRelation?.predicate || "";
+    dom.neuralFieldRelationState.textContent = relationLabel ? `Relation detected: ${String(relationLabel)} · candidate, confirm` : "No relation";
+  }
+  if (dom.startNeuralFieldCamera) {
+    dom.startNeuralFieldCamera.hidden = active || ending;
+    dom.startNeuralFieldCamera.disabled = starting || ending;
+  }
+  if (dom.stopNeuralFieldCamera) {
+    dom.stopNeuralFieldCamera.hidden = !active;
+    dom.stopNeuralFieldCamera.disabled = ending;
+  }
+  if (dom.clearNeuralField) dom.clearNeuralField.disabled = !active || ending;
+  if (dom.refreshNeuralFieldTracking) dom.refreshNeuralFieldTracking.hidden = !active || tool !== "spatial_lasso";
+  if (dom.releaseNeuralFieldAnchor) dom.releaseNeuralFieldAnchor.hidden = !active || tool !== "spatial_lasso" || !target.neuralField?.lasso?.groundedObjectIds?.length;
+  if (dom.neuralFieldReplayStatus) dom.neuralFieldReplayStatus.textContent = replay.recording ? "Recording locally"
+    : replay.consentGranted ? "Replay enabled" : "Replay is off";
+  if (dom.enableNeuralFieldReplay) {
+    dom.enableNeuralFieldReplay.hidden = replay.consentGranted === true;
+    dom.enableNeuralFieldReplay.disabled = !active;
+  }
+  if (dom.neuralFieldReplayControls) dom.neuralFieldReplayControls.hidden = replay.consentGranted !== true;
+  if (dom.startNeuralFieldReplay) dom.startNeuralFieldReplay.hidden = replay.recording === true;
+  if (dom.stopNeuralFieldReplay) dom.stopNeuralFieldReplay.hidden = replay.recording !== true;
+  if (dom.discardNeuralFieldReplay) dom.discardNeuralFieldReplay.disabled = !replayOwner;
+  if (dom.saveNeuralFieldReplay) dom.saveNeuralFieldReplay.disabled = !replayOwner;
+}
+
+function neuralFieldDisplayLabel(value) {
+  const label = String(value || "").replace(/_/g, " ");
+  return /^[ai]$/i.test(label) ? label.toUpperCase() : label.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function renderSpatialEvidenceOverlay(target) {
@@ -11000,19 +11691,26 @@ function renderInteractionModeSelector(target) {
   if (!dom.interactionModeSelector) return;
   const app = canonicalAppState(target);
   for (const button of dom.interactionModeSelector.querySelectorAll("[data-interaction-mode]")) {
-    const selected = normalizeInteractionMode(button.getAttribute("data-interaction-mode")) === app.selectedMode;
+    const requested = String(button.getAttribute("data-interaction-mode") || "");
+    const selected = requested === "neural_field"
+      ? target.primarySurfaceMode === "neural_field"
+      : target.primarySurfaceMode !== "neural_field" && normalizeInteractionMode(requested) === app.selectedMode;
     button.setAttribute("aria-pressed", selected ? "true" : "false");
-    button.disabled = app.session.status === "ending";
+    button.disabled = app.session.status === "ending" || target.neuralField?.status === "ending";
   }
 }
 
 function primaryActionBusy(target) {
-  if (neuralField?.isActive()) return false;
+  if (target.primarySurfaceMode === "neural_field") return target.neuralField?.status === "starting" || target.neuralField?.status === "ending";
   return target.cameraStartInFlight === true || ["starting", "ending"].includes(target.realtimeSession.state);
 }
 
 function primaryActionLabel(target) {
-  if (neuralField?.isActive()) return "End Neural Field";
+  if (target.primarySurfaceMode === "neural_field") {
+    if (target.neuralField?.status === "starting") return "Starting Neural Field…";
+    if (target.neuralField?.status === "ending") return "Stopping Neural Field…";
+    return neuralFieldLifecycleActive(target) ? "Stop camera" : "Start camera";
+  }
   if (target.realtimeSession.state === "starting" || target.cameraStartInFlight) return "Starting…";
   if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) return "End observing";
   if (target.interactionState.sessionActive) return "End conversation";

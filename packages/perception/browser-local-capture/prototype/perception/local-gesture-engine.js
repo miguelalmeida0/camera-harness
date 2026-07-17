@@ -36,7 +36,7 @@ export function isLocalGestureEngineReady(diagnostics = {}) {
 }
 
 export function createLocalGestureEngine(options = {}) {
-  const workerFrameIntervalMs = Math.max(66, Math.round(1000 / Math.min(15, Math.max(1, Number(options.maxFps || 12)))));
+  const workerFrameIntervalMs = Math.max(33, Math.round(1000 / Math.min(30, Math.max(1, Number(options.maxFps || 12)))));
   const directMainThread = options.directMainThread === true;
   const compatibilityFrameIntervalMs = Math.max(100, Math.round(1000 / Math.min(directMainThread ? 6 : 10, Math.max(1, Number(options.compatibilityMaxFps || (directMainThread ? 6 : 9))))));
   const WorkerApi = options.Worker || globalThis.Worker;

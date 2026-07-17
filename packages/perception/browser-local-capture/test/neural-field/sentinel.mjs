@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -8,15 +8,31 @@ mkdirSync(outputDir, { recursive: true });
 const explicitContract = process.env.SENSEFIELD_NEURAL_FIELD_CONTRACT_MODULE
   ? resolve(process.env.SENSEFIELD_NEURAL_FIELD_CONTRACT_MODULE)
   : null;
-const knownProductionModules = [
-  "packages/perception/browser-local-capture/prototype/neural-field.js",
-  "packages/perception/browser-local-capture/prototype/neural-field-runtime.js"
+const modularProductionModules = [
+  "packages/perception/browser-local-capture/prototype/neural-field/neural-field-systems.js",
+  "packages/perception/browser-local-capture/prototype/perception/neural-field-perception.js",
+  "packages/perception/browser-local-capture/prototype/neural-field/neural-field-controller.js",
+  "packages/perception/browser-local-capture/prototype/neural-field/neural-field-renderer.js"
 ].map((modulePath) => resolve(modulePath));
-const discoveredContract = explicitContract || knownProductionModules.find(existsSync) || null;
-const productionStatus = discoveredContract && existsSync(discoveredContract) ? "AVAILABLE" : "UNAVAILABLE";
-const availableContract = productionStatus === "AVAILABLE" ? discoveredContract : null;
+const productionEntryPath = resolve("packages/perception/browser-local-capture/prototype/local-capture.js");
+const controllerEntryPath = resolve("packages/perception/browser-local-capture/prototype/neural-field/neural-field-controller.js");
+const productionEntry = existsSync(productionEntryPath) ? readFileSync(productionEntryPath, "utf8") : "";
+const controllerEntry = existsSync(controllerEntryPath) ? readFileSync(controllerEntryPath, "utf8") : "";
+const modularProductionWired = [
+  "./perception/neural-field-perception.js",
+  "./neural-field/neural-field-systems.js",
+  "./neural-field/neural-field-controller.js",
+  "mountNeuralField({",
+  "createNeuralFieldHandWorker("
+].every((marker) => productionEntry.includes(marker)) && controllerEntry.includes("./neural-field-renderer.js");
+const modularProductionAvailable = modularProductionModules.every(existsSync) && modularProductionWired;
+const explicitContractAvailable = Boolean(explicitContract && existsSync(explicitContract));
+const productionStatus = explicitContractAvailable || (!explicitContract && modularProductionAvailable) ? "AVAILABLE" : "UNAVAILABLE";
+const availableContract = explicitContractAvailable ? explicitContract : null;
 const explicitContractMissing = Boolean(explicitContract && !existsSync(explicitContract));
-const contractLabel = availableContract ? safeContractLabel(availableContract) : "EXPLICIT_TEST_ONLY";
+const contractLabel = availableContract ? safeContractLabel(availableContract)
+  : modularProductionAvailable && !explicitContract ? "MODULAR_PRODUCTION_RUNTIME"
+  : "EXPLICIT_TEST_ONLY";
 
 process.stdout.write(`NEURAL_FIELD_PRODUCTION_COMPONENT=${productionStatus}\n`);
 process.stdout.write(`NEURAL_FIELD_EXECUTION_CONTRACT=${contractLabel}\n`);

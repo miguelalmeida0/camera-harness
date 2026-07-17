@@ -5984,10 +5984,6 @@
               <video id="preview" autoplay playsinline muted aria-label="Sensefield local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
               <canvas id="neuralFieldCanvas" class="sf-neural-field-canvas" aria-hidden="true" hidden></canvas>
               <div id="neuralFieldControls" class="sf-neural-field-controls" aria-label="Neural Field Pro" hidden>
-                <div id="neuralFieldToolSelector" class="sf-neural-field-tool-selector" role="group" aria-label="Neural Field tool">
-                  <button type="button" data-neural-field-tool="airscript" aria-pressed="true">AirScript</button>
-                  <button type="button" data-neural-field-tool="spatial-lasso" aria-pressed="false">Spatial Lasso</button>
-                </div>
                 <div id="neuralFieldStatus" class="sf-neural-field-status" role="status" aria-live="polite" aria-atomic="true">
                   <span class="sf-neural-field-status-mark" aria-hidden="true"></span>
                   <span id="neuralFieldStatusText">Ready</span>
@@ -5996,7 +5992,7 @@
                   <span id="neuralFieldEvidenceText"></span>
                   <button id="dismissNeuralFieldEvidence" type="button" aria-label="Dismiss Neural Field message">Dismiss</button>
                 </div>
-                <p id="neuralFieldRelationText" class="sr-only" aria-live="polite" aria-atomic="true"></p>
+                <p id="neuralFieldRelationText" class="sf-neural-field-relation-text" aria-live="polite" aria-atomic="true"></p>
               </div>
               <div id="spatialEvidenceOverlay" class="sf-spatial-overlay" aria-live="polite" hidden>
                 <div id="spatialEvidenceOutline" class="sf-spatial-outline" aria-hidden="true">
@@ -6040,9 +6036,8 @@
                 <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="box"></i></span>
                 <span><strong>Spatial Awareness</strong><small>Understand 3D space and distances.</small></span>
               </article>
-              <button id="neuralFieldLauncher" class="sf-roadmap-tile sf-neural-field-launcher" type="button" aria-label="Neural Field · Pro" aria-controls="neuralFieldControls" aria-pressed="false">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="hand"></i></span>
-                <span><strong>Neural Field · Pro</strong><small>AirScript and Spatial Lasso.</small></span>
+              <button id="neuralFieldLauncher" class="sf-roadmap-tile sf-neural-field-launcher" type="button" aria-hidden="true" tabindex="-1" hidden disabled>
+                <span><strong>Neural Field · Pro</strong></span>
               </button>
               <article class="sf-roadmap-tile">
                 <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="languages"></i></span>
@@ -6062,9 +6057,55 @@
 
           <aside class="sf-insight-rail" aria-label="Observation summary">
             <div id="interactionModeSelector" class="dq-segmented sf-mode-selector" role="group" aria-label="Interaction mode">
-              <button type="button" data-interaction-mode="conversation" aria-pressed="true"><i data-lucide="message-circle" aria-hidden="true"></i><span>Conversation</span></button>
-              <button type="button" data-interaction-mode="observing" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i><span>Observing</span></button>
+              <button type="button" data-interaction-mode="conversation" aria-label="Conversation" aria-pressed="true"><i data-lucide="message-circle" aria-hidden="true"></i><span>Ask</span><span class="sr-only">Conversation</span></button>
+              <button type="button" data-interaction-mode="observing" aria-label="Observing" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i><span>Watch</span><span class="sr-only">Observing</span></button>
+              <button type="button" data-interaction-mode="neural_field" aria-pressed="false"><i data-lucide="hand" aria-hidden="true"></i><span>Neural Field</span></button>
             </div>
+            <section id="neuralFieldPanel" class="dq-card sf-neural-field-panel card-contained" aria-labelledby="neuralFieldPanelTitle" hidden>
+              <div class="sf-neural-field-panel-heading">
+                <span class="sf-response-state">Local hand tools</span>
+                <h2 id="neuralFieldPanelTitle">Neural Field</h2>
+                <p>Use your hand to draw in space or select physical objects.</p>
+              </div>
+              <div id="neuralFieldToolSelector" class="sf-neural-field-tool-selector" role="group" aria-label="Neural Field tool">
+                <button type="button" data-neural-field-tool="airscript" aria-pressed="true">AirScript</button>
+                <button type="button" data-neural-field-tool="spatial_lasso" aria-pressed="false">Spatial Lasso</button>
+              </div>
+              <dl class="sf-neural-field-readout" aria-label="Neural Field status">
+                <div><dt>Camera</dt><dd id="neuralFieldCameraState">Camera off</dd></div>
+                <div><dt>Hand</dt><dd id="neuralFieldHandState">Waiting for hand</dd></div>
+                <div><dt>Stroke</dt><dd id="neuralFieldStrokeState">Waiting</dd></div>
+                <div><dt>Result</dt><dd id="neuralFieldResultState">No completed gesture</dd></div>
+                <div><dt>Grounding</dt><dd id="neuralFieldGroundingState">No object anchored</dd></div>
+                <div><dt>Relation</dt><dd id="neuralFieldRelationState">No relation</dd></div>
+              </dl>
+              <p class="sf-neural-field-confirmation" role="note"><strong>Manual confirmation required.</strong> Treat gesture, object, and relation results as candidates until you verify them.</p>
+              <div class="sf-neural-field-actions" aria-label="Neural Field controls">
+                <button id="startNeuralFieldCamera" class="dq-button primary" type="button">Start camera</button>
+                <button id="stopNeuralFieldCamera" class="dq-button" type="button" hidden>Stop camera</button>
+                <button id="clearNeuralField" class="dq-button" type="button">Clear field</button>
+                <button id="refreshNeuralFieldTracking" class="dq-button" type="button" hidden>Refresh tracking</button>
+                <button id="releaseNeuralFieldAnchor" class="dq-button" type="button" hidden>Release anchor</button>
+                <button id="exitNeuralField" class="dq-button" type="button">Exit Neural Field</button>
+              </div>
+              <div class="sf-neural-field-replay" aria-labelledby="neuralFieldReplayTitle">
+                <div><strong id="neuralFieldReplayTitle">Replay</strong><span id="neuralFieldReplayStatus">Replay is off</span></div>
+                <p>Replay capture is local, temporary, and never starts automatically. Maximum 30 seconds.</p>
+                <button id="enableNeuralFieldReplay" class="dq-button" type="button">Enable local replay</button>
+                <div id="neuralFieldReplayControls" class="sf-neural-field-replay-actions" hidden>
+                  <button id="startNeuralFieldReplay" class="dq-button" type="button">Start replay</button>
+                  <button id="stopNeuralFieldReplay" class="dq-button" type="button" hidden>Stop</button>
+                  <button id="discardNeuralFieldReplay" class="dq-button" type="button">Discard</button>
+                  <button id="saveNeuralFieldReplay" class="dq-button" type="button">Save locally</button>
+                </div>
+              </div>
+              <ul class="sf-neural-field-privacy" aria-label="Neural Field privacy">
+                <li>Raw camera frames are not stored.</li>
+                <li>No microphone is used.</li>
+                <li>Drawing does not trigger continuous cloud calls.</li>
+                <li>Replay is off unless explicitly enabled.</li>
+              </ul>
+            </section>
             <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained" data-product-card="visual-response" aria-labelledby="movementResultTitle">
               <span id="cameraSuggestionCount" class="sf-response-state">Response</span>
               <h2 id="movementResultTitle" class="sr-only">Visual Response</h2>

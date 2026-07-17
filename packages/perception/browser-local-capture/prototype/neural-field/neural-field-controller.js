@@ -8,12 +8,16 @@ const STATUS_LABELS = Object.freeze({
   "tracking-hand": "Tracking hand",
   tracking: "Tracking hand",
   "pinch-to-draw": "Pinch to draw",
+  "waiting-for-lasso": "Waiting for lasso",
   drawing: "Drawing",
+  stabilizing: "Stabilizing",
   "stroke-complete": "Stroke complete",
   "grounding-object": "Grounding object",
   "object-selected": "Object selected",
   "relation-found": "Relation found",
   "tracking-uncertain": "Tracking uncertain",
+  "tracking-lost": "Tracking lost",
+  "low-confidence": "Low confidence",
   uncertain: "Tracking uncertain",
   unavailable: "Neural Field unavailable",
   "neural-field-unavailable": "Neural Field unavailable"
@@ -28,12 +32,15 @@ const SUPPORTED_RELATIONS = Object.freeze({
   closer_than: "closer than",
   farther_than: "farther than",
   closest_to_camera: "closest to camera",
+  farther_from_camera: "farther from camera",
   approaching: "approaching",
   moving_away: "moving away from",
   near: "near",
   far: "far from",
+  overlapping: "overlapping",
   inside: "inside",
-  contains: "around"
+  contains: "around",
+  touching: "touching"
 });
 
 function statusLabel(value, fallback = "Ready") {
@@ -105,11 +112,11 @@ function relationTextForResult(result) {
     const type = String(relation?.predicate || relation?.type || relation?.relation || "").toLowerCase();
     const copy = SUPPORTED_RELATIONS[type];
     if (!copy) continue;
-    const subjectId = String(relation?.subject_id || relation?.subject?.id || "");
-    const subject = safeLabel(relation?.subject_label || relation?.subject?.label || entityLabels.get(subjectId), "Object");
-    if (type === "closest_to_camera") return `${subject} — ${copy}`;
-    const referenceId = String(relation?.object_id || relation?.reference_id || relation?.object?.id || relation?.reference?.id || "");
-    const reference = safeLabel(relation?.reference_label || relation?.object_label || relation?.reference?.label || relation?.object?.label || entityLabels.get(referenceId), "object");
+    const subjectId = String(relation?.subject_id || relation?.subjectId || relation?.subject?.id || "");
+    const subject = safeLabel(relation?.subject_label || relation?.subjectLabel || relation?.subject?.label || entityLabels.get(subjectId), "Object");
+    if (["closest_to_camera", "farther_from_camera"].includes(type)) return `${subject} — ${copy}`;
+    const referenceId = String(relation?.object_id || relation?.objectId || relation?.reference_id || relation?.referenceId || relation?.object?.id || relation?.reference?.id || "");
+    const reference = safeLabel(relation?.reference_label || relation?.referenceLabel || relation?.object_label || relation?.objectLabel || relation?.reference?.label || relation?.object?.label || entityLabels.get(referenceId), "object");
     return `${subject} — ${copy} — ${reference}`;
   }
   const interactions = Array.isArray(result?.interactions) ? result.interactions : [];
@@ -150,7 +157,7 @@ export function mountNeuralField(options = {}) {
   const evidenceText = options.evidenceText || root?.querySelector?.("#neuralFieldEvidenceText") || null;
   const dismissEvidence = options.dismissEvidence || root?.querySelector?.("#dismissNeuralFieldEvidence") || null;
   const relationText = options.relationText || root?.querySelector?.("#neuralFieldRelationText") || null;
-  const toolButtons = Array.from(controls?.querySelectorAll?.("[data-neural-field-tool]") || []);
+  const toolButtons = Array.from(root?.querySelectorAll?.("[data-neural-field-tool]") || controls?.querySelectorAll?.("[data-neural-field-tool]") || []);
   const testMode = options.testMode === true;
   const requestedFixture = testMode && FIXTURES.has(String(options.fixture || "")) ? String(options.fixture) : "";
   const motionQuery = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)") || null;
@@ -247,6 +254,7 @@ export function mountNeuralField(options = {}) {
     try {
       renderer = createNeuralFieldRenderer(canvas, {
         reducedMotion,
+        externalPerception: options.externalPerception === true,
         onStateChange: applyRendererState
       });
       renderer.setTool(tool);
@@ -306,10 +314,11 @@ export function mountNeuralField(options = {}) {
   }
 
   function selectTool(nextTool, announce = true) {
+    nextTool = String(nextTool || "").replace(/_/g, "-");
     if (!TOOLS.includes(nextTool)) return false;
     tool = nextTool;
     for (const button of toolButtons) {
-      button.setAttribute("aria-pressed", button.dataset.neuralFieldTool === tool ? "true" : "false");
+      button.setAttribute("aria-pressed", String(button.dataset.neuralFieldTool || "").replace(/_/g, "-") === tool ? "true" : "false");
     }
     if (canvas) canvas.dataset.tool = tool;
     if (active && globalThis.document?.body) globalThis.document.body.dataset.neuralFieldTool = tool;
@@ -493,6 +502,64 @@ export function mountNeuralField(options = {}) {
     return true;
   }
 
+  function ingestPerceptionEvent(event = {}) {
+    if (!active || !renderer || !event || typeof event !== "object") return false;
+    const snapshot = callSafely(renderer.ingestPerceptionEvent?.bind(renderer), event);
+    if (isRendererSnapshot(snapshot)) applyRendererState(snapshot);
+    const type = String(event.type || "");
+    if (type === "hand_frame") {
+      const confidence = Number(event.confidence);
+      if (Number(event.handCount || 0) < 1) setStatus("Ready");
+      else if (Number.isFinite(confidence) && confidence < 0.6) setStatus("Low confidence");
+      else setStatus(tool === "airscript" ? "Pinch to draw" : "Waiting for lasso");
+    }
+    if (["pinch_started", "pinch_updated", "stroke_started", "stroke_updated", "lasso_started", "lasso_updated"].includes(type)) {
+      setStatus("Drawing");
+    }
+    if (type === "pinch_ended") setStatus(tool === "airscript" ? "Stabilizing" : "Grounding object");
+    if (["stroke_cancelled", "lasso_cancelled", "pinch_cancelled"].includes(type)) {
+      const reason = String(event.reason || event.lasso?.rejectionReason || "");
+      const message = /area|small/.test(reason) ? "Lasso too small." : /open|incomplete/.test(reason) ? "Lasso incomplete." : "Gesture cancelled.";
+      setStatus("Tracking uncertain");
+      showEvidence(message);
+    }
+    if (type === "stroke_completed") {
+      if (tool === "airscript") {
+        const classification = typeof event.classification === "object" ? event.classification : { classification: event.classification };
+        const label = safeLabel(classification.classification || classification.label, "freeform");
+        const confidence = Number(classification.confidence || 0);
+        setStatus("Stroke complete");
+        if (label === "freeform" || confidence < 0.65) showEvidence("Uncertain freeform stroke.");
+        else hideEvidence();
+      } else if (event.lasso?.valid === true) {
+        hideEvidence();
+        setStatus("Grounding object");
+      }
+    }
+    return true;
+  }
+
+  function clear() {
+    if (!renderer) return false;
+    callSafely(renderer.clear?.bind(renderer));
+    hadTrackedHand = false;
+    wasPinching = false;
+    strokeHadPoints = false;
+    hideEvidence();
+    setRelationText("");
+    setStatus("Ready");
+    return true;
+  }
+
+  function releaseAnchor(objectId = null) {
+    if (!renderer) return false;
+    callSafely(renderer.releaseAnchor?.bind(renderer), objectId);
+    setRelationText("");
+    hideEvidence();
+    setStatus("Ready");
+    return true;
+  }
+
   function setTrackingAvailability(value = {}) {
     const normalized = typeof value === "boolean" ? { available: value } : { ...value };
     normalized.available = normalized.available !== false && normalized.status !== "unavailable";
@@ -608,7 +675,9 @@ export function mountNeuralField(options = {}) {
   }
 
   function handleToolClick(event) {
-    selectTool(event.currentTarget?.dataset?.neuralFieldTool);
+    const requested = event.currentTarget?.dataset?.neuralFieldTool;
+    if (typeof options.onToolRequest === "function") callSafely(options.onToolRequest, requested);
+    else selectTool(requested);
   }
 
   function handleMotionChange(event) {
@@ -630,8 +699,12 @@ export function mountNeuralField(options = {}) {
     exit,
     isActive: () => active,
     setCameraActive,
+    selectTool,
     ingestHandFrame,
+    ingestPerceptionEvent,
     ingestSpatialResult,
+    clear,
+    releaseAnchor,
     setTrackingAvailability,
     dispose,
     getRenderer: () => active ? renderer : null,

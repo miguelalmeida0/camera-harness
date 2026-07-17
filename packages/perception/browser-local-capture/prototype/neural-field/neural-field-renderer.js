@@ -22,11 +22,14 @@ const RELATIONS = Object.freeze({
   behind: { phrase: "behind", directional: true },
   near: { phrase: "near", directional: false },
   far: { phrase: "far from", directional: false },
+  overlapping: { phrase: "overlapping", directional: false },
   inside: { phrase: "inside", directional: false },
   contains: { phrase: "around", directional: false },
+  touching: { phrase: "touching", directional: false },
   closer_than: { phrase: "closer than", directional: true },
   farther_than: { phrase: "farther than", directional: true },
   closest_to_camera: { phrase: "closest to camera", directional: false },
+  farther_from_camera: { phrase: "farther from camera", directional: false },
   approaching: { phrase: "approaching", directional: true },
   moving_away: { phrase: "moving away from", directional: true }
 });
@@ -126,14 +129,14 @@ export function normalizeRelations(result = {}, anchors = []) {
     const predicate = normalizePredicate(raw?.predicate || raw?.relation || raw?.type, interaction);
     const definition = RELATIONS[predicate];
     if (!definition) return;
-    const subjectId = cleanText(raw?.subject_id || raw?.hand_id || raw?.subject, 96);
-    const referenceId = cleanText(raw?.object_id || raw?.reference_id || raw?.reference, 96);
+    const subjectId = cleanText(raw?.subject_id || raw?.subjectId || raw?.hand_id || raw?.handId || raw?.subject, 96);
+    const referenceId = cleanText(raw?.object_id || raw?.objectId || raw?.reference_id || raw?.referenceId || raw?.reference, 96);
     const subjectAnchor = byId.get(subjectId);
     const referenceAnchor = byId.get(referenceId);
-    const subjectLabel = safeLabel(raw?.subject_label || raw?.hand_label || subjectAnchor?.label || (raw?.hand_id ? "Hand" : raw?.subject));
-    const referenceLabel = safeLabel(raw?.object_label || raw?.reference_label || referenceAnchor?.label || raw?.reference);
-    if (!subjectLabel || (!referenceLabel && predicate !== "closest_to_camera")) return;
-    const label = predicate === "closest_to_camera"
+    const subjectLabel = safeLabel(raw?.subject_label || raw?.subjectLabel || raw?.hand_label || raw?.handLabel || subjectAnchor?.label || (raw?.hand_id || raw?.handId ? "Hand" : raw?.subject));
+    const referenceLabel = safeLabel(raw?.object_label || raw?.objectLabel || raw?.reference_label || raw?.referenceLabel || referenceAnchor?.label || raw?.reference);
+    if (!subjectLabel || (!referenceLabel && !["closest_to_camera", "farther_from_camera"].includes(predicate))) return;
+    const label = ["closest_to_camera", "farther_from_camera"].includes(predicate)
       ? `${subjectLabel} — ${definition.phrase}`
       : `${subjectLabel} — ${definition.phrase} — ${referenceLabel}`;
     output.push({
@@ -162,6 +165,7 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
   const cancelFrame = options.cancelAnimationFrame || globalThis.cancelAnimationFrame?.bind(globalThis);
   const maxPathPoints = clamp(Math.round(finite(options.maxPathPoints, 512)), 64, 1_024);
   const anchorSmoothing = clamp01(options.anchorSmoothing ?? 0.28);
+  const externalPerception = options.externalPerception === true;
   const state = {
     active: false,
     running: false,
@@ -203,10 +207,13 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
     setTool,
     setReducedMotion,
     ingestHandFrame,
+    ingestPerceptionEvent,
     ingestSpatialResult,
     setTrackingAvailability,
     setFaceBounds,
     dismissOverlay,
+    clear,
+    releaseAnchor,
     loadFixture,
     renderOnce,
     getSnapshot,
@@ -274,7 +281,7 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
   }
 
   function setTool(tool) {
-    const normalized = tool === "spatial-lasso" ? "spatial-lasso" : "airscript";
+    const normalized = String(tool || "").replace(/_/g, "-") === "spatial-lasso" ? "spatial-lasso" : "airscript";
     if (state.tool === normalized) return api;
     state.tool = normalized;
     state.pinching = false;
@@ -293,6 +300,7 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
   }
 
   function ingestHandFrame(frame = {}) {
+    if (externalPerception) return api;
     if (!state.active || state.disposed || !state.trackingAvailable) return api;
     const hand = Array.isArray(frame.hands) ? frame.hands[0] : null;
     const suppliedLandmarks = Array.isArray(frame.landmarks)
@@ -345,6 +353,98 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
       setStatus(state.trackingFrames < 2 ? STATUS.tracking : STATUS.pinch, "");
     }
     return api;
+  }
+
+  function ingestPerceptionEvent(event = {}) {
+    if (!state.active || state.disposed || !externalPerception) return api;
+    const type = String(event.type || "");
+    if (type === "hand_frame") {
+      const handCount = Number(event.handCount || 0);
+      const confidence = Number(event.confidence);
+      if (handCount < 1) setStatus(STATUS.ready, "Waiting for hand");
+      else if (Number.isFinite(confidence) && confidence < 0.6) setStatus(STATUS.uncertain, "Low hand confidence");
+      else if (!state.pinching) setStatus(STATUS.pinch, "");
+      return api;
+    }
+    if (["pinch_started", "stroke_started", "lasso_started"].includes(type)) {
+      state.paths.liveEvidence = [];
+      state.paths.liveStabilized = [];
+      state.lasso = { points: [], valid: false, feedback: "", completedAt: 0 };
+      state.pinching = true;
+      const point = perceptionEventPoint(event.point, event);
+      if (point) appendPoint(point);
+      setStatus(STATUS.drawing, "");
+      return api;
+    }
+    if (["pinch_updated", "stroke_updated", "stroke_point_added", "lasso_updated"].includes(type)) {
+      const point = perceptionEventPoint(event.point, event);
+      if (point) appendPoint(point);
+      state.pinching = true;
+      setStatus(STATUS.drawing, "");
+      return api;
+    }
+    if (type === "pinch_ended") {
+      state.pinching = false;
+      setStatus(state.tool === "airscript" ? "Stabilizing" : STATUS.grounding, "");
+      return api;
+    }
+    if (["pinch_cancelled", "stroke_cancelled", "lasso_cancelled"].includes(type)) {
+      state.pinching = false;
+      state.paths.liveEvidence = [];
+      state.paths.liveStabilized = [];
+      const reason = String(event.reason || event.rejectionReason || "");
+      const feedback = /area|small/.test(reason) ? "Lasso too small" : /open|incomplete/.test(reason) ? "Lasso incomplete" : "Gesture cancelled";
+      state.lasso = { points: [], valid: false, feedback, completedAt: finite(event.timestamp, clock()) };
+      setStatus(STATUS.uncertain, feedback);
+      return api;
+    }
+    if (type !== "stroke_completed") return api;
+    const timestamp = finite(event.timestamp, clock());
+    const sourcePoints = event.smoothedPoints?.length ? event.smoothedPoints : event.rawPoints || [];
+    const points = sourcePoints.map((point) => perceptionEventPoint(point, event)).filter(Boolean).slice(0, maxPathPoints);
+    state.pinching = false;
+    state.paths.liveEvidence = [];
+    state.paths.liveStabilized = [];
+    if (state.tool === "spatial-lasso") {
+      const lasso = event.lasso || {};
+      const polygon = lasso.polygon?.length
+        ? lasso.polygon.map((point) => perceptionEventPoint(point, event)).filter(Boolean).slice(0, maxPathPoints)
+        : points;
+      const valid = lasso.valid === true;
+      const feedback = valid ? "" : /area|small/.test(String(lasso.rejectionReason || "")) ? "Lasso too small" : "Lasso incomplete";
+      state.lasso = { points: polygon, valid, feedback, completedAt: timestamp };
+      setStatus(valid ? STATUS.grounding : STATUS.uncertain, feedback);
+      return api;
+    }
+    if (points.length < 2) return api;
+    const classification = typeof event.classification === "object" ? event.classification : { classification: event.classification };
+    const label = cleanText(classification.classification || classification.label || "freeform", 40).toLowerCase() || "freeform";
+    const confidence = clamp01(classification.confidence ?? 0);
+    state.paths.completed.push({
+      evidence: points.map(copyPoint),
+      points: points.map(copyPoint),
+      label,
+      confidence,
+      createdAt: timestamp,
+      evidenceUntil: timestamp + (state.reducedMotion ? 1 : 1_400),
+      expiresAt: timestamp + 6_000
+    });
+    if (state.paths.completed.length > MAX_STROKES) state.paths.completed.splice(0, state.paths.completed.length - MAX_STROKES);
+    setStatus(STATUS.complete, confidence >= 0.65 && label !== "freeform" ? `${label} · ${Math.round(confidence * 100)}%` : "Uncertain freeform stroke");
+    return api;
+  }
+
+  function perceptionEventPoint(value, event = {}) {
+    if (!finitePoint(value)) return null;
+    const mirrored = event.mirrored === true;
+    return {
+      x: clamp01(mirrored ? 1 - Number(value.x) : Number(value.x)),
+      y: clamp01(value.y),
+      depth: clamp01(value.depth ?? value.z ?? 0.5),
+      confidence: clamp01(value.confidence ?? event.confidence ?? 0.8),
+      depthConfidence: 0,
+      timestamp: finite(value.timestamp ?? event.timestamp, clock())
+    };
   }
 
   function appendPoint(point) {
@@ -425,9 +525,13 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
       notify();
       return api;
     }
-    const entities = normalizeEntities(result);
     const seen = new Set();
     const selectedId = selectedObjectId(result);
+    const trackedIds = new Set(state.anchors.map((anchor) => anchor.id));
+    const allEntities = normalizeEntities(result);
+    const entities = externalPerception
+      ? allEntities.filter((entity) => trackedIds.has(entity.id) || (selectedId != null && String(selectedId) === entity.id))
+      : allEntities;
     for (const entity of entities) {
       seen.add(entity.id);
       const existing = state.anchors.find((anchor) => anchor.id === entity.id);
@@ -458,7 +562,7 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
     state.relationSignature = signature;
     state.relations = relations;
     state.relationUpdateMs = Math.max(0, clock() - relationStarted);
-    if (state.lasso.valid) resolveLassoSelection(timestamp);
+    if (state.lasso.valid && !externalPerception) resolveLassoSelection(timestamp);
     else if (relations.length) setStatus(STATUS.relation, relations[0].label);
     else if (state.anchors.some((item) => item.state === "selected")) setStatus(STATUS.selected, "");
     else if (state.anchors.some((item) => item.state === "tracking uncertain")) setStatus(STATUS.uncertain, "Keep the object steady in view.");
@@ -528,6 +632,31 @@ export function createNeuralFieldRenderer(canvas, options = {}) {
         && rect.y + rect.height <= 1.0001;
       return normalized ? normalizedToPixels(rect, state.width, state.height) : rect;
     });
+  }
+
+  function clear() {
+    state.pinching = false;
+    state.paths = { liveEvidence: [], liveStabilized: [], completed: [] };
+    state.lasso = { points: [], valid: false, feedback: "", completedAt: 0 };
+    state.anchors = [];
+    state.relations = [];
+    state.relationSignature = "";
+    state.labelLayouts = [];
+    setStatus(STATUS.ready, "");
+    notify(true);
+    return api;
+  }
+
+  function releaseAnchor(objectId = null) {
+    const requested = cleanText(objectId, 96);
+    state.anchors = requested ? state.anchors.filter((anchor) => anchor.id !== requested) : [];
+    const visible = new Set(state.anchors.map((anchor) => anchor.id));
+    state.relations = state.relations.filter((relation) => visible.has(relation.subjectId) && visible.has(relation.referenceId));
+    state.relationSignature = state.relations.map((relation) => `${relation.subjectId}:${relation.predicate}:${relation.referenceId}`).join("|");
+    if (!state.anchors.length) state.lasso = { points: [], valid: false, feedback: "Anchor cleared", completedAt: clock() };
+    setStatus(state.anchors.length ? STATUS.tracking : STATUS.ready, state.anchors.length ? "" : "Anchor cleared");
+    notify(true);
+    return api;
   }
 
   function dismissOverlay() {
