@@ -29,7 +29,7 @@ const files = {
   test: "packages/perception/browser-local-capture/test/prototype-flow.test.mjs",
   contract: "docs/contracts/local-action-inference.v0.md",
   gate4aPassFail: "docs/evals/gate-4A-pass-fail.md",
-  agents: "AGENTS.md"
+  agents: "docs/internal/automation/AGENTS.md"
 };
 
 const packageJson = JSON.parse(read(files.packageJson));

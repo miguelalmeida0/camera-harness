@@ -8,7 +8,7 @@ const files = {
   html: "packages/perception/browser-local-capture/prototype/index.html",
   source: "packages/perception/browser-local-capture/prototype/local-capture.js",
   test: "packages/perception/browser-local-capture/test/prototype-flow.test.mjs",
-  agents: "AGENTS.md"
+  agents: "docs/internal/automation/AGENTS.md"
 };
 
 const packageJson = JSON.parse(read(files.packageJson));

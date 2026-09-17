@@ -57,7 +57,7 @@ import {
 const html = readFileSync(resolve("packages/perception/browser-local-capture/prototype/index.html"), "utf8");
 const source = readFileSync(resolve("packages/perception/browser-local-capture/prototype/local-capture.js"), "utf8");
 const launcherSource = readFileSync(resolve("packages/perception/browser-local-capture/scripts/physical-capture-launcher.mjs"), "utf8");
-const agents = readFileSync(resolve("AGENTS.md"), "utf8");
+const agents = readFileSync(resolve("docs/internal/automation/AGENTS.md"), "utf8");
 const bodyHtml = html.replace(/^[\s\S]*<body>/, "").replace(/<\/body>[\s\S]*$/, "");
 const developerToolsIndex = bodyHtml.indexOf('id="developerTools"');
 const defaultMainUi = developerToolsIndex >= 0 ? bodyHtml.slice(0, developerToolsIndex) : bodyHtml;
@@ -289,7 +289,7 @@ for (const requiredAgentRule of [
   "The current UI is approved and frozen.",
   "Only functionality, validation, trace export, safety, and hidden developer-tool logic may change"
 ]) {
-  assert.equal(agents.includes(requiredAgentRule), true, `missing AGENTS.md UI rule: ${requiredAgentRule}`);
+  assert.equal(agents.includes(requiredAgentRule), true, `missing docs/internal/automation/AGENTS.md UI rule: ${requiredAgentRule}`);
 }
 for (const removedChrome of [
   "dq-topnav",

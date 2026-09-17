@@ -14,7 +14,7 @@ const files = {
   correctionMemoryContract: "docs/contracts/movement-correction-memory.v0.md",
   promptV2Contract: "docs/contracts/movement-narration-prompt.v2.md",
   resultsDoc: "docs/evals/darkquest-v1-1-research-layer-results.md",
-  agents: "AGENTS.md"
+  agents: "docs/internal/automation/AGENTS.md"
 };
 
 const packageJson = JSON.parse(read(files.packageJson));
