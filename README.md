@@ -3,8 +3,10 @@
 **A local-first interaction research harness for turning physical-workspace signals into reviewable suggestions, deterministic traces, and replayable evaluation.**
 
 <p align="center">
-  <img src="./docs/readme/current/01-home-desktop.png" alt="Camera Harness current browser capture surface" width="100%">
+  <img src="./docs/readme/current/00-current-design-desktop.png" alt="Camera Harness current operator console" width="100%">
 </p>
+
+<p align="center"><sub><strong>Current design.</strong> Local camera state, operator guidance, capture progress, export and validation are composed as one restrained workspace.</sub></p>
 
 Camera Harness explores a specific engineering problem: **how can software react to activity around a desk without pretending uncertain perception is ground truth?**
 
@@ -27,11 +29,13 @@ flowchart LR
     I --> J[Replay + evaluation]
 ```
 
-### Physical workspace → software state
+### Current operator console
 
 <p align="center">
-  <img src="./docs/readme/current/90-home-mobile.png" alt="Camera Harness current mobile capture surface" width="42%">
+  <img src="./docs/readme/current/90-current-design-mobile.png" alt="Camera Harness current responsive operator console" width="42%">
 </p>
+
+<p align="center"><sub>Responsive capture of the same current interface.</sub></p>
 
 The interaction contract is deliberately conservative:
 
