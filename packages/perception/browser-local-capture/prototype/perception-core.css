@@ -21,19 +21,15 @@ body[data-view="primary"] {
   --pc-blue-deep: #3d6a95;
   --pc-line: rgba(24, 46, 70, 0.16);
   --pc-line-soft: rgba(24, 46, 70, 0.10);
-  --pc-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-  --pc-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pc-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pc-shadow-board: 0 30px 70px rgba(40, 43, 36, 0.14), 0 2px 8px rgba(40, 43, 36, 0.06);
   background-color: var(--pc-paper);
   background-image:
     linear-gradient(rgba(242, 236, 225, 0.86), rgba(242, 236, 225, 0.86)),
-    url("./assets/paper-grain.svg"),
-    url("./assets/perception/page/optical-arc-network-2560.png"),
-    url("./assets/perception/page/caustic-bloom-overlay-2560.png"),
-    url("./assets/perception/page/ambient-optical-field-2560.webp");
-  background-size: auto, 240px 240px, cover, cover, cover;
-  background-position: center, center, center, center, center;
-  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+    url("./assets/paper-grain.svg");
+  background-size: auto, 240px 240px;
+  background-position: center, center;
+  background-repeat: repeat, repeat;
 }
 
 body[data-view="primary"] .dq-app {
@@ -295,9 +291,7 @@ body[data-view="primary"] .pc-hero .dq-camera-frame {
   max-height: none !important;
   aspect-ratio: auto !important;
   border-radius: 0;
-  background:
-    url("./assets/dormant-lake-background-clean-1920.png") center / cover no-repeat,
-    var(--pc-paper-3);
+  background: var(--pc-paper-3);
   box-shadow: none;
 }
 
@@ -342,77 +336,15 @@ body[data-view="primary"] .sf-optical-core canvas {
   visibility: visible;
 }
 
-/* The mesh stays fully mounted and correctly sized at all times so the
-   awakening/reveal transitions never have to lay out or resize mid-animation,
-   but it only ever paints during those transitions themselves (awakening,
-   holding, revealing, and the permission/error/return clips). Idle "dormant"
-   and "loading" never show the static pose over the "Ask the world" copy,
-   and "active" hands off to the live camera feed once the reveal finishes. */
-body[data-view="primary"] .sf-optical-core[data-state="loading"],
-body[data-view="primary"] .sf-optical-core[data-state="dormant"],
-body[data-view="primary"] .sf-optical-core[data-state="active"] {
+/* The mesh stays fully mounted, sized, and running through every awakening
+   state (loading, dormant, awakening, holding, revealing, active, and the
+   permission/error/return clips) so its timing and resource lifecycle are
+   unaffected, but its decorative render output never paints over the
+   product UI in any state — dormant copy, the live camera feed, and the
+   brief reveal transition all stay on the plain paper/camera surface. */
+body[data-view="primary"] .sf-optical-core {
   visibility: hidden;
   opacity: 0;
-}
-
-body[data-view="primary"] .sf-camera-glass-reflection {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: block;
-  pointer-events: none;
-  background:
-    url("./assets/perception/camera/optical-camera-frame-glow-1920.png") center / 100% 100% no-repeat,
-    url("./assets/perception/camera/camera-stage-edge-vignette-1920.png") center / 100% 100% no-repeat;
-  opacity: 0.55;
-}
-
-/* Decorative editorial tag columns */
-body[data-view="primary"] .pc-hero-tags {
-  position: absolute;
-  z-index: 4;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: #38536d;
-  font-size: 10px;
-  font-weight: 740;
-  line-height: 2.05;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-}
-
-body[data-view="primary"] .pc-hero-tags--top {
-  top: 6.5%;
-  left: 5.7%;
-}
-
-body[data-view="primary"] .pc-hero-tags--top::after {
-  content: "";
-  display: block;
-  width: 22px;
-  height: 1px;
-  margin-top: 8px;
-  background: currentColor;
-  opacity: 0.55;
-}
-
-body[data-view="primary"] .pc-hero-tags--bottom {
-  bottom: 8.5%;
-  left: 6.6%;
-  color: #4a637a;
-  font-size: 9px;
-  line-height: 1.9;
-}
-
-body[data-view="primary"] .pc-hero-tags--bottom::after {
-  content: "";
-  display: block;
-  width: 22px;
-  height: 1px;
-  margin-top: 6px;
-  background: currentColor;
-  opacity: 0.55;
 }
 
 /* Hero copy block (headline / subhead / body / CTA) */
@@ -456,37 +388,25 @@ body[data-view="primary"] .pc-hero-heading {
 body[data-view="primary"] .pc-hero-heading span {
   display: block;
   color: var(--pc-ink);
-  font-family: var(--pc-serif);
-  font-size: clamp(34px, 4.6vw, 62px);
-  font-weight: 700;
-  line-height: 0.94;
+  font-family: var(--pc-sans);
+  font-size: clamp(32px, 4.2vw, 56px);
+  font-weight: 650;
+  line-height: 1.04;
   letter-spacing: -0.01em;
-  text-transform: uppercase;
   white-space: pre-line;
 }
 
 body[data-view="primary"] .pc-hero-subhead {
   width: 100%;
   min-width: 0;
-  margin: 10px 0 0;
-  color: #4e6278;
-  font-family: var(--pc-serif);
-  font-size: clamp(14px, 1.35vw, 17px);
-  font-style: italic;
-  font-weight: 400;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-body[data-view="primary"] .pc-hero-body {
-  width: 100%;
-  min-width: 0;
   max-width: 340px;
-  margin: 6px 0 0;
+  margin: 10px 0 0;
   color: var(--pc-ink-soft);
   font-family: var(--pc-sans);
-  font-size: clamp(12px, 1.05vw, 14px);
-  line-height: 1.5;
+  font-size: clamp(14px, 1.35vw, 16px);
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -716,9 +636,10 @@ body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) {
 
 body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) .dq-movement-sentence {
   color: var(--pc-ink);
-  font-family: var(--pc-serif);
-  font-size: 15px;
-  font-style: italic;
+  font-family: var(--pc-sans);
+  font-size: 14px;
+  font-weight: 500;
+  font-style: normal;
 }
 
 body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) .dq-movement-hint {
@@ -773,25 +694,13 @@ body[data-view="primary"] .pc-rail {
   isolation: isolate;
 }
 
-body[data-view="primary"] .pc-rail::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: url("./assets/perception/glass/diagonal-glass-sheen-1600.png") center / cover no-repeat;
-  opacity: 0.5;
-  mix-blend-mode: screen;
-  pointer-events: none;
-}
-
 body[data-view="primary"] .pc-rail-title {
   margin: 0;
   color: var(--pc-ink);
-  font-family: var(--pc-serif);
-  font-size: 16px;
-  font-weight: 400;
-  letter-spacing: 0.16em;
+  font-family: var(--pc-sans);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -808,9 +717,9 @@ body[data-view="primary"] #recentMomentsList {
   min-width: 0;
   margin: 0;
   color: var(--pc-ink-soft);
-  font-family: var(--pc-serif);
-  font-size: 14px;
-  font-style: italic;
+  font-family: var(--pc-sans);
+  font-size: 13px;
+  font-style: normal;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -834,10 +743,10 @@ body[data-view="primary"] #recentMomentsList .sf-live-exchange-state {
 body[data-view="primary"] #recentMomentsList .sf-live-exchange-idle strong {
   display: block;
   color: var(--pc-ink-soft);
-  font-family: var(--pc-serif);
-  font-size: 14px;
-  font-style: italic;
-  font-weight: 400;
+  font-family: var(--pc-sans);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -918,9 +827,10 @@ body[data-view="primary"] .pc-rail-orbit-dot--paper {
 body[data-view="primary"] .pc-rail-tagline {
   margin: 0 0 14px;
   color: var(--pc-ink-soft);
-  font-family: var(--pc-serif);
-  font-size: 15px;
-  font-style: italic;
+  font-family: var(--pc-sans);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 500;
   line-height: 1.35;
   text-align: center;
 }
@@ -1009,12 +919,6 @@ body[data-view="primary"] .pc-board *::after {
     display: none;
   }
 
-  /* Decorative tag columns recede first when space tightens, so the
-     headline, CTA and camera status never collide with them. */
-  body[data-view="primary"] .pc-hero-tags {
-    display: none;
-  }
-
   body[data-view="primary"] .pc-header {
     grid-template-columns: 1fr;
   }
@@ -1051,10 +955,6 @@ body[data-view="primary"] .pc-board *::after {
 
   body[data-view="primary"] .pc-segmented {
     width: 100%;
-  }
-
-  body[data-view="primary"] .pc-hero-tags {
-    display: none;
   }
 
   body[data-view="primary"] .pc-hero-copy {

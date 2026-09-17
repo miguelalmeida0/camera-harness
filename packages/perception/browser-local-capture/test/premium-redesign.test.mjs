@@ -135,22 +135,16 @@ try {
     assert.ok(layout.recentMomentRows <= 3, `${viewport.width}px: more than three recent moments are visible`);
     assert.equal(layout.realModeButtons, 3, `${viewport.width}px: expected three real runtime modes`);
     assert.equal(layout.microscopeAvailable, true, `${viewport.width}px: Microscope is not available as a live mode`);
-    assert.equal(layout.iceEnvironment, true, `${viewport.width}px: approved optical environment asset is missing`);
-    assert.equal(layout.opticalDepthAssets, true, `${viewport.width}px: supplied optical depth layers are missing`);
     assert.equal(layout.apertureReady, true, `${viewport.width}px: Blender aperture asset is not ready`);
     assert.equal(layout.dormantApertureHidden, true, `${viewport.width}px: dormant stage still exposes an optical plate`);
-    assert.equal(layout.scenicDormantStage, true, `${viewport.width}px: approved scenic dormant surface is missing`);
+    assert.equal(layout.cleanDormantStage, true, `${viewport.width}px: dormant camera stage still carries a decorative background image`);
+    assert.equal(layout.noDecorativeOverlay, true, `${viewport.width}px: a decorative optical overlay element remains on the camera stage`);
     assert.equal(layout.circularDormantSurface, false, `${viewport.width}px: rejected circular dormant surface is visible`);
     assert.equal(layout.dormantTitle, "Ask the world", `${viewport.width}px: dormant product value is unclear`);
     assert.equal(layout.liveExchangeVisible, true, `${viewport.width}px: Live Exchange display is not visible`);
     assert.equal(layout.visiblePrimaryTextInputs, 0, `${viewport.width}px: primary Ask still exposes a text composer`);
     assert.equal(layout.energyModeControlVisible, false, `${viewport.width}px: user-facing Energy Mode control remains`);
     assert.equal(layout.cameraRectangular, true, `${viewport.width}px: dormant camera stage is not vertically dominant (${layout.cameraFrameWidth}x${layout.cameraFrameHeight}, radius ${layout.cameraRadius}, aspect ${layout.cameraAspect}, stage ${layout.cameraStageWidth}px, grid ${layout.workspaceColumns})`);
-    assert.ok(
-      Math.abs(layout.cameraOverlayWidth - layout.cameraFrameWidth) <= 2
-        && Math.abs(layout.cameraOverlayHeight - layout.cameraFrameHeight) <= 2,
-      `${viewport.width}x${viewport.height}: camera frame overlay does not cover the stage (${layout.cameraOverlayWidth}x${layout.cameraOverlayHeight} over ${layout.cameraFrameWidth}x${layout.cameraFrameHeight}; ${layout.cameraOverlayTransform})`
-    );
     assert.deepEqual(layout.outsideCards, [], `${viewport.width}px: cards leave the viewport`);
     assert.deepEqual(layout.clippedText, [], `${viewport.width}px: text is clipped`);
     assert.deepEqual(layout.verticallyClippedText, [], `${viewport.width}px: text is vertically clipped`);
@@ -641,7 +635,6 @@ function layoutProbe() {
     const response = document.querySelector('#operatorCommandsCard');
     const recent = document.querySelector('#recentMomentsCard');
     const primaryCta = document.querySelector('#analyzeMovement');
-    const glassReflection = document.querySelector('.sf-camera-glass-reflection');
     const roadmap = document.querySelector('#whatsNextPanel');
     const cards = [camera, mode, response, recent];
     const clippedText = [...document.querySelectorAll('[data-primary-view] button, [data-primary-view] strong, [data-primary-view] small, [data-primary-view] p, [data-primary-view] a')]
@@ -669,11 +662,6 @@ function layoutProbe() {
       recentMomentRows: recent.querySelectorAll('.sf-moment-row').length,
       realModeButtons: mode.querySelectorAll('[data-interaction-mode]').length,
       microscopeAvailable: Boolean(mode.querySelector('[data-interaction-mode="microscope"]:not(:disabled)')),
-      iceEnvironment: getComputedStyle(document.body).backgroundImage.includes('ambient-optical-field-2560.webp'),
-      opticalDepthAssets: getComputedStyle(document.body).backgroundImage.includes('caustic-bloom-overlay-2560.png')
-        && getComputedStyle(document.body).backgroundImage.includes('optical-arc-network-2560.png')
-        && getComputedStyle(cameraFrame).backgroundImage.includes('dormant-lake-background-clean-1920.png')
-        && getComputedStyle(document.querySelector('#recentMomentsCard'), '::before').backgroundImage.includes('diagonal-glass-sheen-1600.png'),
       apertureReady: document.querySelector('.sf-camera-stage')?.dataset.perceptionCoreState === 'dormant'
         && document.querySelector('#perceptionCoreCanvas')?.width > 0,
       dormantApertureHidden: (() => {
@@ -689,7 +677,9 @@ function layoutProbe() {
           && Math.abs(canvas.getBoundingClientRect().width - cameraFrame.getBoundingClientRect().width) <= 2
           && Math.abs(canvas.getBoundingClientRect().height - cameraFrame.getBoundingClientRect().height) <= 2;
       })(),
-      scenicDormantStage: getComputedStyle(cameraFrame).backgroundImage.includes('dormant-lake-background-clean-1920.png'),
+      cleanDormantStage: getComputedStyle(cameraFrame).backgroundImage === 'none',
+      noDecorativeOverlay: !document.querySelector('.sf-camera-glass-reflection')
+        && !document.querySelector('.pc-hero-tags'),
       circularDormantSurface: getComputedStyle(document.querySelector('.dq-camera-empty')).borderTopLeftRadius.endsWith('%')
         || getComputedStyle(document.querySelector('.dq-camera-empty')).backgroundColor !== 'rgba(0, 0, 0, 0)',
       dormantTitle: document.querySelector('#cameraDormantTitle')?.textContent.trim(),
@@ -701,9 +691,6 @@ function layoutProbe() {
         && Number.parseFloat(getComputedStyle(cameraFrame).borderTopLeftRadius) < cameraFrame.getBoundingClientRect().height * 0.25,
       cameraFrameWidth: Math.round(cameraFrame.getBoundingClientRect().width),
       cameraFrameHeight: Math.round(cameraFrame.getBoundingClientRect().height),
-      cameraOverlayWidth: Math.round(glassReflection.getBoundingClientRect().width),
-      cameraOverlayHeight: Math.round(glassReflection.getBoundingClientRect().height),
-      cameraOverlayTransform: getComputedStyle(glassReflection).transform,
       cameraRadius: getComputedStyle(cameraFrame).borderTopLeftRadius,
       cameraAspect: getComputedStyle(cameraFrame).aspectRatio,
       cameraStageWidth: Math.round(camera.getBoundingClientRect().width),
