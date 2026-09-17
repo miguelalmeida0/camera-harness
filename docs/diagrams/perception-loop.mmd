@@ -1,0 +1,26 @@
+flowchart LR
+  CAPTURE(["Local camera capture"]):::actor
+  NORMALIZE[["Perception adapter"]]:::system
+  SIGNAL["Candidate signal"]:::data
+  SUGGEST["Reviewable suggestion"]:::system
+  REVIEW{"Human review"}:::decision
+  ACCEPT(["Accept"]):::safe
+  REJECT(["Reject"]):::private
+  UNCERTAIN(["Stay uncertain"]):::guard
+  TRACE[("Decision trace")]:::data
+  REPLAY["Replay + evaluation"]:::safe
+
+  CAPTURE --> NORMALIZE --> SIGNAL --> SUGGEST --> REVIEW
+  REVIEW --> ACCEPT --> TRACE
+  REVIEW --> REJECT --> TRACE
+  REVIEW --> UNCERTAIN --> TRACE
+  TRACE --> REPLAY
+
+  classDef actor fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.6px;
+classDef system fill:#ECFEFF,stroke:#0891B2,color:#0F172A,stroke-width:1.6px;
+classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A,stroke-width:1.6px;
+classDef guard fill:#FFF7ED,stroke:#EA580C,color:#0F172A,stroke-width:1.6px;
+classDef safe fill:#ECFDF5,stroke:#059669,color:#0F172A,stroke-width:1.6px;
+classDef private fill:#FFF1F2,stroke:#E11D48,color:#0F172A,stroke-width:1.6px;
+classDef data fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.6px;
+linkStyle default stroke:#94A3B8,stroke-width:1.5px;

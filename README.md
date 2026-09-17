@@ -18,17 +18,31 @@ The system separates capture, interpretation, suggestion, human confirmation, tr
 
 ```mermaid
 flowchart LR
-    A[Local camera capture] --> B[Perception adapter]
-    B --> C[Candidate signal]
-    C --> D[Suggestion]
-    D --> E{Human review}
-    E -->|Accept| F[Confirmed]
-    E -->|Reject| G[Rejected]
-    E -->|Uncertain| H[No progression]
-    F --> I[Trace recorder]
-    G --> I
-    H --> I
-    I --> J[Replay + evaluation]
+  CAPTURE(["Local camera capture"]):::actor
+  NORMALIZE[["Perception adapter"]]:::system
+  SIGNAL["Candidate signal"]:::data
+  SUGGEST["Reviewable suggestion"]:::system
+  REVIEW{"Human review"}:::decision
+  ACCEPT(["Accept"]):::safe
+  REJECT(["Reject"]):::private
+  UNCERTAIN(["Stay uncertain"]):::guard
+  TRACE[("Decision trace")]:::data
+  REPLAY["Replay + evaluation"]:::safe
+
+  CAPTURE --> NORMALIZE --> SIGNAL --> SUGGEST --> REVIEW
+  REVIEW --> ACCEPT --> TRACE
+  REVIEW --> REJECT --> TRACE
+  REVIEW --> UNCERTAIN --> TRACE
+  TRACE --> REPLAY
+
+  classDef actor fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.6px;
+classDef system fill:#ECFEFF,stroke:#0891B2,color:#0F172A,stroke-width:1.6px;
+classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A,stroke-width:1.6px;
+classDef guard fill:#FFF7ED,stroke:#EA580C,color:#0F172A,stroke-width:1.6px;
+classDef safe fill:#ECFDF5,stroke:#059669,color:#0F172A,stroke-width:1.6px;
+classDef private fill:#FFF1F2,stroke:#E11D48,color:#0F172A,stroke-width:1.6px;
+classDef data fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.6px;
+linkStyle default stroke:#94A3B8,stroke-width:1.5px;
 ```
 
 The interaction contract is deliberately conservative:
@@ -50,30 +64,38 @@ Camera Harness instead treats uncertainty as part of the architecture. The inter
 
 ```mermaid
 flowchart TB
-    subgraph Capture
-      CAM[Browser-local capture]
-      LIVE[Live perception adapter]
-    end
+  subgraph Local["Local capture boundary"]
+    CAMERA(["Browser-local camera"]):::actor
+    LIVE[["Live perception adapter"]]:::system
+  end
 
-    subgraph Product
-      NORM[Normalized signal]
-      SUG[Suggestion state]
-      HUMAN[Human confirmation]
-    end
+  subgraph Product["Product state"]
+    NORMAL["Normalized signal"]:::data
+    SUGGEST["Suggestion state"]:::system
+    HUMAN{"Human confirmation"}:::decision
+  end
 
-    subgraph Verification
-      TRACE[Trace recorder]
-      FIX[Replay fixtures]
-      EVAL[Evaluation gates]
-    end
+  subgraph Verification["Deterministic verification"]
+    TRACE[("Trace recorder")]:::data
+    FIX["Replay fixtures"]:::guard
+    EVAL["Evaluation gates"]:::safe
+  end
 
-    CAM --> NORM
-    LIVE --> NORM
-    NORM --> SUG
-    SUG --> HUMAN
-    HUMAN --> TRACE
-    TRACE --> FIX
-    FIX --> EVAL
+  CAMERA --> NORMAL
+  LIVE --> NORMAL
+  NORMAL --> SUGGEST --> HUMAN --> TRACE --> FIX --> EVAL
+
+  style Local fill:#F8FAFC,stroke:#CBD5E1,stroke-width:1px
+  style Product fill:#ECFEFF,stroke:#A5F3FC,stroke-width:1px
+  style Verification fill:#ECFDF5,stroke:#A7F3D0,stroke-width:1px
+  classDef actor fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.6px;
+classDef system fill:#ECFEFF,stroke:#0891B2,color:#0F172A,stroke-width:1.6px;
+classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A,stroke-width:1.6px;
+classDef guard fill:#FFF7ED,stroke:#EA580C,color:#0F172A,stroke-width:1.6px;
+classDef safe fill:#ECFDF5,stroke:#059669,color:#0F172A,stroke-width:1.6px;
+classDef private fill:#FFF1F2,stroke:#E11D48,color:#0F172A,stroke-width:1.6px;
+classDef data fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.6px;
+linkStyle default stroke:#94A3B8,stroke-width:1.5px;
 ```
 
 ```text

@@ -1,0 +1,33 @@
+flowchart TB
+  subgraph Local["Local capture boundary"]
+    CAMERA(["Browser-local camera"]):::actor
+    LIVE[["Live perception adapter"]]:::system
+  end
+
+  subgraph Product["Product state"]
+    NORMAL["Normalized signal"]:::data
+    SUGGEST["Suggestion state"]:::system
+    HUMAN{"Human confirmation"}:::decision
+  end
+
+  subgraph Verification["Deterministic verification"]
+    TRACE[("Trace recorder")]:::data
+    FIX["Replay fixtures"]:::guard
+    EVAL["Evaluation gates"]:::safe
+  end
+
+  CAMERA --> NORMAL
+  LIVE --> NORMAL
+  NORMAL --> SUGGEST --> HUMAN --> TRACE --> FIX --> EVAL
+
+  style Local fill:#F8FAFC,stroke:#CBD5E1,stroke-width:1px
+  style Product fill:#ECFEFF,stroke:#A5F3FC,stroke-width:1px
+  style Verification fill:#ECFDF5,stroke:#A7F3D0,stroke-width:1px
+  classDef actor fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.6px;
+classDef system fill:#ECFEFF,stroke:#0891B2,color:#0F172A,stroke-width:1.6px;
+classDef decision fill:#FFFBEB,stroke:#D97706,color:#0F172A,stroke-width:1.6px;
+classDef guard fill:#FFF7ED,stroke:#EA580C,color:#0F172A,stroke-width:1.6px;
+classDef safe fill:#ECFDF5,stroke:#059669,color:#0F172A,stroke-width:1.6px;
+classDef private fill:#FFF1F2,stroke:#E11D48,color:#0F172A,stroke-width:1.6px;
+classDef data fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.6px;
+linkStyle default stroke:#94A3B8,stroke-width:1.5px;
