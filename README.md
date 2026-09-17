@@ -3,12 +3,14 @@
 **A local-first interaction research harness for turning physical-workspace signals into reviewable suggestions, deterministic traces, and replayable evaluation.**
 
 <p align="center">
-  <img src="./docs/readme/current/00-current-design-desktop.png" alt="Camera Harness current operator console" width="100%">
+  <img src="./docs/readme/current/00-perception-core-current.png" alt="Perception Core — Ask the World interface" width="100%">
 </p>
+
+<p align="center"><sub><strong>Current interface direction.</strong> Perception Core presents the camera as an ambient observation surface with explicit privacy state, conversational entry, and lightweight notes.</sub></p>
 
 <p align="center"><sub><strong>Current design.</strong> Local camera state, operator guidance, capture progress, export and validation are composed as one restrained workspace.</sub></p>
 
-Camera Harness explores a specific engineering problem: **how can software react to activity around a desk without pretending uncertain perception is ground truth?**
+Camera Harness explores a specific engineering problem: **how can software observe the physical world, let a person ask questions about what is in view, and still keep uncertainty, privacy, and human control explicit?**
 
 The system separates capture, interpretation, suggestion, human confirmation, trace recording, and replay. That boundary matters: a model output can become a candidate suggestion, but it does not silently become a completed action.
 
@@ -28,14 +30,6 @@ flowchart LR
     H --> I
     I --> J[Replay + evaluation]
 ```
-
-### Current operator console
-
-<p align="center">
-  <img src="./docs/readme/current/90-current-design-mobile.png" alt="Camera Harness current responsive operator console" width="42%">
-</p>
-
-<p align="center"><sub>Responsive capture of the same current interface.</sub></p>
 
 The interaction contract is deliberately conservative:
 
