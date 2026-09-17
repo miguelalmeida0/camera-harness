@@ -7484,8 +7484,8 @@ async function requestVisualCompanionHealth() {
       method: "GET",
       headers: { Accept: "application/json" }
     });
-    if (response.status === 404) throw movementRecognitionError("Visual companion endpoint unavailable.", "endpoint_missing", { status: response.status });
-    if (!response.ok) throw movementRecognitionError("Visual companion endpoint unavailable.", "api_unavailable", { status: response.status });
+    if (response.status === 404) throw movementRecognitionError("Vision is temporarily unavailable.", "endpoint_missing", { status: response.status });
+    if (!response.ok) throw movementRecognitionError("Vision is temporarily unavailable.", "api_unavailable", { status: response.status });
     return response.json();
   } catch (error) {
     if (error?.movement_code) throw error;
@@ -7499,7 +7499,7 @@ async function ensureVisualCompanionReady(target) {
   target.movementRecognition.provider = health.provider ?? VISUAL_COMPANION_CLIENT_CONFIG.provider;
   target.movementRecognition.model = health.model ?? target.movementRecognition.model;
   if (health.observe_endpoint_ready !== true || health.ok !== true || health.status !== "ready") {
-    throw movementRecognitionError("Visual companion endpoint unavailable.", "endpoint_missing", { health });
+    throw movementRecognitionError("Vision is temporarily unavailable.", "endpoint_missing", { health });
   }
   return health;
 }
@@ -7597,7 +7597,7 @@ async function requestVisualCompanionObservation(payload, options = {}) {
   const body = await readMovementRecognitionJson(response);
   if (!response.ok) {
     recordSensefieldTestRequest("failed", { endpoint, status: response.status }, { correlationId, modeGenerationId: payload.mode_generation_id });
-    throw movementRecognitionError(body?.spoken_response || "Visual companion endpoint unavailable.", failureCodeForVisualCompanion(response, body), {
+    throw movementRecognitionError(body?.spoken_response || "Vision is temporarily unavailable.", failureCodeForVisualCompanion(response, body), {
       status: response.status,
       reason: body?.evidence?.[0] ?? ""
     });
@@ -7736,7 +7736,7 @@ function safeMovementRecognitionErrorMessage(error) {
 
 function safeVisualCompanionErrorMessage(error) {
   if (error?.movement_code === "model_not_installed") return "Model not installed. Run npm run visual:setup, then npm run visual:serve.";
-  if (error?.movement_code === "endpoint_missing") return "Visual companion endpoint unavailable.";
+  if (error?.movement_code === "endpoint_missing") return "Vision is temporarily unavailable.";
   if (error?.movement_code === "invalid_image_payload") return "Camera frame could not be read. Try again.";
   if (error?.movement_code === "network_error") return "Network error while contacting visual companion.";
   return error?.message || "The local visual model is unavailable.";
