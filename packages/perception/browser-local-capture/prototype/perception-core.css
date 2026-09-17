@@ -6,6 +6,10 @@
  * reuses the darkquest-elite.css base) is never touched by these rules.
  */
 
+html:has(> body[data-view="primary"]) {
+  overflow-x: hidden;
+}
+
 body[data-view="primary"] {
   --pc-paper: #f2ece1;
   --pc-paper-2: #f8f4ec;
@@ -23,9 +27,13 @@ body[data-view="primary"] {
   background-color: var(--pc-paper);
   background-image:
     linear-gradient(rgba(242, 236, 225, 0.86), rgba(242, 236, 225, 0.86)),
-    url("./assets/paper-grain.svg");
-  background-size: auto, 240px 240px;
-  background-repeat: repeat, repeat;
+    url("./assets/paper-grain.svg"),
+    url("./assets/perception/page/optical-arc-network-2560.png"),
+    url("./assets/perception/page/caustic-bloom-overlay-2560.png"),
+    url("./assets/perception/page/ambient-optical-field-2560.webp");
+  background-size: auto, 240px 240px, cover, cover, cover;
+  background-position: center, center, center, center, center;
+  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
 }
 
 body[data-view="primary"] .dq-app {
@@ -63,13 +71,33 @@ body[data-view="primary"] .pc-board {
    Header
 --------------------------------------------------------------------- */
 
+/* Sticky so the mode selector (Ask/Watch/Microscope) never scrolls out of
+   view: on short viewports, bringing the dormant CTA into view (e.g. a
+   focus/click scroll) would otherwise carry the header off-screen above it,
+   since the tall camera-dominant stage is routinely far taller than the
+   viewport itself. */
 body[data-view="primary"] .pc-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) minmax(140px, 200px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   align-items: center;
   gap: 16px;
   min-height: 64px;
   margin-bottom: 18px;
+  padding-top: 4px;
+  background: var(--pc-paper-2);
+}
+
+/* Mirrors #mainWorkspace's column split so the mode selector can be
+   centered on the camera column's own axis, not the full header width. */
+body[data-view="primary"] .pc-header-camera-col {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 100%;
 }
 
 body[data-view="primary"] .pc-brand {
@@ -127,12 +155,15 @@ body[data-view="primary"] .pc-brand small {
 }
 
 body[data-view="primary"] .pc-segmented {
-  justify-self: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: grid;
-  grid-auto-flow: column;
+  grid-template-columns: repeat(3, 1fr);
   align-items: stretch;
-  width: min(100%, 500px);
-  min-height: 52px;
+  width: min(100%, 520px);
+  min-height: 64px;
   border: 1px solid var(--pc-line-soft);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.4);
@@ -146,8 +177,9 @@ body[data-view="primary"] .pc-segmented button {
   align-items: center;
   justify-content: center;
   gap: 3px;
+  min-width: 0;
   min-height: 0;
-  padding: 6px 10px;
+  padding: 6px 6px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -170,6 +202,10 @@ body[data-view="primary"] .pc-segmented button svg {
 }
 
 body[data-view="primary"] .pc-segmented button span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 10px;
   font-weight: 760;
   letter-spacing: 0.2em;
@@ -251,7 +287,8 @@ body[data-view="primary"] .pc-hero {
 body[data-view="primary"] .pc-hero .dq-camera-frame {
   position: absolute;
   inset: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100% !important;
   min-height: 0 !important;
@@ -259,7 +296,7 @@ body[data-view="primary"] .pc-hero .dq-camera-frame {
   aspect-ratio: auto !important;
   border-radius: 0;
   background:
-    url("./assets/editorial-hero-wide.webp") center / cover no-repeat,
+    url("./assets/dormant-lake-background-clean-1920.png") center / cover no-repeat,
     var(--pc-paper-3);
   box-shadow: none;
 }
@@ -299,16 +336,35 @@ body[data-view="primary"] .sf-optical-core {
 }
 
 body[data-view="primary"] .sf-optical-core canvas {
-  max-width: 100%;
-  max-height: 100%;
+  display: block;
+  width: 100%;
+  height: 100%;
+  visibility: visible;
 }
 
-body[data-view="primary"] .sf-optical-core[data-state="loading"] {
+/* The mesh stays fully mounted and correctly sized at all times so the
+   awakening/reveal transitions never have to lay out or resize mid-animation,
+   but it only ever paints during those transitions themselves (awakening,
+   holding, revealing, and the permission/error/return clips). Idle "dormant"
+   and "loading" never show the static pose over the "Ask the world" copy,
+   and "active" hands off to the live camera feed once the reveal finishes. */
+body[data-view="primary"] .sf-optical-core[data-state="loading"],
+body[data-view="primary"] .sf-optical-core[data-state="dormant"],
+body[data-view="primary"] .sf-optical-core[data-state="active"] {
+  visibility: hidden;
   opacity: 0;
 }
 
 body[data-view="primary"] .sf-camera-glass-reflection {
-  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: block;
+  pointer-events: none;
+  background:
+    url("./assets/perception/camera/optical-camera-frame-glow-1920.png") center / 100% 100% no-repeat,
+    url("./assets/perception/camera/camera-stage-edge-vignette-1920.png") center / 100% 100% no-repeat;
+  opacity: 0.55;
 }
 
 /* Decorative editorial tag columns */
@@ -517,8 +573,63 @@ body[data-view="primary"] .pc-camera-status .dq-camera-status-chip svg {
   height: 14px;
 }
 
+/* Live/Watch state badges replace the generic camera glyph with the
+   approved status assets: green for a real live feed, blue for Watch
+   actively observing, and neutral for Watch armed but not yet live. */
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="live"],
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-live"],
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-ready"] {
+  padding-left: 18px;
+  background-position: left center;
+  background-size: 14px 14px;
+  background-repeat: no-repeat;
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="live"] {
+  background-image: url("./assets/perception/status/live-badge.svg");
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-live"] {
+  background-image: url("./assets/perception/status/watch-live-badge.svg");
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-ready"] {
+  background-image: url("./assets/perception/status/ready-badge.svg");
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="live"] svg,
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-live"] svg,
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip[data-camera-status="watch-ready"] svg {
+  display: none;
+}
+
 body[data-view="primary"] .pc-camera-status .sf-camera-state {
   display: none;
+}
+
+/* Once the camera is genuinely live, the status badge moves to a compact
+   top-left capsule over the feed (matching LIVE/WATCH LIVE placement in the
+   approved camera recipe) instead of the centered dormant status strip,
+   so it never competes with the bottom-left CTA. */
+body[data-view="primary"] .dq-camera-frame.is-live .pc-camera-status {
+  position: absolute;
+  top: clamp(14px, 1.5vw, 24px);
+  left: clamp(14px, 1.5vw, 24px);
+  z-index: 6;
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+body[data-view="primary"] .dq-camera-frame.is-live .pc-camera-status .sf-camera-privacy {
+  display: none;
+}
+
+body[data-view="primary"] .dq-camera-frame.is-live .pc-camera-status .dq-camera-status-chip {
+  padding: 6px 12px 6px 22px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 18px rgba(56, 75, 93, 0.16);
 }
 
 body[data-view="primary"] .pc-camera-status .sf-camera-privacy {
@@ -617,6 +728,15 @@ body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) .
   font-size: 11px;
 }
 
+/* The local-vision settings menu (automatic vision/labels toggles, pause,
+   exit) is retired from the approved Microscope surface: the camera feed
+   and its live object overlay are the whole experience now. The panel
+   markup and its JS stay intact for other work; this keeps it off-surface
+   regardless of the `hidden` attribute a caller may clear. */
+body[data-view="primary"] #microscopePanel {
+  display: none !important;
+}
+
 /* Microscope panel: secondary mode, not part of the approved Ask
    screenshot, but must still be usable and contained when shown. */
 body[data-view="primary"] .pc-microscope {
@@ -641,6 +761,7 @@ body[data-view="primary"] .pc-microscope :is(button, input) {
 --------------------------------------------------------------------- */
 
 body[data-view="primary"] .pc-rail {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -649,6 +770,19 @@ body[data-view="primary"] .pc-rail {
   border-radius: 15px;
   background: var(--pc-paper-2);
   box-shadow: none;
+  isolation: isolate;
+}
+
+body[data-view="primary"] .pc-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: url("./assets/perception/glass/diagonal-glass-sheen-1600.png") center / cover no-repeat;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 
 body[data-view="primary"] .pc-rail-title {
@@ -861,9 +995,10 @@ body[data-view="primary"] .pc-board *::after {
   min-width: 0;
 }
 
-body[data-view="primary"] .pc-board {
-  overflow-x: hidden;
-}
+/* This safety net lives on body, not .pc-board: a non-visible overflow-x
+   here would force overflow-y to a used value of auto (per the CSS overflow
+   spec), turning .pc-board into its own scroll container and breaking the
+   sticky header's viewport-relative pinning. */
 
 /* ---------------------------------------------------------------------
    Responsive
@@ -881,18 +1016,20 @@ body[data-view="primary"] .pc-board {
   }
 
   body[data-view="primary"] .pc-header {
-    grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 960px) {
+  /* Below the orbit breakpoint, camera/mode/response/moments stack in one
+     column, so the rail no longer shares a row with the camera stage. */
   body[data-view="primary"] .pc-board-body {
     grid-template-columns: 1fr;
   }
 
+  /* +2px accounts for .pc-hero's own border, since the inner camera frame
+     (which the acceptance check measures) sits inside that border. */
   body[data-view="primary"] .pc-hero {
     aspect-ratio: auto;
-    min-height: 560px;
+    min-height: min(564px, 59vh);
   }
 
   body[data-view="primary"] .pc-rail {
@@ -949,10 +1086,18 @@ body[data-view="primary"] .pc-board {
   }
 
   body[data-view="primary"] .pc-hero {
-    min-height: 460px;
+    min-height: min(564px, 59vh);
   }
 
   body[data-view="primary"] .pc-hero-copy {
     padding-top: 24%;
+  }
+
+  body[data-view="primary"] .pc-segmented button {
+    padding: 6px 2px;
+  }
+
+  body[data-view="primary"] .pc-segmented button span {
+    letter-spacing: 0.04em;
   }
 }

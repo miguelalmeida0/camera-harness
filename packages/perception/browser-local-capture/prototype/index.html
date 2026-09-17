@@ -4354,7 +4354,7 @@
           gap: 12px;
         }
 
-        #operatorCommandsCard {
+        body[data-view="advanced"] #operatorCommandsCard {
           display: contents !important;
         }
 
@@ -4505,6 +4505,19 @@
         }
       }
     </script>
+    <style>
+      /* Primary editorial view: long responses stay inside a bounded
+         internal scroller rather than growing the response card without
+         limit, and never escape it horizontally either. */
+      .sf-response-body {
+        max-height: min(34vh, 320px);
+        overflow-y: auto;
+      }
+
+      .sf-response-card .dq-movement-sentence {
+        overflow-wrap: anywhere;
+      }
+    </style>
     <link rel="stylesheet" href="./perception-core.css">
   </head>
   <body>
@@ -4512,26 +4525,28 @@
     <main class="dq-app">
       <div id="dashboard" class="dq-page sf-primary-page pc-board" data-primary-view aria-label="Sensefield visual companion">
         <div class="pc-header" role="banner">
-          <div class="sf-perception-brand pc-brand" aria-label="Perception Core">
-            <span class="sf-perception-brand-mark pc-brand-mark" aria-hidden="true"></span>
-            <span>
-              <strong>Perception Core</strong>
-              <small>AI observation system</small>
-            </span>
-          </div>
-          <div id="interactionModeSelector" class="sf-mode-selector pc-segmented" role="group" aria-label="Perception mode">
-            <button type="button" data-interaction-mode="conversation" aria-pressed="true">
-              <i data-lucide="message-circle" aria-hidden="true"></i>
-              <span>Ask</span>
-            </button>
-            <button type="button" data-interaction-mode="observing" aria-pressed="false">
-              <i data-lucide="eye" aria-hidden="true"></i>
-              <span>Watch</span>
-            </button>
-            <button type="button" data-interaction-mode="microscope" aria-label="AI Microscope" aria-pressed="false">
-              <i data-lucide="scan-line" aria-hidden="true"></i>
-              <span>Microscope</span>
-            </button>
+          <div class="pc-header-camera-col">
+            <div class="sf-perception-brand pc-brand" aria-label="Perception Core">
+              <span class="sf-perception-brand-mark pc-brand-mark" aria-hidden="true"></span>
+              <span>
+                <strong>Perception Core</strong>
+                <small>AI observation system</small>
+              </span>
+            </div>
+            <div id="interactionModeSelector" class="sf-mode-selector pc-segmented" role="group" aria-label="Perception mode">
+              <button type="button" data-interaction-mode="conversation" aria-pressed="true">
+                <i data-lucide="message-circle" aria-hidden="true"></i>
+                <span>Ask</span>
+              </button>
+              <button type="button" data-interaction-mode="observing" aria-pressed="false">
+                <i data-lucide="eye" aria-hidden="true"></i>
+                <span>Watch</span>
+              </button>
+              <button type="button" data-interaction-mode="microscope" aria-label="AI Microscope" aria-pressed="false">
+                <i data-lucide="scan-line" aria-hidden="true"></i>
+                <span>Microscope</span>
+              </button>
+            </div>
           </div>
           <p class="pc-header-status" aria-hidden="true"><span class="pc-header-status-dot"></span>A closer<br>tomorrow</p>
         </div>
@@ -4560,70 +4575,70 @@
               <div id="perceptionCoreAwakening" class="sf-optical-core" data-state="loading" aria-hidden="true">
                 <canvas id="perceptionCoreCanvas"></canvas>
               </div>
-            </div>
 
-            <div class="dq-camera-empty pc-hero-copy">
-              <h1 id="cameraTitle" class="pc-hero-heading">
-                <span id="cameraDormantTitle">Ask the world</span>
-              </h1>
-              <p id="cameraDormantCopy" class="pc-hero-subhead">Start a conversation about anything in view.</p>
-              <p class="pc-hero-body">Get perspectives, context, and ideas<br>from the world around you.</p>
-              <button id="analyzeMovement" class="dq-button primary sf-primary-action pc-cta" type="button" aria-label="Start conversation" aria-describedby="movementControlHelp">
-                <i data-lucide="sparkles" aria-hidden="true"></i>
-                <span>Start conversation</span>
-              </button>
-            </div>
-
-            <div class="sf-camera-glass-reflection" aria-hidden="true"></div>
-            <div class="sf-camera-status-rail pc-camera-status">
-              <div class="dq-camera-status-chip" role="status" aria-live="polite" aria-label="Camera status">
-                <i data-lucide="video" aria-hidden="true"></i>
-                <span id="cameraStatusChip">Camera off</span>
+              <div class="dq-camera-empty pc-hero-copy">
+                <h1 id="cameraTitle" class="pc-hero-heading">
+                  <span id="cameraDormantTitle">Ask the world</span>
+                </h1>
+                <p id="cameraDormantCopy" class="pc-hero-subhead">Start a conversation about anything in view.</p>
+                <p class="pc-hero-body">Get perspectives, context, and ideas<br>from the world around you.</p>
+                <button id="analyzeMovement" class="dq-button primary sf-primary-action pc-cta" type="button" aria-label="Start conversation" aria-describedby="movementControlHelp">
+                  <i data-lucide="sparkles" aria-hidden="true"></i>
+                  <span>Start conversation</span>
+                </button>
               </div>
-              <span id="primaryObservationState" class="sf-camera-state" role="status" aria-live="polite">Ready</span>
-              <span class="sf-camera-privacy"><i data-lucide="shield-check" aria-hidden="true"></i>No raw media stored</span>
-            </div>
-            <p id="movementControlHelp" class="sr-only">Start conversation.</p>
-            <div id="errorBanner" class="error-banner" role="alert" hidden></div>
 
-            <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained pc-response" data-product-card="visual-response" aria-labelledby="movementResultTitle">
-              <span id="cameraSuggestionCount" class="sf-response-state">Response</span>
-              <h2 id="movementResultTitle" class="sr-only">Visual response</h2>
-              <div id="cameraSuggestions" class="dq-suggestion-list sf-response-body" aria-live="polite">
-                <div class="dq-movement-result result-card-stable result-hero is-empty text-contained">
-                  <span class="dq-movement-status">Response</span>
-                  <strong class="dq-movement-sentence movement-sentence">Start the conversation, then ask or show something.</strong>
-                  <p class="dq-movement-hint">No raw media stored.</p>
+              <div class="sf-camera-glass-reflection" aria-hidden="true"></div>
+              <div class="sf-camera-status-rail pc-camera-status">
+                <div class="dq-camera-status-chip" role="status" aria-live="polite" aria-label="Camera status">
+                  <i data-lucide="video" aria-hidden="true"></i>
+                  <span id="cameraStatusChip">Camera off</span>
                 </div>
+                <span id="primaryObservationState" class="sf-camera-state" role="status" aria-live="polite">Ready</span>
+                <span class="sf-camera-privacy"><i data-lucide="shield-check" aria-hidden="true"></i>No raw media stored</span>
               </div>
-              <p id="movementSummaryRow" class="dq-movement-summary-row sf-response-meta">Ready</p>
-              <p id="voiceStatus" class="sf-speech-state">Voice unavailable</p>
-            </section>
+              <p id="movementControlHelp" class="sr-only">Start conversation.</p>
+              <div id="errorBanner" class="error-banner" role="alert" hidden></div>
 
-            <section id="microscopePanel" class="dq-card am-panel card-contained pc-microscope" aria-labelledby="microscopePanelTitle" hidden>
-              <header class="am-panel-header">
-                <p class="am-kicker">Local vision</p>
-                <h2 id="microscopePanelTitle">AI Microscope Live</h2>
-              </header>
-              <section class="am-instrument-state" aria-live="polite" aria-atomic="true">
-                <span id="microscopeState" class="am-state-label">Inactive</span>
-                <p id="microscopeNotice" class="am-notice">Automatic recognition starts with the live camera.</p>
+              <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained pc-response" data-product-card="visual-response" aria-labelledby="movementResultTitle">
+                <span id="cameraSuggestionCount" class="sf-response-state">Response</span>
+                <h2 id="movementResultTitle" class="sr-only">Visual response</h2>
+                <div id="cameraSuggestions" class="dq-suggestion-list sf-response-body" aria-live="polite">
+                  <div class="dq-movement-result result-card-stable result-hero is-empty text-contained">
+                    <span class="dq-movement-status">Response</span>
+                    <strong class="dq-movement-sentence movement-sentence">Start the conversation, then ask or show something.</strong>
+                    <p class="dq-movement-hint">No raw media stored.</p>
+                  </div>
+                </div>
+                <p id="movementSummaryRow" class="dq-movement-summary-row sf-response-meta">Ready</p>
+                <p id="voiceStatus" class="sf-speech-state">Voice unavailable</p>
               </section>
-              <div class="am-live-summary"><span>Objects understood</span><strong id="microscopeObjectCount">0</strong></div>
-              <div class="am-toolbar" aria-label="Microscope controls">
-                <label class="am-toggle-control" for="microscopeAutomaticVision">
-                  <input id="microscopeAutomaticVision" type="checkbox" checked>
-                  <span>Automatic vision</span>
-                </label>
-                <label class="am-toggle-control" for="microscopeLabels">
-                  <input id="microscopeLabels" type="checkbox" checked>
-                  <span>Labels</span>
-                </label>
-                <button id="microscopePause" type="button">Pause</button>
-                <button id="exitMicroscope" type="button">Exit Microscope</button>
-              </div>
-              <p class="am-privacy-note" role="note"><strong>Recognition stays local.</strong> Labels are candidates; confirm important details manually.</p>
-            </section>
+
+              <section id="microscopePanel" class="dq-card am-panel card-contained pc-microscope" aria-labelledby="microscopePanelTitle" hidden>
+                <header class="am-panel-header">
+                  <p class="am-kicker">Local vision</p>
+                  <h2 id="microscopePanelTitle">AI Microscope Live</h2>
+                </header>
+                <section class="am-instrument-state" aria-live="polite" aria-atomic="true">
+                  <span id="microscopeState" class="am-state-label">Inactive</span>
+                  <p id="microscopeNotice" class="am-notice">Automatic recognition starts with the live camera.</p>
+                </section>
+                <div class="am-live-summary"><span>Objects understood</span><strong id="microscopeObjectCount">0</strong></div>
+                <div class="am-toolbar" aria-label="Microscope controls">
+                  <label class="am-toggle-control" for="microscopeAutomaticVision">
+                    <input id="microscopeAutomaticVision" type="checkbox" checked>
+                    <span>Automatic vision</span>
+                  </label>
+                  <label class="am-toggle-control" for="microscopeLabels">
+                    <input id="microscopeLabels" type="checkbox" checked>
+                    <span>Labels</span>
+                  </label>
+                  <button id="microscopePause" type="button">Pause</button>
+                  <button id="exitMicroscope" type="button">Exit Microscope</button>
+                </div>
+                <p class="am-privacy-note" role="note"><strong>Recognition stays local.</strong> Labels are candidates; confirm important details manually.</p>
+              </section>
+            </div>
           </section>
 
           <section id="recentMomentsCard" class="dq-card sf-compact-card sf-recent-moments-orbit card-contained pc-rail" aria-labelledby="recentMomentsTitle">

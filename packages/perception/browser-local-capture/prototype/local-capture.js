@@ -9375,7 +9375,9 @@ function renderPrimaryView(target) {
   if (dom.cameraStatusChip) {
     const label = primaryCameraStatusLabel(target);
     dom.cameraStatusChip.textContent = label;
-    dom.cameraStatusChip.closest(".dq-camera-status-chip")?.setAttribute("aria-label", `${label} camera status`);
+    const statusChip = dom.cameraStatusChip.closest(".dq-camera-status-chip");
+    statusChip?.setAttribute("aria-label", `${label} camera status`);
+    if (statusChip) statusChip.dataset.cameraStatus = cameraStatusBadgeSlug(label);
   }
   if (dom.perceptionCoreLabel) dom.perceptionCoreLabel.textContent = target.cameraReady ? "Live perception" : "Perception core";
   if (dom.cameraDormantTitle) dom.cameraDormantTitle.textContent = cameraDormantTitle(target);
@@ -9414,7 +9416,7 @@ function renderRecentMomentsRail(target) {
   dom.recentMomentsCard.classList.remove("is-live-conversation", "is-live-exchange", "is-watch-insight");
   if (target.primarySurfaceMode !== "microscope" && interactionModeIs(target, "observing")) {
     dom.recentMomentsCard.classList.add("is-watch-insight");
-    if (dom.recentMomentsTitle) dom.recentMomentsTitle.textContent = "Watch live";
+    if (dom.recentMomentsTitle) dom.recentMomentsTitle.textContent = "Watch";
     dom.recentMomentsList.className = "sf-moment-list sf-watch-insight-display";
     dom.recentMomentsList.setAttribute("role", "region");
     dom.recentMomentsList.setAttribute("aria-label", "Live watch insight and recent moments");
@@ -9424,7 +9426,7 @@ function renderRecentMomentsRail(target) {
     if (dom.askReturnToLatest) dom.askReturnToLatest.hidden = true;
     if (dom.recentMomentsLink) {
       dom.recentMomentsLink.hidden = false;
-      dom.recentMomentsLink.firstChild.textContent = "View all moments ";
+      dom.recentMomentsLink.firstChild.textContent = "Recent moments ";
     }
     lastLiveConversationRevision = -1;
     return;
@@ -9618,15 +9620,24 @@ function primaryCameraStatusLabel(target) {
   return "Camera off";
 }
 
+function cameraStatusBadgeSlug(label) {
+  return {
+    "Live": "live",
+    "Watch live": "watch-live",
+    "Watch ready": "watch-ready",
+    "Camera off": "off"
+  }[label] || "off";
+}
+
 function cameraDormantTitle(target) {
-  if (target.primarySurfaceMode === "microscope") return "Inspect\nthe world";
-  if (interactionModeIs(target, "observing")) return "Watch\nthe world";
-  return "Ask\nthe world";
+  if (target.primarySurfaceMode === "microscope") return "Microscope";
+  if (interactionModeIs(target, "observing")) return "Watch";
+  return "Ask the world";
 }
 
 function cameraDormantCopy(target) {
-  if (target.primarySurfaceMode === "microscope") return "Start local vision to inspect what you see.";
-  if (interactionModeIs(target, "observing")) return "Start observing to see and understand your world.";
+  if (target.primarySurfaceMode === "microscope") return "Inspect what's in view.";
+  if (interactionModeIs(target, "observing")) return "See what changes.";
   return "Start a conversation about anything in view.";
 }
 
@@ -10488,49 +10499,15 @@ function watchInsightRailHtml(target) {
           : active
             ? "Live observation is active. New moments will appear below."
             : "Start the camera to begin continuous observation.";
-  const hasConfidence = Boolean(observation)
-    && turn.confidence !== null
-    && turn.confidence !== undefined
-    && turn.confidence !== "";
-  const rawConfidence = hasConfidence ? Number(turn.confidence) : Number.NaN;
-  const confidence = Number.isFinite(rawConfidence)
-    ? Math.round(Math.max(0, Math.min(100, rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence)))
-    : null;
-  const timing = observation && turn.createdAt ? relativeMomentTime(turn.createdAt) : "";
-  const meta = [
-    timing,
-    confidence == null ? "" : `Model confidence ${confidence}%`,
-    "Confirm important details manually"
-  ].filter(Boolean);
-  const moments = app.persistentMemory.observationMoments.slice(-3).reverse();
-  const timeline = moments.length
-    ? moments.map((entry) => `
-      <div class="sf-watch-moment text-contained">
-        <span class="sf-watch-moment-node" aria-hidden="true"><i data-lucide="aperture"></i></span>
-        <span class="sf-watch-moment-copy">
-          <strong>${escapeHtml(narratorSentence(entry.text))}</strong>
-          <small>${escapeHtml(relativeMomentTime(entry.createdAt))}</small>
-        </span>
-      </div>
-    `).join("")
-    : '<p class="sf-watch-timeline-empty">Earlier observations will collect here during this session.</p>';
   return `
     <div class="sf-watch-insight" data-watch-state="${state}">
       <header class="sf-watch-insight-header">
-        <span class="sf-watch-kicker">Watch live</span>
         <span class="sf-watch-status"><i aria-hidden="true"></i>${escapeHtml(status)}</span>
       </header>
       <section class="sf-watch-hero" aria-label="Current watch insight">
         <strong>${escapeHtml(headline)}</strong>
-        <p>${escapeHtml(support)}</p>
-        <div class="sf-watch-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
-      </section>
-      <section class="sf-watch-timeline" aria-label="Recent moments">
-        <header>
-          <span>Recent moments</span>
-          <small>${moments.length ? `${moments.length} shown` : "Session timeline"}</small>
-        </header>
-        <div class="sf-watch-moment-list">${timeline}</div>
+        ${observation ? "" : `<p>${escapeHtml(support)}</p>`}
+        <p class="sf-watch-meta">Confirm important details manually.</p>
       </section>
     </div>
   `;
