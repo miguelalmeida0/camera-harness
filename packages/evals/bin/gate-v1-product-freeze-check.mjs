@@ -176,7 +176,7 @@ function checkReliability() {
     "Understanding what changed",
     "Observe again",
     "Model not installed",
-    "Visual companion endpoint unavailable",
+    "Vision is temporarily unavailable.",
     "Camera frame could not be read"
   ]) includes("reliability", safeCode(marker), `${html}\n${source}`, marker, `state exists: ${marker}`, "critical");
   includes("reliability", "queue_busy", provider, "queue_exceeded", "queue_exceeded classified", "critical");
