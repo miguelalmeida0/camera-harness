@@ -1284,6 +1284,7 @@ let state = createInitialState();
 let dom = null;
 let perceptionCoreAwakening = null;
 let microscope = null;
+let microscopeCapabilityUnhealthy = false;
 let lastSuggestionRenderAt = 0;
 let lastMovementResultRenderKey = "";
 let lastMovementDetailsRenderKey = "";
@@ -2257,7 +2258,9 @@ export async function startMicroscope(options = {}) {
     const started = await microscope.start();
     if (!started.ok) {
       await microscope.stop("initialization_failed");
-      target.errorMessage = `Microscope error: ${started.error || "initialization failed"}`;
+      console.warn("Microscope failed to start:", started.error || "initialization_failed");
+      microscopeCapabilityUnhealthy = true;
+      target.errorMessage = "Microscope is temporarily unavailable.";
       target.statusMessage = "Microscope did not start.";
       stopRealtimeMediaTracks(target);
       if (target === state) void perceptionCoreAwakening?.fail(new Error(started.error || "Microscope initialization failed."));
@@ -9598,7 +9601,8 @@ function renderInteractionModeSelector(target) {
       ? target.primarySurfaceMode === "microscope"
       : target.primarySurfaceMode !== "microscope" && normalizeInteractionMode(requested) === app.selectedMode;
     button.setAttribute("aria-pressed", selected ? "true" : "false");
-    button.disabled = app.session.status === "ending";
+    button.disabled = app.session.status === "ending"
+      || (requested === "microscope" && microscopeCapabilityUnhealthy);
   }
   if (dom.primaryModeStatus) {
     dom.primaryModeStatus.textContent = app.selectedMode === "observing" ? "Watch mode selected." : "Ask mode selected.";
