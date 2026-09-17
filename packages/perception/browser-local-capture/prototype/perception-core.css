@@ -1,0 +1,958 @@
+/*
+ * Perception Core — editorial primary-view presentation layer.
+ * This is the single source of truth for the default ("Ask") consumer
+ * surface. It only ever targets body[data-view="primary"] so the
+ * ?advanced=1 developer view (which clones #advancedViewTemplate and
+ * reuses the darkquest-elite.css base) is never touched by these rules.
+ */
+
+body[data-view="primary"] {
+  --pc-paper: #f2ece1;
+  --pc-paper-2: #f8f4ec;
+  --pc-paper-3: #eee7da;
+  --pc-ink: #182e46;
+  --pc-ink-soft: #5b6e83;
+  --pc-ink-faint: #8996a6;
+  --pc-blue: #4d7fac;
+  --pc-blue-deep: #3d6a95;
+  --pc-line: rgba(24, 46, 70, 0.16);
+  --pc-line-soft: rgba(24, 46, 70, 0.10);
+  --pc-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --pc-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pc-shadow-board: 0 30px 70px rgba(40, 43, 36, 0.14), 0 2px 8px rgba(40, 43, 36, 0.06);
+  background-color: var(--pc-paper);
+  background-image:
+    linear-gradient(rgba(242, 236, 225, 0.86), rgba(242, 236, 225, 0.86)),
+    url("./assets/paper-grain.svg");
+  background-size: auto, 240px 240px;
+  background-repeat: repeat, repeat;
+}
+
+body[data-view="primary"] .dq-app {
+  min-height: 100vh;
+  padding: clamp(24px, 4.6vw, 64px) clamp(20px, 3.8vw, 48px);
+  background: transparent;
+}
+
+/* Legacy "premium/icy" decoration and top status bar are not part of the
+   approved editorial composition. */
+body[data-view="primary"] .dq-top-status,
+body[data-view="primary"] #movementPrivacyDisclosure,
+body[data-view="primary"] #topStatusBar {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------
+   Board shell
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-board {
+  position: relative;
+  width: min(100%, 1352px);
+  margin: 0 auto;
+  padding: 22px 22px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  background: var(--pc-paper-2);
+  box-shadow: var(--pc-shadow-board);
+  color: var(--pc-ink);
+  font-family: var(--pc-sans);
+}
+
+/* ---------------------------------------------------------------------
+   Header
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-header {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) minmax(140px, 200px);
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  margin-bottom: 18px;
+}
+
+body[data-view="primary"] .pc-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+body[data-view="primary"] .pc-brand-mark {
+  position: relative;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+body[data-view="primary"] .pc-brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 0deg, transparent 0deg, var(--pc-ink) 55deg, transparent 100deg),
+    conic-gradient(from 120deg, transparent 0deg, var(--pc-ink) 55deg, transparent 100deg),
+    conic-gradient(from 240deg, transparent 0deg, var(--pc-ink) 55deg, transparent 100deg);
+  opacity: 0.85;
+  -webkit-mask: radial-gradient(circle at center, transparent 5px, #000 6px, #000 13px, transparent 14px);
+  mask: radial-gradient(circle at center, transparent 5px, #000 6px, #000 13px, transparent 14px);
+}
+
+body[data-view="primary"] .pc-brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 42%;
+  border-radius: 50%;
+  background: var(--pc-ink);
+}
+
+body[data-view="primary"] .pc-brand strong {
+  display: block;
+  color: var(--pc-ink);
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: 0.22em;
+}
+
+body[data-view="primary"] .pc-brand small {
+  display: block;
+  margin-top: 3px;
+  color: var(--pc-ink-soft);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.2em;
+}
+
+body[data-view="primary"] .pc-segmented {
+  justify-self: center;
+  display: grid;
+  grid-auto-flow: column;
+  align-items: stretch;
+  width: min(100%, 500px);
+  min-height: 52px;
+  border: 1px solid var(--pc-line-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+}
+
+body[data-view="primary"] .pc-segmented button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-sans);
+  cursor: pointer;
+}
+
+body[data-view="primary"] .pc-segmented button:hover {
+  transform: none;
+  box-shadow: none;
+  color: var(--pc-ink);
+}
+
+body[data-view="primary"] .pc-segmented button svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+}
+
+body[data-view="primary"] .pc-segmented button span {
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.2em;
+}
+
+body[data-view="primary"] .pc-segmented button[aria-pressed="true"] {
+  position: relative;
+  color: var(--pc-blue-deep);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 18px rgba(56, 75, 93, 0.1);
+}
+
+body[data-view="primary"] .pc-segmented button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 32%;
+  right: 32%;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--pc-blue-deep);
+}
+
+body[data-view="primary"] .pc-header-status {
+  justify-self: end;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding-left: 2px;
+  color: var(--pc-ink-soft);
+  font-size: 9px;
+  font-weight: 720;
+  line-height: 1.55;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body[data-view="primary"] .pc-header-status-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--pc-blue-deep);
+}
+
+/* ---------------------------------------------------------------------
+   Board body: hero + rail
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-board-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: stretch;
+  gap: 16px;
+}
+
+/* ---------------------------------------------------------------------
+   Hero card
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  aspect-ratio: 954 / 714;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--pc-line-soft);
+  border-radius: 15px;
+  background: var(--pc-paper-3);
+  box-shadow: none;
+}
+
+body[data-view="primary"] .pc-hero .dq-camera-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+  border-radius: 0;
+  background:
+    url("./assets/editorial-hero-wide.webp") center / cover no-repeat,
+    var(--pc-paper-3);
+  box-shadow: none;
+}
+
+body[data-view="primary"] .pc-hero .dq-camera-frame video {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity .6s ease;
+}
+
+body[data-view="primary"] .pc-hero .dq-camera-frame.is-live video {
+  opacity: 1;
+}
+
+body[data-view="primary"] .pc-hero .dq-camera-frame.is-live {
+  background-image: none;
+}
+
+body[data-view="primary"] #microscopeObjectLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+body[data-view="primary"] .sf-optical-core {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+body[data-view="primary"] .sf-optical-core canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+body[data-view="primary"] .sf-optical-core[data-state="loading"] {
+  opacity: 0;
+}
+
+body[data-view="primary"] .sf-camera-glass-reflection {
+  display: none;
+}
+
+/* Decorative editorial tag columns */
+body[data-view="primary"] .pc-hero-tags {
+  position: absolute;
+  z-index: 4;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #38536d;
+  font-size: 10px;
+  font-weight: 740;
+  line-height: 2.05;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+body[data-view="primary"] .pc-hero-tags--top {
+  top: 6.5%;
+  left: 5.7%;
+}
+
+body[data-view="primary"] .pc-hero-tags--top::after {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 1px;
+  margin-top: 8px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+body[data-view="primary"] .pc-hero-tags--bottom {
+  bottom: 8.5%;
+  left: 6.6%;
+  color: #4a637a;
+  font-size: 9px;
+  line-height: 1.9;
+}
+
+body[data-view="primary"] .pc-hero-tags--bottom::after {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 1px;
+  margin-top: 6px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+/* Hero copy block (headline / subhead / body / CTA) */
+body[data-view="primary"] .pc-hero-copy {
+  position: relative;
+  z-index: 5;
+  display: flex !important;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 68%;
+  max-width: 620px;
+  min-width: 0;
+  margin-top: auto;
+  padding: 0 clamp(16px, 2.4vw, 28px) 0 clamp(20px, 6.4vw, 92px);
+  padding-top: 15%;
+  pointer-events: none;
+  text-align: left;
+  gap: 0;
+}
+
+body[data-view="primary"] .pc-hero-copy,
+body[data-view="primary"] .pc-hero-copy * {
+  text-align: left;
+}
+
+body[data-view="primary"] .pc-hero-copy > * {
+  pointer-events: auto;
+}
+
+body[data-view="primary"] .pc-hero-copy [data-lucide="aperture"] {
+  display: none;
+}
+
+body[data-view="primary"] .pc-hero-heading {
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+body[data-view="primary"] .pc-hero-heading span {
+  display: block;
+  color: var(--pc-ink);
+  font-family: var(--pc-serif);
+  font-size: clamp(34px, 4.6vw, 62px);
+  font-weight: 700;
+  line-height: 0.94;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  white-space: pre-line;
+}
+
+body[data-view="primary"] .pc-hero-subhead {
+  width: 100%;
+  min-width: 0;
+  margin: 10px 0 0;
+  color: #4e6278;
+  font-family: var(--pc-serif);
+  font-size: clamp(14px, 1.35vw, 17px);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+body[data-view="primary"] .pc-hero-body {
+  width: 100%;
+  min-width: 0;
+  max-width: 340px;
+  margin: 6px 0 0;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-sans);
+  font-size: clamp(12px, 1.05vw, 14px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+body[data-view="primary"] #analyzeMovement.pc-cta {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  margin-top: clamp(10px, 1.6vw, 18px);
+  min-height: 52px;
+  padding: 0 30px !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #5590c0, #4676a3) !important;
+  box-shadow: 0 14px 26px rgba(58, 100, 138, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+  color: #fff;
+  font-weight: 400;
+}
+
+body[data-view="primary"] #analyzeMovement.pc-cta::after {
+  content: none !important;
+  display: none !important;
+}
+
+body[data-view="primary"] #analyzeMovement.pc-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 30px rgba(58, 100, 138, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+body[data-view="primary"] #analyzeMovement.pc-cta svg {
+  width: 16px;
+  height: 16px;
+  margin: 0 10px 0 0 !important;
+  flex: 0 0 auto;
+}
+
+body[data-view="primary"] #analyzeMovement.pc-cta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 !important;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* Camera / privacy status strip, centered under the hero copy column */
+body[data-view="primary"] .pc-camera-status {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin: 0 0 clamp(12px, 2vw, 20px);
+  padding: 0 16px;
+  text-align: center;
+  color: var(--pc-ink-soft);
+  font-size: 12px;
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip {
+  position: static !important;
+  inset: auto !important;
+  z-index: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pc-ink);
+  font-weight: 720;
+}
+
+body[data-view="primary"] .pc-camera-status .dq-camera-status-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+body[data-view="primary"] .pc-camera-status .sf-camera-state {
+  display: none;
+}
+
+body[data-view="primary"] .pc-camera-status .sf-camera-privacy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--pc-ink-soft);
+}
+
+body[data-view="primary"] .pc-camera-status .sf-camera-privacy svg {
+  display: none;
+}
+
+body[data-view="primary"] #errorBanner {
+  position: relative;
+  z-index: 6;
+  margin: 0 clamp(20px, 3vw, 32px) 14px;
+}
+
+/* This card is always rendered by local-capture.js (shouldShowOperatorCommands
+   is unconditional) — it carries the live conversation response once the user
+   asks something. It is not part of the approved idle screenshot, so it is
+   styled as a quiet, borderless footnote under the camera status rather than
+   a boxed card, keeping the idle composition clean while staying functional
+   and visible once real content arrives. */
+body[data-view="primary"] .pc-response {
+  display: block !important;
+  position: relative;
+  z-index: 6;
+  width: 100% !important;
+  max-width: 420px;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0 auto 10px !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: center;
+}
+
+body[data-view="primary"] .pc-response .sf-response-state {
+  display: none;
+}
+
+body[data-view="primary"] .pc-response .dq-movement-status {
+  display: none;
+}
+
+body[data-view="primary"] .pc-response .dq-movement-result {
+  display: block !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body[data-view="primary"] .pc-response .dq-movement-sentence {
+  display: block;
+  overflow: visible;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-sans);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+body[data-view="primary"] .pc-response .dq-movement-hint,
+body[data-view="primary"] .pc-response .sf-response-meta,
+body[data-view="primary"] .pc-response .sf-speech-state {
+  display: none;
+}
+
+body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) {
+  max-width: 460px;
+}
+
+body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) .dq-movement-sentence {
+  color: var(--pc-ink);
+  font-family: var(--pc-serif);
+  font-size: 15px;
+  font-style: italic;
+}
+
+body[data-view="primary"] .pc-response:has(.dq-movement-result:not(.is-empty)) .dq-movement-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--pc-ink-faint);
+  font-size: 11px;
+}
+
+/* Microscope panel: secondary mode, not part of the approved Ask
+   screenshot, but must still be usable and contained when shown. */
+body[data-view="primary"] .pc-microscope {
+  position: absolute;
+  inset: clamp(16px, 3vw, 28px);
+  z-index: 7;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--pc-line-soft);
+  border-radius: 14px;
+  background: rgba(248, 244, 236, 0.96);
+  box-shadow: 0 20px 50px rgba(40, 43, 36, 0.16);
+  color: var(--pc-ink);
+}
+
+body[data-view="primary"] .pc-microscope :is(button, input) {
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------
+   Live Exchange rail
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 24px 22px 20px;
+  border: 1px solid var(--pc-line-soft);
+  border-radius: 15px;
+  background: var(--pc-paper-2);
+  box-shadow: none;
+}
+
+body[data-view="primary"] .pc-rail-title {
+  margin: 0;
+  color: var(--pc-ink);
+  font-family: var(--pc-serif);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+body[data-view="primary"] .pc-rail-rule {
+  display: block;
+  width: 22px;
+  height: 1px;
+  margin: 12px 0;
+  background: var(--pc-line);
+  flex: 0 0 auto;
+}
+
+body[data-view="primary"] #recentMomentsList {
+  min-width: 0;
+  margin: 0;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-serif);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The list is re-rendered by local-capture.js with live conversation state;
+   style the real generated markup rather than assuming static copy. */
+body[data-view="primary"] #recentMomentsList .sf-live-exchange-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--pc-ink-faint);
+  font-family: var(--pc-sans);
+  font-size: 10px;
+  font-weight: 720;
+  font-style: normal;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+body[data-view="primary"] #recentMomentsList .sf-live-exchange-idle strong {
+  display: block;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-serif);
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+body[data-view="primary"] #recentMomentsList .sf-live-exchange-idle p {
+  margin: 6px 0 0;
+  color: var(--pc-ink-faint);
+  font-family: var(--pc-sans);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+body[data-view="primary"] #recentMomentsList .sf-live-question,
+body[data-view="primary"] #recentMomentsList .sf-live-previous,
+body[data-view="primary"] #recentMomentsList [class*="sf-live-"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+body[data-view="primary"] .pc-rail-orbit {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 150px;
+  margin: 12px 0;
+}
+
+body[data-view="primary"] .pc-rail-orbit-axis {
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  left: 50%;
+  width: 1px;
+  background: var(--pc-line);
+  transform: translateX(-50%);
+}
+
+body[data-view="primary"] .pc-rail-orbit-circle {
+  position: absolute;
+  left: 50%;
+  width: 58%;
+  aspect-ratio: 1;
+  border: 1px solid var(--pc-line);
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
+body[data-view="primary"] .pc-rail-orbit-circle--top {
+  top: 14%;
+}
+
+body[data-view="primary"] .pc-rail-orbit-circle--bottom {
+  bottom: 14%;
+  left: calc(50% + 6%);
+}
+
+body[data-view="primary"] .pc-rail-orbit-dot {
+  position: absolute;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+body[data-view="primary"] .pc-rail-orbit-dot--ink {
+  top: 18%;
+  background: var(--pc-ink);
+}
+
+body[data-view="primary"] .pc-rail-orbit-dot--paper {
+  top: 55%;
+  left: calc(50% + 6%);
+  background: #fff;
+  border: 1px solid var(--pc-line);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
+}
+
+body[data-view="primary"] .pc-rail-tagline {
+  margin: 0 0 14px;
+  color: var(--pc-ink-soft);
+  font-family: var(--pc-serif);
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.35;
+  text-align: center;
+}
+
+body[data-view="primary"] #askReturnToLatest,
+body[data-view="primary"] #askControlsDisclosure {
+  order: 10;
+}
+
+body[data-view="primary"] .pc-rail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--pc-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-view="primary"] .pc-rail-link svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------
+   Footer
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-footer {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 16px;
+  padding: 0 6px;
+  color: #536a80;
+}
+
+body[data-view="primary"] .pc-footer-brand {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.22em;
+}
+
+body[data-view="primary"] .pc-footer-tags {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+}
+
+body[data-view="primary"] .pc-footer-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--pc-line-soft);
+}
+
+/* ---------------------------------------------------------------------
+   Text containment safety net (AGENTS.md rule 1)
+--------------------------------------------------------------------- */
+
+body[data-view="primary"] .pc-board *,
+body[data-view="primary"] .pc-board *::before,
+body[data-view="primary"] .pc-board *::after {
+  min-width: 0;
+}
+
+body[data-view="primary"] .pc-board {
+  overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------------
+   Responsive
+--------------------------------------------------------------------- */
+
+@media (max-width: 1180px) {
+  body[data-view="primary"] .pc-header-status {
+    display: none;
+  }
+
+  /* Decorative tag columns recede first when space tightens, so the
+     headline, CTA and camera status never collide with them. */
+  body[data-view="primary"] .pc-hero-tags {
+    display: none;
+  }
+
+  body[data-view="primary"] .pc-header {
+    grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 960px) {
+  body[data-view="primary"] .pc-board-body {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-view="primary"] .pc-hero {
+    aspect-ratio: auto;
+    min-height: 560px;
+  }
+
+  body[data-view="primary"] .pc-rail {
+    min-height: 220px;
+  }
+
+  body[data-view="primary"] .pc-rail-orbit {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  body[data-view="primary"] .pc-header {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 12px;
+  }
+
+  body[data-view="primary"] .pc-segmented {
+    width: 100%;
+  }
+
+  body[data-view="primary"] .pc-hero-tags {
+    display: none;
+  }
+
+  body[data-view="primary"] .pc-hero-copy {
+    width: 100%;
+    max-width: none;
+    padding: 0 18px;
+    padding-top: 28%;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  body[data-view="primary"] .pc-hero-heading span {
+    font-size: clamp(32px, 11vw, 44px);
+  }
+
+  body[data-view="primary"] .pc-cta {
+    width: 100%;
+  }
+
+  body[data-view="primary"] .pc-footer {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  body[data-view="primary"] .pc-board {
+    padding: 16px 14px 16px;
+    border-radius: 16px;
+  }
+
+  body[data-view="primary"] .pc-hero {
+    min-height: 460px;
+  }
+
+  body[data-view="primary"] .pc-hero-copy {
+    padding-top: 24%;
+  }
+}

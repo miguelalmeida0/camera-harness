@@ -5,6 +5,29 @@ import { createLocalGestureEngine } from "./perception/local-gesture-engine.js";
 import { createEmergencyRuntimeController } from "./emergency-runtime-controller.js";
 import { createGestureStabilizerState, updateGestureStabilizer } from "./perception/gesture-stabilizer.js";
 import {
+  createFirstFrameWait,
+  mountPerceptionCoreAwakening
+} from "./perception-core/perception-core-awakening.js";
+import {
+  appendLiveAssistantChunk,
+  beginLiveConversation,
+  chunkLiveAnswerText,
+  clearLiveConversation,
+  completeLiveAssistantTurn,
+  createLiveConversationState,
+  failLiveConversation,
+  finalizeLiveUserTurn,
+  interruptLiveConversation,
+  liveConversationStatusLabel,
+  recognitionUpdateFromEvent,
+  setLiveConversationListening,
+  setLiveConversationMuted,
+  setLiveConversationSpeaking,
+  setLiveConversationThinking,
+  updateLiveInterim
+} from "./perception-core/live-conversation-runtime.js";
+import { mountMicroscope } from "./microscope/microscope-controller.js";
+import {
   MIN_CUSTOM_SKILL_EXAMPLES,
   acceptCustomSkillDemonstration,
   calibrateCustomSkillThreshold,
@@ -1038,6 +1061,7 @@ function clearTransientPresentationState(target) {
 export function createInitialState() {
   const target = {
     stream: null,
+    primarySurfaceMode: "conversation",
     cameraReady: false,
     cameraStarted: false,
     cameraStatus: "idle",
@@ -1144,6 +1168,7 @@ export function createInitialState() {
       }
     },
     interactionState: createInteractionState(),
+    liveConversation: createLiveConversationState(),
     emergencyRuntimeController: createEmergencyRuntimeController({ selectedMode: loadInteractionModePreference() }),
     conversationMemory: createConversationMemoryState(),
     observationMemory: createObservationMemoryState(),
@@ -1257,11 +1282,17 @@ function createEmptyTraceState(traceMode, captureStatus = "not_started") {
 
 let state = createInitialState();
 let dom = null;
+let perceptionCoreAwakening = null;
+let microscope = null;
 let lastSuggestionRenderAt = 0;
 let lastMovementResultRenderKey = "";
 let lastMovementDetailsRenderKey = "";
 let lastMovementRevealResultId = "";
 let lastAutomationRenderKey = "";
+let lastLiveConversationRevision = -1;
+let liveConversationPinnedToLatest = true;
+let liveConversationRenderScheduled = false;
+const renderedLiveAnswerChunks = new Map();
 let localGestureEngine = null;
 let instantGestureCooldownTimer = null;
 const perceptionRuntime = {
@@ -1287,9 +1318,22 @@ if (typeof document !== "undefined") {
   if (isPrimaryView()) state.movementRecognition.autoSpeak = true;
   logBootDiagnostics();
   dom = bindDom();
+  perceptionCoreAwakening = mountPerceptionCoreAwakening(document);
+  microscope = isPrimaryView() ? mountMicroscope({
+    objectLayer: document.querySelector("#microscopeObjectLayer"),
+    video: dom.preview,
+    stage: dom.cameraFrame,
+    onEvent: (eventType, metadata) => recordSensefieldTestEvent(eventType, metadata),
+    onStateChange: () => render(),
+    onExit: () => void exitMicroscopeToAsk()
+  }) : null;
   buildCalibrationForm(dom, state);
   bindEvents(dom);
   bindPersistentObservationVisibility();
+  globalThis.addEventListener?.("pagehide", () => {
+    void endMicroscope("page_hidden", { target: state, preserveCamera: false })
+      .finally(() => microscope?.dispose());
+  }, { once: true });
   render();
   refreshCloudUsageStatus(state);
   installP0RuntimeTestHook();
@@ -1325,8 +1369,13 @@ function installSensefieldRuntimeTestBridge() {
       interrupted_response_count: state.conversationMemory?.interruptedResponses?.length || 0
     }),
     getObservationMemorySummary: () => copy(state.observationMemory),
+    getPerceptionCoreState: () => copy(perceptionCoreAwakening?.snapshot?.() || { state: "unavailable" }),
+    getMicroscopeState: () => copy(microscope?.snapshot?.() || { status: "inactive" }),
+    getMicroscopeMetrics: () => copy(microscope?.diagnostics?.() || { activeMicroscopeRuntimes: 0, activeFrameLoops: 0 }),
+    getLiveExchangeState: () => copy(state.liveConversation),
     getResourceCounts: () => copy({
       ...sensefieldTestRuntime.resourceCounts,
+      ...(microscope?.diagnostics?.() || {}),
       active_media_tracks: mediaTrackSnapshot().filter((track) => track.readyState !== "ended").length,
       active_inference: state.interactionState?.inferenceInFlight ? 1 : 0,
       active_speech: state.interactionState?.assistantSpeaking ? 1 : 0,
@@ -1468,10 +1517,27 @@ function bindDom() {
     stopCamera: document.querySelector("#stopCamera"),
     analyzeMovement: document.querySelector("#analyzeMovement"),
     interactionModeSelector: document.querySelector("#interactionModeSelector"),
+    microscopePanel: document.querySelector("#microscopePanel"),
+    perceptionCoreLabel: document.querySelector("#perceptionCoreLabel"),
+    cameraDormantTitle: document.querySelector("#cameraDormantTitle"),
+    cameraDormantCopy: document.querySelector("#cameraDormantCopy"),
+    primaryModeStatus: document.querySelector("#primaryModeStatus"),
     movementControlHelp: document.querySelector("#movementControlHelp"),
     movementSummaryRow: document.querySelector("#movementSummaryRow"),
     savedActionsList: document.querySelector("#savedActionsList"),
+    recentMomentsCard: document.querySelector("#recentMomentsCard"),
+    recentMomentsTitle: document.querySelector("#recentMomentsTitle"),
     recentMomentsList: document.querySelector("#recentMomentsList"),
+    recentMomentsLink: document.querySelector("#recentMomentsLink"),
+    askControlsDisclosure: document.querySelector("#askControlsDisclosure"),
+    askConversationControls: document.querySelector("#askConversationControls"),
+    askConversationAnnouncement: document.querySelector("#askConversationAnnouncement"),
+    askToggleListening: document.querySelector("#askToggleListening"),
+    askStopSpeaking: document.querySelector("#askStopSpeaking"),
+    askToggleVoice: document.querySelector("#askToggleVoice"),
+    askClearConversation: document.querySelector("#askClearConversation"),
+    askRetry: document.querySelector("#askRetry"),
+    askReturnToLatest: document.querySelector("#askReturnToLatest"),
     showTrackingOverlay: document.querySelector("#showTrackingOverlay"),
     toggleTrackingDock: document.querySelector("#toggleTrackingDock"),
     stageVoiceShortcut: document.querySelector("#stageVoiceShortcut"),
@@ -1716,12 +1782,23 @@ function bindDom() {
 function bindEvents(boundDom) {
   boundDom.startCamera?.addEventListener("click", startCamera);
   boundDom.stopCamera?.addEventListener("click", stopCamera);
+  boundDom.preview?.addEventListener("loadedmetadata", syncPreviewAspectRatio);
+  boundDom.preview?.addEventListener("resize", syncPreviewAspectRatio);
   boundDom.analyzeMovement?.addEventListener("click", () => handlePrimaryAction());
   boundDom.interactionModeSelector?.addEventListener("click", (event) => {
     const button = event.target?.closest?.("[data-interaction-mode]");
     if (!button) return;
     void setInteractionModeInState(state, button.getAttribute("data-interaction-mode"));
   });
+  boundDom.askToggleListening?.addEventListener("click", () => toggleLiveConversationListening(state));
+  boundDom.askStopSpeaking?.addEventListener("click", () => {
+    if (!state.interactionState.assistantSpeaking && !persistentSpeechBusy(state)) return;
+    interruptAssistantSpeech(state, "user_stop");
+    render();
+  });
+  boundDom.askToggleVoice?.addEventListener("click", () => toggleLiveConversationVoice(state));
+  boundDom.askClearConversation?.addEventListener("click", () => clearLiveConversationInState(state));
+  boundDom.askRetry?.addEventListener("click", () => retryLiveConversationInState(state));
   boundDom.instantGestures?.addEventListener("change", () => {
     state.instantGestureRuntimeState.userEnabled = boundDom.instantGestures.checked === true;
     syncInstantGestureEngine();
@@ -2020,6 +2097,10 @@ function openPrimarySavedAction() {
 }
 
 function handlePrimaryAction() {
+  if (state.primarySurfaceMode === "microscope") {
+    void microscope?.handlePrimaryAction?.();
+    return;
+  }
   if (state.interactionState.sessionActive || state.realtimeSession.state === "active") {
     void endInteractionSession(state);
     return;
@@ -2029,9 +2110,101 @@ function handlePrimaryAction() {
   }
 }
 
+function toggleLiveConversationListening(target = state) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return false;
+  const recognition = target.realtimeSession.speechRecognition;
+  if (!recognition) {
+    failLiveConversation(target.liveConversation, "Speech recognition is unavailable in this browser.", {
+      code: "speech_recognition_unavailable"
+    });
+    render();
+    return false;
+  }
+  if (target.liveConversation.listeningPaused) {
+    target.realtimeSession.speechStopping = false;
+    setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
+    try {
+      recognition.start();
+    } catch {
+      failLiveConversation(target.liveConversation, "Listening could not resume. Try again.", {
+        code: "speech_restart_failed"
+      });
+    }
+  } else {
+    target.realtimeSession.speechStopping = true;
+    target.liveConversation.interimText = "";
+    setLiveConversationListening(target.liveConversation, { paused: true, cameraContextActive: target.cameraReady });
+    try { recognition.abort?.(); } catch {}
+  }
+  render();
+  return true;
+}
+
+function toggleLiveConversationVoice(target = state) {
+  const muted = target.liveConversation.voiceMuted !== true;
+  setLiveConversationMuted(target.liveConversation, muted);
+  target.movementRecognition.autoSpeak = !muted;
+  target.movementRecognition.voiceStatus = muted ? "Muted" : "Ready";
+  persistVisualAutoSpeakPreference(!muted);
+  if (muted && (target.interactionState.assistantSpeaking || persistentSpeechBusy(target))) {
+    void cancelVisualSpeech(target).finally(() => {
+      setLiveConversationListening(target.liveConversation, {
+        paused: target.liveConversation.listeningPaused,
+        cameraContextActive: target.cameraReady
+      });
+      render();
+    });
+  }
+  render();
+  return muted;
+}
+
+function clearLiveConversationInState(target = state) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return false;
+  target.movementRecognition.activeRequestAbortController?.abort?.();
+  target.movementRecognition.activeRequestAbortController = null;
+  void cancelVisualSpeech(target);
+  target.emergencyRuntimeController.clearCurrentTurn();
+  target.appState = target.emergencyRuntimeController.snapshot();
+  target.conversationMemory = createConversationMemoryState();
+  target.realtimeSession.memory = target.conversationMemory;
+  target.realtimeSession.lastUserTranscript = "";
+  target.realtimeSession.lastFinalTranscript = "";
+  target.realtimeSession.lastFinalTranscriptAtMs = 0;
+  target.movementResultSnapshot = null;
+  clearLiveConversation(target.liveConversation);
+  lastMovementResultRenderKey = "";
+  lastLiveConversationRevision = -1;
+  liveConversationPinnedToLatest = true;
+  render();
+  return true;
+}
+
+function retryLiveConversationInState(target = state) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return false;
+  const lastUser = [...target.liveConversation.turns].reverse().find((turn) => turn.role === "user");
+  if (!lastUser?.text || target.interactionState.inferenceInFlight || target.movementRecognition.requestInFlight) return false;
+  target.liveConversation.error = null;
+  void handleRealtimeUserSpeechTurn(target, lastUser.text, {
+    reuseExistingTurn: true,
+    receivedAtMs: Math.max(Date.now(), Number(target.realtimeSession.lastFinalTranscriptAtMs || 0) + 1501)
+  });
+  return true;
+}
+
 export async function setInteractionModeInState(target = state, mode = "conversation", options = {}) {
+  if (String(mode) === "microscope") return enterMicroscope(target, options);
   const nextMode = normalizeInteractionMode(mode);
-  if (nextMode === target.interactionState.mode) return target;
+  if (target.primarySurfaceMode === "microscope" || microscope?.isActive?.()) {
+    const ended = await endMicroscope("mode_selected", { ...options, target, preserveCamera: false, waitForService: false });
+    if (!ended.ok) return target;
+  }
+  target.primarySurfaceMode = nextMode;
+  if (nextMode === target.interactionState.mode) {
+    target.statusMessage = nextMode === "conversation" ? "Conversation mode selected." : "Observing mode selected.";
+    render();
+    return target;
+  }
   persistInteractionModePreference(nextMode);
   if (target.interactionState.sessionActive) {
     return switchInteractionMode(target, nextMode, options);
@@ -2046,6 +2219,87 @@ export async function setInteractionModeInState(target = state, mode = "conversa
   return target;
 }
 
+async function enterMicroscope(target = state, options = {}) {
+  if (target.interactionState?.sessionActive || target.realtimeSession?.state !== "inactive" || target.cameraStartInFlight) {
+    await endInteractionSession(target, options);
+  }
+  target.primarySurfaceMode = "microscope";
+  target.errorMessage = "";
+  target.statusMessage = "Local object detection is starting.";
+  target.objective = "Keep the camera live while objects are recognized locally.";
+  render();
+  await startMicroscope({ ...options, target });
+  return target;
+}
+
+export async function startMicroscope(options = {}) {
+  const target = options.target || state;
+  if (!microscope) return { ok: false, code: "microscope_not_mounted" };
+  if (target.interactionState?.sessionActive || target.realtimeSession?.state !== "inactive" || target.cameraStartInFlight) {
+    await endInteractionSession(target, options);
+  }
+  target.primarySurfaceMode = "microscope";
+  target.errorMessage = "";
+  target.statusMessage = "Starting Microscope…";
+  render();
+  if (target === state) void perceptionCoreAwakening?.begin("microscope");
+  try {
+    const stream = options.mediaStream || await withTimeout(
+      requestRealtimeObservingMedia(options),
+      options.mediaTimeoutMs ?? 20_000,
+      "Camera permission timed out."
+    );
+    if (target.primarySurfaceMode !== "microscope") {
+      stopDetachedMediaStream(stream, target);
+      return { ok: false, code: "microscope_start_superseded" };
+    }
+    await attachInteractionStreamToPreview(target, stream, "microscope");
+    const started = await microscope.start();
+    if (!started.ok) {
+      await microscope.stop("initialization_failed");
+      target.errorMessage = `Microscope error: ${started.error || "initialization failed"}`;
+      target.statusMessage = "Microscope did not start.";
+      stopRealtimeMediaTracks(target);
+      if (target === state) void perceptionCoreAwakening?.fail(new Error(started.error || "Microscope initialization failed."));
+      render();
+      return started;
+    }
+    target.statusMessage = "Automatic local vision is active.";
+    target.errorMessage = "";
+    render();
+    return { ok: true, state: microscope.snapshot() };
+  } catch (error) {
+    await microscope.stop("camera_start_failed");
+    target.errorMessage = `Camera error: ${error?.message || "unavailable"}`;
+    target.statusMessage = "Microscope camera did not start.";
+    stopRealtimeMediaTracks(target);
+    if (target === state) void perceptionCoreAwakening?.fail(error);
+    render();
+    return { ok: false, code: "microscope_start_failed", error: error?.message || "unavailable" };
+  }
+}
+
+export async function endMicroscope(reason = "user_exit", options = {}) {
+  const target = options.target || state;
+  await microscope?.stop?.(reason, { waitForService: options.waitForService !== false });
+  if (options.preserveCamera !== true) stopRealtimeMediaTracks(target);
+  if (target === state && options.preserveCamera !== true) void perceptionCoreAwakening?.returnToDormant();
+  target.cameraStatus = options.preserveCamera === true ? target.cameraStatus : "stopped";
+  target.errorMessage = "";
+  target.statusMessage = "Microscope stopped.";
+  render();
+  return { ok: true, state: microscope?.snapshot?.() };
+}
+
+async function exitMicroscopeToAsk() {
+  await endMicroscope("user_exit", { target: state, preserveCamera: false, waitForService: false });
+  state.primarySurfaceMode = "conversation";
+  state.emergencyRuntimeController.selectMode("conversation");
+  syncEmergencyRuntimeOwner(state);
+  state.statusMessage = "Ask mode ready.";
+  render();
+}
+
 export async function startInteractionSession(target = state, options = {}) {
   return interactionModeIs(target, "observing")
     ? startRealtimeObserving(target, options)
@@ -2053,6 +2307,10 @@ export async function startInteractionSession(target = state, options = {}) {
 }
 
 export async function startRealtimeConversation(target = state, options = {}) {
+  if (target.primarySurfaceMode === "microscope" || microscope?.isActive?.()) {
+    await endMicroscope("start_conversation", { ...options, target, preserveCamera: false, waitForService: false });
+    target.primarySurfaceMode = "conversation";
+  }
   if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) {
     return switchInteractionMode(target, "conversation", options);
   }
@@ -2069,6 +2327,12 @@ export async function startRealtimeConversation(target = state, options = {}) {
     memory: target.conversationMemory,
     lastStartedAtMs: Math.round(now())
   };
+  beginLiveConversation(target.liveConversation, {
+    voiceMuted: target.movementRecognition.autoSpeak !== true,
+    sessionGenerationId
+  });
+  lastLiveConversationRevision = -1;
+  liveConversationPinnedToLatest = true;
   applyInteractionState(target, {
     mode: "conversation",
     sessionActive: false,
@@ -2095,6 +2359,7 @@ export async function startRealtimeConversation(target = state, options = {}) {
   target.statusMessage = "Starting conversation…";
   stopInstantGestureEngine("off");
   render();
+  if (target === state) void perceptionCoreAwakening?.begin("conversation");
   try {
     const stream = options.mediaStream || await withTimeout(
       requestRealtimeConversationMedia(options),
@@ -2132,6 +2397,7 @@ export async function startRealtimeConversation(target = state, options = {}) {
     target.movementRecognition.status = "idle";
     target.statusMessage = "Listening.";
     target.objective = "Conversation mode active.";
+    setLiveConversationListening(target.liveConversation, { cameraContextActive: true });
   } catch (error) {
     target.emergencyRuntimeController.failSession(error?.message || "Conversation unavailable");
     applyInteractionState(target, {
@@ -2155,13 +2421,21 @@ export async function startRealtimeConversation(target = state, options = {}) {
     target.movementRecognition.persistent.state = "error";
     target.errorMessage = `Conversation error: ${error?.message ?? "unavailable"}`;
     target.statusMessage = "Conversation did not start.";
+    failLiveConversation(target.liveConversation, error?.message || "Conversation unavailable", {
+      code: "conversation_start_failed"
+    });
     stopRealtimeMediaTracks(target);
+    if (target === state) void perceptionCoreAwakening?.fail(error);
   }
   render();
   return target;
 }
 
 export async function startRealtimeObserving(target = state, options = {}) {
+  if (target.primarySurfaceMode === "microscope" || microscope?.isActive?.()) {
+    await endMicroscope("start_observing", { ...options, target, preserveCamera: false, waitForService: false });
+    target.primarySurfaceMode = "observing";
+  }
   if (target.interactionState.sessionActive && interactionModeIs(target, "conversation")) {
     return switchInteractionMode(target, "observing", options);
   }
@@ -2207,6 +2481,7 @@ export async function startRealtimeObserving(target = state, options = {}) {
   target.errorMessage = "";
   target.statusMessage = "Starting observing…";
   render();
+  if (target === state) void perceptionCoreAwakening?.begin("observing");
   try {
     const stream = options.mediaStream || await withTimeout(
       requestRealtimeObservingMedia(options),
@@ -2265,6 +2540,7 @@ export async function startRealtimeObserving(target = state, options = {}) {
     target.errorMessage = `Observing error: ${error?.message ?? "unavailable"}`;
     target.statusMessage = "Observing did not start.";
     stopRealtimeMediaTracks(target);
+    if (target === state) void perceptionCoreAwakening?.fail(error);
   }
   render();
   return target;
@@ -2318,11 +2594,6 @@ function withTimeout(promise, timeoutMs, message, onTimeout = null) {
 
 async function attachInteractionStreamToPreview(target, stream, mode = target.interactionState?.mode || "conversation") {
   target.stream = stream;
-  target.cameraReady = true;
-  target.cameraStarted = true;
-  target.cameraStatus = mode === "observing" ? "observing" : "conversation";
-  target.statusMessage = mode === "observing" ? "Camera is ready." : "Camera and microphone are ready.";
-  target.errorMessage = "";
   if (target === state) {
     sensefieldTestRuntime.resourceCounts.mediaStreamsCreated += 1;
     recordSensefieldTestEvent("media_stream_started", {
@@ -2334,7 +2605,15 @@ async function attachInteractionStreamToPreview(target, stream, mode = target.in
   if (dom?.preview) {
     dom.preview.srcObject = stream;
     await dom.preview.play?.();
+    if (target === state) await createFirstFrameWait(dom.preview);
+    syncPreviewAspectRatio();
   }
+  target.cameraReady = true;
+  target.cameraStarted = true;
+  target.cameraStatus = mode === "microscope" ? "microscope" : mode === "observing" ? "observing" : "conversation";
+  target.statusMessage = mode === "microscope" ? "Camera is ready." : mode === "observing" ? "Camera is ready." : "Camera and microphone are ready.";
+  target.errorMessage = "";
+  if (target === state) void perceptionCoreAwakening?.signalCameraReady();
 }
 
 export async function endRealtimeConversation(target = state, options = {}) {
@@ -2365,6 +2644,7 @@ export async function endInteractionSession(target = state, options = {}) {
   stopInstantGestureEngine("off");
   stopLocalPerception();
   stopRealtimeMediaTracks(target);
+  if (target === state) void perceptionCoreAwakening?.returnToDormant();
   target.emergencyRuntimeController.finishEnd();
   syncEmergencyRuntimeOwner(target);
   clearTransientPresentationState(target);
@@ -2374,6 +2654,9 @@ export async function endInteractionSession(target = state, options = {}) {
   target.cameraStatus = "stopped";
   target.statusMessage = endingMode === "observing" ? "Start observing." : "Start conversation.";
   target.objective = target.statusMessage;
+  if (endingMode === "conversation") {
+    setLiveConversationListening(target.liveConversation, { paused: true, cameraContextActive: false });
+  }
   syncInstantGestureEngine();
   render();
   return target;
@@ -2393,6 +2676,9 @@ export async function switchInteractionMode(target = state, mode = "conversation
   persistInteractionModePreference(nextMode);
   target.realtimeSession.state = "starting";
   target.statusMessage = nextMode === "observing" ? "Switching to observing…" : "Switching to conversation…";
+  if (nextMode === "observing" && ["speaking", "streaming_answer"].includes(target.liveConversation.status)) {
+    interruptLiveConversation(target.liveConversation, "mode_switch");
+  }
   stopRealtimeSpeechInput(target);
   await cancelVisualSpeech(target, options);
   target.movementRecognition.requestInFlight = false;
@@ -2478,6 +2764,9 @@ export async function switchInteractionMode(target = state, mode = "conversation
     target.movementRecognition.persistent.state = "error";
     target.errorMessage = `Conversation error: ${error?.message ?? "unavailable"}`;
     target.statusMessage = "Conversation did not start.";
+    failLiveConversation(target.liveConversation, error?.message || "Conversation unavailable", {
+      code: "conversation_start_failed"
+    });
     target.emergencyRuntimeController.failSession(error?.message || "Conversation unavailable");
     applyInteractionState(target, {
       mode: "conversation",
@@ -2523,6 +2812,8 @@ export async function switchInteractionMode(target = state, mode = "conversation
   target.appState = ownedRuntime;
   target.realtimeSession.state = "active";
   target.statusMessage = "Listening.";
+  target.liveConversation.sessionGenerationId = ownedRuntime.session.sessionGeneration;
+  setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
   render();
   return target;
 }
@@ -2562,6 +2853,31 @@ function stopRealtimeMediaTracks(target) {
   target.cameraReady = false;
   target.recording = false;
   if (dom?.preview) dom.preview.srcObject = null;
+  resetPreviewAspectRatio();
+}
+
+function syncPreviewAspectRatio() {
+  const width = Number(dom?.preview?.videoWidth) || 0;
+  const height = Number(dom?.preview?.videoHeight) || 0;
+  if (!dom?.cameraFrame || width <= 0 || height <= 0) return false;
+  const ratio = width / height;
+  if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 3) return false;
+  dom.cameraFrame.dataset.cameraAspect = `${width}x${height}`;
+  return true;
+}
+
+function resetPreviewAspectRatio() {
+  if (dom?.cameraFrame?.dataset) delete dom.cameraFrame.dataset.cameraAspect;
+}
+
+function stopDetachedMediaStream(stream, target = state) {
+  for (const track of stream?.getTracks?.() || []) {
+    if (track.readyState !== "ended" && track.__sensefieldStopped !== true) {
+      track.stop?.();
+      track.__sensefieldStopped = true;
+      if (target === state) recordSensefieldTestEvent("media_track_stopped", { kind: track.kind || "unknown" });
+    }
+  }
 }
 
 function startRealtimeSpeechInput(target, options = {}) {
@@ -2583,33 +2899,59 @@ function startRealtimeSpeechInput(target, options = {}) {
   recognition.onstart = () => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
     applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+    if (!target.liveConversation.listeningPaused) {
+      setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
+    }
     render();
   };
   recognition.onspeechstart = () => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
     applyInteractionState(target, { userSpeaking: true, listeningActive: true, proactiveObservationActive: false });
     if (target.interactionState.assistantSpeaking || persistentSpeechBusy(target)) interruptAssistantSpeech(target, "user_speech");
+    target.liveConversation.status = "listening";
+    target.liveConversation.revision += 1;
     render();
   };
   recognition.onspeechend = () => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
     applyInteractionState(target, { userSpeaking: false, listeningActive: true, proactiveObservationActive: false });
+    if (!target.liveConversation.interimText && !target.interactionState.inferenceInFlight) {
+      setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
+    }
     render();
   };
   recognition.onresult = (event) => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
-    const transcript = finalTranscriptFromSpeechEvent(event);
-    if (!transcript || transcriptLooksLikeAssistantEcho(target, transcript)) return;
-    void handleRealtimeUserSpeechTurn(target, transcript, options);
+    const update = recognitionUpdateFromEvent(event);
+    updateLiveInterim(target.liveConversation, update.interimText, Math.round(now()));
+    if (target === state) scheduleLiveConversationRailRender(target);
+    if (!update.finalText || transcriptLooksLikeAssistantEcho(target, update.finalText)) return;
+    void handleRealtimeUserSpeechTurn(target, update.finalText, options);
   };
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
-    applyInteractionState(target, { listeningActive: true, proactiveObservationActive: false });
+    const code = String(event?.error || "speech_recognition_error");
+    if (["aborted", "no-speech"].includes(code)) {
+      if (!target.realtimeSession.speechStopping && !target.liveConversation.listeningPaused) {
+        setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
+      }
+      return;
+    }
+    const permissionBlocked = ["not-allowed", "service-not-allowed", "audio-capture"].includes(code);
+    applyInteractionState(target, { listeningActive: !permissionBlocked, proactiveObservationActive: false });
+    failLiveConversation(target.liveConversation, liveSpeechRecognitionError(code), {
+      code,
+      recoverable: true
+    });
+    render();
   };
   recognition.onend = () => {
     if (!modeRequestStillCurrent(target, "conversation", generationId)) return;
     if (target.realtimeSession.speechStopping) return;
     applyInteractionState(target, { listeningActive: true, userSpeaking: false, proactiveObservationActive: false });
+    if (!target.liveConversation.listeningPaused && !target.interactionState.assistantSpeaking) {
+      setLiveConversationListening(target.liveConversation, { cameraContextActive: target.cameraReady });
+    }
     if (target.interactionState.sessionActive && interactionModeIs(target, "conversation")) {
       target.realtimeSession.speechRestartTimer = setTimeout(() => {
         try {
@@ -2648,13 +2990,14 @@ function stopRealtimeSpeechInput(target) {
   }
 }
 
-function finalTranscriptFromSpeechEvent(event) {
-  let transcript = "";
-  for (let index = Number(event?.resultIndex || 0); index < (event?.results?.length || 0); index += 1) {
-    const result = event.results[index];
-    if (result?.isFinal) transcript += ` ${result[0]?.transcript || ""}`;
-  }
-  return transcript.replace(/\s+/g, " ").trim();
+function liveSpeechRecognitionError(code) {
+  return {
+    "not-allowed": "Microphone access is blocked. Allow microphone access, then retry.",
+    "service-not-allowed": "Speech recognition is blocked in this browser.",
+    "audio-capture": "The microphone is unavailable. Check the active input and retry.",
+    network: "Speech recognition lost its connection. Listening will retry.",
+    "language-not-supported": "English speech recognition is unavailable in this browser."
+  }[code] || "Speech recognition paused. Try listening again.";
 }
 
 function transcriptLooksLikeAssistantEcho(target, transcript) {
@@ -2667,9 +3010,14 @@ export async function handleRealtimeUserSpeechTurn(target = state, transcript = 
   if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return { ok: false, code: "conversation_mode_inactive" };
   const text = sanitizeMemoryText(transcript);
   if (!text) return { ok: false, code: "empty_user_turn" };
-  const receivedAtMs = Math.round(now());
+  const receivedAtMs = Number(options.receivedAtMs || Math.round(now()));
   const accepted = target.emergencyRuntimeController.queueFinalTranscript(text, receivedAtMs);
-  if (!accepted.ok) return { ok: false, code: accepted.code === "duplicate_transcript" ? "duplicate_final_transcript" : accepted.code };
+  if (!accepted.ok) {
+    target.liveConversation.interimText = "";
+    target.liveConversation.revision += 1;
+    if (target === state) renderLiveConversationRail(target, { force: true });
+    return { ok: false, code: accepted.code === "duplicate_transcript" ? "duplicate_final_transcript" : accepted.code };
+  }
   target.appState = target.emergencyRuntimeController.snapshot();
   target.realtimeSession.processingTranscript = true;
   try {
@@ -2677,7 +3025,6 @@ export async function handleRealtimeUserSpeechTurn(target = state, transcript = 
     target.realtimeSession.lastFinalTranscript = normalizeMemoryText(text);
     target.realtimeSession.lastFinalTranscriptAtMs = receivedAtMs;
     target.realtimeSession.lastUserTranscript = text;
-    appendRealtimeMemory(target, "user", { text, source: "speech" });
     const userTurn = {
       turn_id: `user_turn_${receivedAtMs}_${target.conversationMemory.userTurns.length}`,
       text,
@@ -2686,6 +3033,18 @@ export async function handleRealtimeUserSpeechTurn(target = state, transcript = 
       sessionGenerationId: accepted.turn.sessionGeneration,
       modeGenerationId: accepted.turn.modeGeneration
     };
+    if (options.reuseExistingTurn !== true) {
+      appendRealtimeMemory(target, "user", { text, source: "speech" });
+      finalizeLiveUserTurn(target.liveConversation, text, {
+        id: userTurn.turn_id,
+        createdAtMs: receivedAtMs,
+        cameraContext: target.cameraReady
+      });
+    } else {
+      target.liveConversation.interimText = "";
+      target.liveConversation.status = "finalizing_question";
+      target.liveConversation.revision += 1;
+    }
     if (target === state) recordSensefieldTestEvent("user_turn_received", {
       transcript: text,
       turn_id: userTurn.turn_id
@@ -2741,9 +3100,25 @@ export function processRealtimeSessionScheduler(target = state, options = {}) {
   const task = ownedTask.type === "user_turn"
     ? { type: "user_turn", userTurn: { turn_id: ownedTask.requestId, text: ownedTask.text, created_at_ms: ownedTask.createdAtMs, interactionMode: "conversation", sessionGenerationId: ownedTask.sessionGeneration, modeGenerationId: ownedTask.modeGeneration }, runtimeToken }
     : { type: "visual_event", visualEvent: { ...ownedTask, interactionMode: "observing", sessionGenerationId: ownedTask.sessionGeneration, modeGenerationId: ownedTask.modeGeneration }, runtimeToken };
+  if (task.type === "user_turn") {
+    setLiveConversationThinking(target.liveConversation, {
+      requestId: runtimeToken.requestId,
+      createdAtMs: Math.round(now())
+    });
+  }
   applyInteractionState(target, { queuedUserTurn: null, queuedVisualEvent: null, inferenceInFlight: true });
   void runRealtimeInference(target, task, options);
   return true;
+}
+
+export function handleLiveConversationAssistantChunk(target = state, chunk = "", options = {}) {
+  if (!target.interactionState.sessionActive || !interactionModeIs(target, "conversation")) return false;
+  const accepted = appendLiveAssistantChunk(target.liveConversation, chunk, {
+    requestId: options.requestId,
+    atMs: options.atMs || Math.round(now())
+  });
+  if (accepted && target === state) scheduleLiveConversationRailRender(target);
+  return accepted;
 }
 
 async function runRealtimeInference(target, task, options = {}) {
@@ -2760,7 +3135,12 @@ async function runRealtimeInference(target, task, options = {}) {
   applyInteractionState(target, { inferenceInFlight: true, inferenceGenerationId });
   try {
     if (typeof options.runRealtimeInference === "function") {
-      await options.runRealtimeInference(target, task);
+      await options.runRealtimeInference(target, task, {
+        onAssistantChunk: (chunk) => handleLiveConversationAssistantChunk(target, chunk, {
+          requestId: task.runtimeToken?.requestId,
+          atMs: Math.round(now())
+        })
+      });
     } else if (task.type === "user_turn") {
       await analyzeMovementInState(target, {
         ...options,
@@ -2781,7 +3161,10 @@ async function runRealtimeInference(target, task, options = {}) {
       });
     }
   } finally {
-    const finishedOwnedInference = target.emergencyRuntimeController.finishInference(task.runtimeToken, target.errorMessage || "");
+    const inferenceError = target.movementRecognition.status === "fallback"
+      ? target.movementRecognition.lastSafeError || ""
+      : "";
+    const finishedOwnedInference = target.emergencyRuntimeController.finishInference(task.runtimeToken, inferenceError);
     if (finishedOwnedInference) target.appState = target.emergencyRuntimeController.snapshot();
     if (target === state) {
       sensefieldTestRuntime.resourceCounts.inferenceCompleted += 1;
@@ -2807,6 +3190,7 @@ export function interruptAssistantSpeech(target = state, reason = "user_interrup
     target.realtimeSession.lastInterruptedAssistantText = text;
     appendRealtimeMemory(target, "assistant", { text, interrupted: true, reason });
   }
+  if (interactionModeIs(target, "conversation")) interruptLiveConversation(target.liveConversation, reason);
   applyInteractionState(target, { assistantSpeaking: false });
   void cancelVisualSpeech(target);
   return { ok: true, interrupted: Boolean(text) };
@@ -2921,6 +3305,7 @@ async function startCamera() {
     state.errorMessage = "";
     dom.preview.srcObject = state.stream;
     await dom.preview.play();
+    syncPreviewAspectRatio();
     startLocalPerception();
     syncInstantGestureEngine();
     if (state.movementRecognition.persistent.active) {
@@ -2958,6 +3343,7 @@ function stopCamera() {
   state.stream = null;
   state.cameraReady = false;
   state.recording = false;
+  resetPreviewAspectRatio();
   state.cameraStatus = "stopped";
   state.objective = "Press Start Camera.";
   state.statusMessage = "Camera stopped.";
@@ -4367,6 +4753,7 @@ export async function speakVisualResponse({ observationId = "", text = "" } = {}
   }
   target.movementRecognition.voiceStatus = "Voice unavailable";
   if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+  if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
   resumeRealtimeSpeechInputAfterAssistant(target);
   render();
   return localVoice;
@@ -4527,7 +4914,10 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       if (runtimeSpeechToken && !target.emergencyRuntimeController.markSpeechStarted(runtimeSpeechToken)) return cleanup({ ok: false, code: "visual_speech_stale" });
       if (ownership) ownership.playing = true;
       target.movementRecognition.voiceStatus = "Speaking…";
-      if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: true });
+      if (target.interactionState?.sessionActive) {
+        applyInteractionState(target, { assistantSpeaking: true });
+        if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, true);
+      }
       pauseRealtimeSpeechInputForAssistant(target);
       if (target === state) {
         sensefieldTestRuntime.resourceCounts.speechStarted += 1;
@@ -4542,6 +4932,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
         if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
         target.movementRecognition.voiceStatus = "Voice unavailable";
         if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+        if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
         resumeRealtimeSpeechInputAfterAssistant(target);
         cleanup({ ok: false, code: "visual_local_tts_end_timeout" });
       }, options.speechEndTimeoutMs ?? 30000);
@@ -4555,7 +4946,10 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       target.movementRecognition.voiceStatus = "Voice complete";
       if (target.interactionState?.sessionActive) {
         applyInteractionState(target, { assistantSpeaking: false });
-        if (interactionModeIs(target, "conversation")) appendRealtimeMemory(target, "assistant", { text, interrupted: false, source: "voice" });
+        if (interactionModeIs(target, "conversation")) {
+          appendRealtimeMemory(target, "assistant", { text, interrupted: false, source: "voice" });
+          setLiveConversationSpeaking(target.liveConversation, false);
+        }
         resumeRealtimeSpeechInputAfterAssistant(target);
       }
       if (target === state) {
@@ -4572,6 +4966,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
       target.movementRecognition.voiceStatus = "Voice unavailable";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
       resumeRealtimeSpeechInputAfterAssistant(target);
       render();
       cleanup({ ok: false, code: "visual_local_tts_playback_error" });
@@ -4580,6 +4975,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
       if (!current()) return cleanup({ ok: false, code: "visual_speech_stale" });
       target.movementRecognition.voiceStatus = "Voice unavailable";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
       resumeRealtimeSpeechInputAfterAssistant(target);
       cleanup({ ok: false, code: "visual_local_tts_start_timeout" });
     }, options.speechStartTimeoutMs ?? 3000);
@@ -4589,6 +4985,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
         playResult.catch(() => {
           target.movementRecognition.voiceStatus = "Voice unavailable";
           if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+          if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
           render();
           cleanup({ ok: false, code: "visual_local_tts_play_rejected" });
         });
@@ -4596,6 +4993,7 @@ function playAudioBlob(blob, target, options = {}, text = "", speechGenerationId
     } catch {
       target.movementRecognition.voiceStatus = "Voice unavailable";
       if (target.interactionState?.sessionActive) applyInteractionState(target, { assistantSpeaking: false });
+      if (interactionModeIs(target, "conversation")) setLiveConversationSpeaking(target.liveConversation, false);
       render();
       cleanup({ ok: false, code: "visual_local_tts_play_failed" });
     }
@@ -7864,19 +8262,36 @@ export function queueMovementRecognitionResult(target, result, timestampMs = Mat
       confidence: snapshot.confidence,
       createdAt: timestampMs
     });
-    if (interactionModeIs(target, "observing")) {
+    if (interactionModeIs(target, "observing") && normalized.response_source !== "unavailable") {
       target.emergencyRuntimeController.recordMoment("observing", {
         id: snapshot.observation_id,
         role: "MOVEMENT",
         text: snapshot.spoken_response || snapshot.movement_sentence,
         createdAt: timestampMs
       });
+    } else {
+      const responseText = snapshot.spoken_response || snapshot.movement_sentence;
+      completeLiveAssistantTurn(target.liveConversation, responseText, {
+        requestId: target.liveConversation.activeAssistant?.requestId,
+        createdAtMs: timestampMs,
+        cameraContext: target.cameraReady,
+        responseSource: normalized.response_source,
+        willSpeak: false
+      });
+      if (normalized.response_source === "unavailable") {
+        failLiveConversation(target.liveConversation, responseText, {
+          code: "visual_reasoning_unavailable",
+          recoverable: true
+        });
+      }
     }
     target.appState = target.emergencyRuntimeController.snapshot();
   }
   target.confidenceCalibration.results_count += 1;
   if (normalized.uncertainty) target.confidenceCalibration.uncertain_count += 1;
-  if (options.recordMovementHistory !== false) appendMovementHistory(target, snapshot);
+  if (options.recordMovementHistory !== false && normalized.response_source !== "unavailable") {
+    appendMovementHistory(target, snapshot);
+  }
   return suggestion;
 }
 
@@ -8951,16 +9366,30 @@ function render() {
 }
 
 function renderPrimaryView(target) {
+  const microscopeSurface = target.primarySurfaceMode === "microscope";
+  document.body.classList.toggle("sf-microscope-surface", microscopeSurface);
+  document.body.dataset.primarySurface = microscopeSurface ? "microscope" : target.interactionState.mode;
+  if (dom.microscopePanel) dom.microscopePanel.hidden = !microscopeSurface;
   document.body.classList.toggle("dq-camera-live", target.cameraReady);
   dom.cameraFrame?.classList.toggle("is-live", target.cameraReady);
-  if (dom.cameraStatusChip) dom.cameraStatusChip.textContent = target.cameraReady ? "Camera on" : "Camera off";
+  if (dom.cameraStatusChip) {
+    const label = primaryCameraStatusLabel(target);
+    dom.cameraStatusChip.textContent = label;
+    dom.cameraStatusChip.closest(".dq-camera-status-chip")?.setAttribute("aria-label", `${label} camera status`);
+  }
+  if (dom.perceptionCoreLabel) dom.perceptionCoreLabel.textContent = target.cameraReady ? "Live perception" : "Perception core";
+  if (dom.cameraDormantTitle) dom.cameraDormantTitle.textContent = cameraDormantTitle(target);
+  if (dom.cameraDormantCopy) dom.cameraDormantCopy.textContent = cameraDormantCopy(target);
   renderInteractionModeSelector(target);
   if (dom.primaryObservationState) dom.primaryObservationState.textContent = primaryObservationStateLabel(target);
   if (dom.analyzeMovement) {
     const busy = primaryActionBusy(target);
-    dom.analyzeMovement.disabled = busy;
-    dom.analyzeMovement.textContent = primaryActionLabel(target);
-    dom.analyzeMovement.setAttribute("aria-label", dom.analyzeMovement.textContent);
+    const actionLabel = primaryActionLabel(target);
+    dom.analyzeMovement.disabled = busy || (microscopeSurface && microscope?.primaryActionDisabled?.());
+    const labelNode = dom.analyzeMovement.querySelector("span");
+    if (labelNode) labelNode.textContent = actionLabel;
+    else dom.analyzeMovement.textContent = actionLabel;
+    dom.analyzeMovement.setAttribute("aria-label", actionLabel);
   }
   if (dom.movementControlHelp) dom.movementControlHelp.textContent = movementControlHelpText(target);
   if (dom.errorBanner) {
@@ -8973,7 +9402,183 @@ function renderPrimaryView(target) {
   if (dom.movementSummaryRow) dom.movementSummaryRow.textContent = primaryResponseMeta(target);
   if (dom.voiceStatus) dom.voiceStatus.textContent = primarySpeechState(target);
   if (dom.savedActionsList) dom.savedActionsList.innerHTML = savedActionsSummaryHtml(target);
-  if (dom.recentMomentsList) dom.recentMomentsList.innerHTML = recentMomentsSummaryHtml(target);
+  if (!microscopeSurface && interactionModeIs(target, "conversation")) {
+    renderLiveConversationRail(target);
+  } else {
+    renderRecentMomentsRail(target);
+  }
+}
+
+function renderRecentMomentsRail(target) {
+  if (!dom.recentMomentsCard || !dom.recentMomentsList) return;
+  dom.recentMomentsCard.classList.remove("is-live-conversation", "is-live-exchange", "is-watch-insight");
+  if (target.primarySurfaceMode !== "microscope" && interactionModeIs(target, "observing")) {
+    dom.recentMomentsCard.classList.add("is-watch-insight");
+    if (dom.recentMomentsTitle) dom.recentMomentsTitle.textContent = "Watch live";
+    dom.recentMomentsList.className = "sf-moment-list sf-watch-insight-display";
+    dom.recentMomentsList.setAttribute("role", "region");
+    dom.recentMomentsList.setAttribute("aria-label", "Live watch insight and recent moments");
+    dom.recentMomentsList.innerHTML = watchInsightRailHtml(target);
+    if (dom.askConversationControls) dom.askConversationControls.hidden = true;
+    if (dom.askControlsDisclosure) dom.askControlsDisclosure.hidden = true;
+    if (dom.askReturnToLatest) dom.askReturnToLatest.hidden = true;
+    if (dom.recentMomentsLink) {
+      dom.recentMomentsLink.hidden = false;
+      dom.recentMomentsLink.firstChild.textContent = "View all moments ";
+    }
+    lastLiveConversationRevision = -1;
+    return;
+  }
+  if (dom.recentMomentsTitle) dom.recentMomentsTitle.textContent = "Recent moments";
+  dom.recentMomentsList.className = "sf-moment-list";
+  dom.recentMomentsList.removeAttribute("role");
+  dom.recentMomentsList.setAttribute("aria-label", "Recent moments summary");
+  dom.recentMomentsList.innerHTML = recentMomentsSummaryHtml(target);
+  if (dom.askConversationControls) dom.askConversationControls.hidden = true;
+  if (dom.askControlsDisclosure) dom.askControlsDisclosure.hidden = true;
+  if (dom.askReturnToLatest) dom.askReturnToLatest.hidden = true;
+  if (dom.recentMomentsLink) dom.recentMomentsLink.hidden = false;
+  lastLiveConversationRevision = -1;
+}
+
+function scheduleLiveConversationRailRender(target = state) {
+  if (target !== state || liveConversationRenderScheduled) return;
+  liveConversationRenderScheduled = true;
+  requestAnimationFrame(() => {
+    liveConversationRenderScheduled = false;
+    renderLiveConversationRail(target);
+  });
+}
+
+function renderLiveConversationRail(target, options = {}) {
+  if (!dom.recentMomentsCard || !dom.recentMomentsList) return;
+  const conversation = target.liveConversation;
+  const active = target.interactionState.sessionActive && interactionModeIs(target, "conversation");
+  const force = options.force === true;
+  const exchanges = liveConversationExchanges(conversation);
+  dom.recentMomentsCard.classList.remove("is-watch-insight");
+  dom.recentMomentsCard.classList.add("is-live-conversation", "is-live-exchange");
+  if (dom.recentMomentsTitle) dom.recentMomentsTitle.textContent = "Live exchange";
+  if (dom.recentMomentsLink) {
+    dom.recentMomentsLink.hidden = exchanges.length < 2;
+    dom.recentMomentsLink.firstChild.textContent = "Earlier exchanges ";
+  }
+  if (dom.askConversationControls) dom.askConversationControls.hidden = !active;
+  if (dom.askControlsDisclosure) dom.askControlsDisclosure.hidden = !active;
+  dom.recentMomentsList.className = "sf-moment-list sf-live-exchange-display";
+  dom.recentMomentsList.setAttribute("role", "region");
+  dom.recentMomentsList.setAttribute("aria-label", "Current spoken question and response");
+  dom.recentMomentsList.removeAttribute("aria-relevant");
+
+  if (force || lastLiveConversationRevision !== conversation.revision) {
+    dom.recentMomentsList.innerHTML = liveConversationRailHtml(conversation);
+    lastLiveConversationRevision = conversation.revision;
+  }
+
+  if (dom.askToggleListening) {
+    dom.askToggleListening.disabled = !active || !target.realtimeSession.speechRecognition;
+    dom.askToggleListening.textContent = conversation.listeningPaused ? "Resume listening" : "Pause listening";
+    dom.askToggleListening.setAttribute("aria-label", dom.askToggleListening.textContent);
+  }
+  if (dom.askStopSpeaking) {
+    dom.askStopSpeaking.disabled = !(target.interactionState.assistantSpeaking || persistentSpeechBusy(target));
+  }
+  if (dom.askToggleVoice) {
+    dom.askToggleVoice.textContent = conversation.voiceMuted ? "Unmute voice" : "Mute voice";
+    dom.askToggleVoice.setAttribute("aria-label", dom.askToggleVoice.textContent);
+  }
+  if (dom.askClearConversation) dom.askClearConversation.disabled = conversation.turns.length === 0 && !conversation.interimText;
+  if (dom.askRetry) dom.askRetry.hidden = !conversation.error?.recoverable || !conversation.turns.some((turn) => turn.role === "user");
+  if (dom.askReturnToLatest) dom.askReturnToLatest.hidden = true;
+  if (dom.askConversationAnnouncement && dom.askConversationAnnouncement.textContent !== conversation.announcement) {
+    dom.askConversationAnnouncement.textContent = conversation.announcement;
+  }
+}
+
+function liveConversationRailHtml(conversation) {
+  const exchanges = liveConversationExchanges(conversation);
+  const latest = exchanges.at(-1) || null;
+  const current = conversation.interimText
+    ? { question: { id: "live-interim", text: conversation.interimText, status: "draft" }, answer: null }
+    : latest;
+  const previous = conversation.interimText ? latest : exchanges.at(-2);
+  const question = current?.question || null;
+  const answer = conversation.activeAssistant?.text
+    ? { ...conversation.activeAssistant, status: "streaming" }
+    : current?.answer || null;
+  const grounded = Boolean(question?.cameraContext && conversation.cameraContextActive);
+  const idle = !question && !answer && !conversation.error;
+  const thinking = ["finalizing_question", "thinking"].includes(conversation.status);
+  return `
+    <div class="sf-live-exchange-state" data-state="${escapeHtml(conversation.status)}">
+      <span>${escapeHtml(liveConversationStatusLabel(conversation))}</span>
+      ${grounded ? `<span class="sf-live-grounding"><i data-lucide="scan-eye" aria-hidden="true"></i> Using live view</span>` : ""}
+    </div>
+    ${idle ? `
+      <div class="sf-live-exchange-idle">
+        <strong>Your question and the response will appear here as you speak.</strong>
+        <p>Start the camera, then ask naturally.</p>
+      </div>
+    ` : ""}
+    ${previous ? livePreviousExchangeHtml(previous) : ""}
+    ${question ? `
+      <section class="sf-live-question ${question.status === "draft" ? "is-draft" : ""}" aria-label="Current question">
+        <span>${question.status === "draft" ? "Listening" : "You asked"}</span>
+        <p>${escapeHtml(question.text || "")}</p>
+      </section>
+    ` : ""}
+    ${thinking ? `
+      <div class="sf-live-thinking" role="status">
+        <span class="sf-live-focus-sweep" aria-hidden="true"></span>
+        <span>Focusing on the question</span>
+      </div>
+    ` : ""}
+    ${answer ? liveAnswerHtml(answer, conversation.status) : ""}
+    ${conversation.error ? `<div class="sf-ask-error" role="alert">${escapeHtml(conversation.error.message)}</div>` : ""}
+  `;
+}
+
+function liveConversationExchanges(conversation) {
+  const exchanges = [];
+  for (const turn of conversation.turns) {
+    if (turn.role === "user") {
+      exchanges.push({ question: turn, answer: null });
+    } else if (turn.role === "assistant") {
+      const exchange = [...exchanges].reverse().find((item) => !item.answer);
+      if (exchange) exchange.answer = turn;
+    }
+  }
+  return exchanges;
+}
+
+function livePreviousExchangeHtml(exchange) {
+  const answer = exchange.answer?.text ? ` — ${exchange.answer.text}` : "";
+  return `
+    <aside class="sf-live-previous" aria-label="Previous exchange">
+      <span>Previous</span>
+      <p>${escapeHtml(`${exchange.question?.text || ""}${answer}`)}</p>
+    </aside>
+  `;
+}
+
+function liveAnswerHtml(answer, status) {
+  const chunks = chunkLiveAnswerText(answer.text);
+  const key = String(answer.id || "active-answer");
+  const previouslyRendered = renderedLiveAnswerChunks.get(key) || 0;
+  renderedLiveAnswerChunks.set(key, chunks.length);
+  if (renderedLiveAnswerChunks.size > 12) {
+    const oldest = renderedLiveAnswerChunks.keys().next().value;
+    renderedLiveAnswerChunks.delete(oldest);
+  }
+  return `
+    <section class="sf-live-answer" aria-label="System response">
+      <span>System response</span>
+      <p>${chunks.map((chunk, index) => (
+        `<span class="sf-live-answer-chunk ${index >= previouslyRendered ? "is-new" : ""}">${escapeHtml(chunk)}</span>`
+      )).join(" ")}</p>
+      ${status === "speaking" ? `<span class="sf-live-speaking"><i aria-hidden="true"></i> Speaking</span>` : ""}
+    </section>
+  `;
 }
 
 function canonicalAppState(target) {
@@ -8986,17 +9591,47 @@ function renderInteractionModeSelector(target) {
   if (!dom.interactionModeSelector) return;
   const app = canonicalAppState(target);
   for (const button of dom.interactionModeSelector.querySelectorAll("[data-interaction-mode]")) {
-    const selected = normalizeInteractionMode(button.getAttribute("data-interaction-mode")) === app.selectedMode;
+    const requested = String(button.getAttribute("data-interaction-mode") || "");
+    const selected = requested === "microscope"
+      ? target.primarySurfaceMode === "microscope"
+      : target.primarySurfaceMode !== "microscope" && normalizeInteractionMode(requested) === app.selectedMode;
     button.setAttribute("aria-pressed", selected ? "true" : "false");
     button.disabled = app.session.status === "ending";
+  }
+  if (dom.primaryModeStatus) {
+    dom.primaryModeStatus.textContent = app.selectedMode === "observing" ? "Watch mode selected." : "Ask mode selected.";
   }
 }
 
 function primaryActionBusy(target) {
+  if (target.primarySurfaceMode === "microscope") return false;
   return target.cameraStartInFlight === true || ["starting", "ending"].includes(target.realtimeSession.state);
 }
 
+function primaryCameraStatusLabel(target) {
+  if (target.cameraReady) {
+    return target.primarySurfaceMode !== "microscope" && interactionModeIs(target, "observing")
+      ? "Watch live"
+      : "Live";
+  }
+  if (target.primarySurfaceMode !== "microscope" && interactionModeIs(target, "observing")) return "Watch ready";
+  return "Camera off";
+}
+
+function cameraDormantTitle(target) {
+  if (target.primarySurfaceMode === "microscope") return "Inspect\nthe world";
+  if (interactionModeIs(target, "observing")) return "Watch\nthe world";
+  return "Ask\nthe world";
+}
+
+function cameraDormantCopy(target) {
+  if (target.primarySurfaceMode === "microscope") return "Start local vision to inspect what you see.";
+  if (interactionModeIs(target, "observing")) return "Start observing to see and understand your world.";
+  return "Start a conversation about anything in view.";
+}
+
 function primaryActionLabel(target) {
+  if (target.primarySurfaceMode === "microscope") return microscope?.primaryActionLabel?.() || "Automatic local vision";
   if (target.realtimeSession.state === "starting" || target.cameraStartInFlight) return "Starting…";
   if (target.interactionState.sessionActive && interactionModeIs(target, "observing")) return "End observing";
   if (target.interactionState.sessionActive) return "End conversation";
@@ -9018,6 +9653,15 @@ function primaryResponseStateLabel(target) {
 }
 
 function primaryObservationStateLabel(target) {
+  if (target.primarySurfaceMode === "microscope") {
+    if (target.errorMessage) return "Local vision unavailable";
+    const instrument = microscope?.snapshot?.();
+    if (instrument?.status === "verifying") return "Identifying presented object";
+    if (instrument?.status === "starting") return "Starting local vision…";
+    if (instrument?.status === "error") return "Local vision unavailable";
+    if (instrument?.status === "live") return "Automatic vision active";
+    if (instrument?.active) return "Microscope ready";
+  }
   const app = canonicalAppState(target);
   if (app.safeError || target.realtimeSession.state === "error") return "Error";
   if (app.session.status === "starting" || target.cameraStartInFlight) return "Starting…";
@@ -9794,6 +10438,113 @@ function primarySavedActionDescription(target, recipe) {
   return automationActionLabel(actionType);
 }
 
+function watchInsightRailHtml(target) {
+  const app = canonicalAppState(target);
+  const turn = app.currentTurn;
+  const sessionError = target.realtimeSession.state === "error" || app.session.status === "error";
+  const starting = app.session.status === "starting" || target.cameraStartInFlight === true;
+  const ending = app.session.status === "ending";
+  const active = app.session.status === "active" && app.runtime.watching;
+  const thinking = app.runtime.thinking;
+  const observationError = !sessionError && active && target.movementRecognition.status === "fallback";
+  const observation = sessionError || observationError ? "" : String(turn.observationText || "").trim();
+  const status = sessionError
+    ? "Unavailable"
+    : starting
+      ? "Starting"
+      : ending
+        ? "Ending"
+        : active
+          ? "Live"
+          : "Ready";
+  const state = sessionError
+    ? "error"
+    : observationError
+      ? "degraded"
+      : starting || ending
+        ? "transitioning"
+        : observation
+          ? "event"
+          : active
+            ? "live"
+            : "ready";
+  const headline = sessionError
+    ? "Live watching could not start."
+    : observationError
+      ? "Watching continues. The last change was not analyzed."
+      : thinking
+        ? "Understanding a notable change in view."
+        : observation
+          ? narratorSentence(observation)
+          : "Watching for movement and notable changes.";
+  const support = sessionError
+    ? watchSessionFailureCopy(target, app)
+    : observationError
+      ? "The observation service will retry when the view changes again."
+      : starting
+        ? "Opening the live view. The interface will settle with the first camera frame."
+        : ending
+          ? "Closing the live observation session."
+          : active
+            ? "Live observation is active. New moments will appear below."
+            : "Start the camera to begin continuous observation.";
+  const hasConfidence = Boolean(observation)
+    && turn.confidence !== null
+    && turn.confidence !== undefined
+    && turn.confidence !== "";
+  const rawConfidence = hasConfidence ? Number(turn.confidence) : Number.NaN;
+  const confidence = Number.isFinite(rawConfidence)
+    ? Math.round(Math.max(0, Math.min(100, rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence)))
+    : null;
+  const timing = observation && turn.createdAt ? relativeMomentTime(turn.createdAt) : "";
+  const meta = [
+    timing,
+    confidence == null ? "" : `Model confidence ${confidence}%`,
+    "Confirm important details manually"
+  ].filter(Boolean);
+  const moments = app.persistentMemory.observationMoments.slice(-3).reverse();
+  const timeline = moments.length
+    ? moments.map((entry) => `
+      <div class="sf-watch-moment text-contained">
+        <span class="sf-watch-moment-node" aria-hidden="true"><i data-lucide="aperture"></i></span>
+        <span class="sf-watch-moment-copy">
+          <strong>${escapeHtml(narratorSentence(entry.text))}</strong>
+          <small>${escapeHtml(relativeMomentTime(entry.createdAt))}</small>
+        </span>
+      </div>
+    `).join("")
+    : '<p class="sf-watch-timeline-empty">Earlier observations will collect here during this session.</p>';
+  return `
+    <div class="sf-watch-insight" data-watch-state="${state}">
+      <header class="sf-watch-insight-header">
+        <span class="sf-watch-kicker">Watch live</span>
+        <span class="sf-watch-status"><i aria-hidden="true"></i>${escapeHtml(status)}</span>
+      </header>
+      <section class="sf-watch-hero" aria-label="Current watch insight">
+        <strong>${escapeHtml(headline)}</strong>
+        <p>${escapeHtml(support)}</p>
+        <div class="sf-watch-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+      </section>
+      <section class="sf-watch-timeline" aria-label="Recent moments">
+        <header>
+          <span>Recent moments</span>
+          <small>${moments.length ? `${moments.length} shown` : "Session timeline"}</small>
+        </header>
+        <div class="sf-watch-moment-list">${timeline}</div>
+      </section>
+    </div>
+  `;
+}
+
+function watchSessionFailureCopy(target, app) {
+  const reason = `${app.safeError || ""} ${target.errorMessage || ""}`.toLowerCase();
+  if (reason.includes("permission") || reason.includes("notallowed")) {
+    return "Allow camera access, then try again.";
+  }
+  if (reason.includes("timeout")) return "The camera took too long to respond. Try again.";
+  return "The live camera could not start. Try again.";
+}
+
 function recentMomentsSummaryHtml(target) {
   const app = canonicalAppState(target);
   if (app.selectedMode === "conversation") {
@@ -9801,6 +10552,7 @@ function recentMomentsSummaryHtml(target) {
     if (!turns.length) return '<p class="dq-movement-hint">Your recent conversational moments will appear here.</p>';
     return turns.map((entry) => `
       <div class="sf-moment-row text-contained">
+        <span class="sf-moment-node" aria-hidden="true"><i data-lucide="message-circle"></i></span>
         <span class="sf-moment-time">${escapeHtml(relativeMomentTime(entry.createdAt))}</span>
         <span class="sf-moment-copy"><strong>${escapeHtml(entry.role)}</strong> ${escapeHtml(narratorSentence(entry.text))}</span>
       </div>
@@ -9810,6 +10562,7 @@ function recentMomentsSummaryHtml(target) {
   if (!entries.length) return '<p class="dq-movement-hint">Your recent observations will appear here.</p>';
   return entries.map((entry) => `
     <div class="sf-moment-row text-contained">
+      <span class="sf-moment-node" aria-hidden="true"><i data-lucide="aperture"></i></span>
       <span class="sf-moment-time">${escapeHtml(relativeMomentTime(entry.createdAt))}</span>
       <span class="sf-moment-copy"><strong>${escapeHtml(entry.role)}</strong> ${escapeHtml(narratorSentence(entry.text))}</span>
     </div>
@@ -10168,6 +10921,11 @@ function visualResponseNeedsConfirmation(target) {
 }
 
 function movementControlHelpText(target) {
+  if (target.primarySurfaceMode === "microscope") {
+    return microscope?.snapshot?.().status === "verifying"
+      ? "Identifying presented object."
+      : "Camera live. Automatic local vision is active.";
+  }
   if (!target.interactionState.sessionActive && target.realtimeSession.state === "inactive") return interactionModeIs(target, "observing") ? "Start observing." : "Start conversation.";
   if (target.realtimeSession.state === "starting") return interactionModeIs(target, "observing") ? "Starting observing." : "Starting conversation.";
   if (target.realtimeSession.state === "ending") return interactionModeIs(target, "observing") ? "Ending observing." : "Ending conversation.";

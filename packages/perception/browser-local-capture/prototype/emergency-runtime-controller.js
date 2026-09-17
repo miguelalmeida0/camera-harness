@@ -247,11 +247,16 @@ export function createEmergencyRuntimeController(options = {}) {
     const key = selectedMode === "conversation" ? "conversationMoments" : "observationMoments";
     const id = String(entry.id || `${entry.role || "moment"}_${entry.createdAt || Date.now()}_${text}`);
     if (state.persistentMemory[key].some((item) => item.id === id)) return false;
+    const createdAt = Number(entry.createdAt || Date.now());
+    if (selectedMode === "observing" && state.persistentMemory[key].some((item) => (
+      item.text.toLocaleLowerCase() === text.toLocaleLowerCase()
+      && Math.abs(createdAt - item.createdAt) <= 15000
+    ))) return false;
     state.persistentMemory[key].push({
       id,
       role: String(entry.role || (selectedMode === "conversation" ? "SENSEFIELD" : "MOVEMENT")),
       text,
-      createdAt: Number(entry.createdAt || Date.now())
+      createdAt
     });
     state.persistentMemory[key] = state.persistentMemory[key].slice(-20);
     return true;
@@ -283,7 +288,9 @@ export function createEmergencyRuntimeController(options = {}) {
     state.runtime.activeSpeechId = null;
     state.runtime.listening = state.selectedMode === "conversation" && state.media.microphoneActive;
     state.currentTurn.speechStatus = completed ? "complete" : "unavailable";
-    state.safeError = completed ? null : safeError(outcome.error || "Voice unavailable");
+    state.safeError = completed || state.selectedMode === "observing"
+      ? null
+      : safeError(outcome.error || "Voice unavailable");
     assertInvariants(state);
     return completed;
   }
@@ -296,7 +303,7 @@ export function createEmergencyRuntimeController(options = {}) {
     state.runtime.listening = state.session.status === "active" && state.selectedMode === "conversation" && state.media.microphoneActive;
     if (ownedSpeech) {
       state.currentTurn.speechStatus = error ? "unavailable" : "idle";
-      state.safeError = error ? safeError(error) : null;
+      state.safeError = error && state.selectedMode !== "observing" ? safeError(error) : null;
     }
     assertInvariants(state);
     return snapshot();

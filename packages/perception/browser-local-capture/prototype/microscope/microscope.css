@@ -1,0 +1,475 @@
+.am-live-object-layer {
+  position: absolute;
+  z-index: 14;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.am-live-object {
+  position: absolute;
+  max-width: calc(100% - 16px);
+  color: #fff;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  transition: left 120ms linear, top 120ms linear, opacity 140ms ease;
+}
+
+.am-live-object.is-edge-right {
+  transform: translate(0, -50%);
+}
+
+.am-live-object.is-edge-left {
+  transform: translate(-100%, -50%);
+}
+
+.am-live-object::after {
+  display: block;
+  width: 4px;
+  height: 4px;
+  margin: 3px auto 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.34);
+  content: "";
+}
+
+.am-live-object.is-predicted {
+  opacity: 0.58;
+}
+
+.am-live-object-label {
+  display: block;
+  max-width: min(230px, 80vw);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(12, 16, 29, 0.84);
+  padding: 5px 9px;
+  box-shadow: 0 3px 10px rgba(5, 8, 18, 0.18);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
+.am-live-object.is-verified .am-live-object-label {
+  background: rgba(20, 91, 73, 0.9);
+}
+
+.am-live-object.is-uncertain .am-live-object-label,
+.am-live-object.is-predicted .am-live-object-label {
+  border-style: dashed;
+}
+
+.am-live-object.is-verifying .am-live-object-label {
+  background: rgba(20, 81, 151, 0.9);
+}
+
+body.sf-microscope-surface .sf-mode-selector {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+body.sf-microscope-surface #operatorCommandsCard,
+body.sf-microscope-surface #savedActionsCard,
+body.sf-microscope-surface #recentMomentsCard,
+body.sf-microscope-surface #whatsNextPanel,
+body.sf-microscope-surface #analyzeMovement,
+body:not(.sf-microscope-surface) #microscopePanel {
+  display: none !important;
+}
+
+body[data-view="primary"].sf-microscope-surface #operatorCommandsCard.sf-response-card,
+body[data-view="primary"].sf-microscope-surface #savedActionsCard,
+body[data-view="primary"].sf-microscope-surface #recentMomentsCard,
+body[data-view="primary"].sf-microscope-surface #whatsNextPanel {
+  display: none !important;
+}
+
+body.sf-microscope-surface #microscopePanel {
+  display: grid !important;
+}
+
+.am-panel,
+.am-panel *,
+.am-panel *::before,
+.am-panel *::after {
+  box-sizing: border-box;
+}
+
+.am-panel {
+  min-width: 0;
+  gap: 14px;
+  overflow: hidden;
+  border-radius: 22px !important;
+  padding: 20px !important;
+}
+
+.am-panel-header {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.am-kicker {
+  margin: 0;
+  color: #6348f5;
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.am-panel-header h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 21px !important;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.am-product-statement,
+.am-instruction,
+.am-notice,
+.am-privacy-note,
+.am-object-confidence,
+.am-object-detail {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.am-product-statement {
+  color: var(--sf-text-secondary, #696a74);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.am-capabilities {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.am-capability {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  border-radius: 999px;
+  background: #eaf7f2;
+  color: #1e7059;
+  padding: 6px 9px;
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.am-capability[data-state="unconfigured"] {
+  background: #f1f0f7;
+  color: #5b5b68;
+}
+
+.am-instrument-state {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid #e6e3ee;
+  border-radius: 15px;
+  background: #faf9fc;
+  padding: 12px;
+}
+
+.am-state-label {
+  min-width: 0;
+  color: #5f45f7;
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.am-instruction {
+  color: #252531;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.am-notice {
+  color: #6a6872;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.am-live-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #55535e;
+  font-size: 12px;
+}
+
+.am-live-summary strong {
+  color: #292833;
+  font-size: 17px;
+}
+
+.am-energy-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #55535e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.am-energy-control span {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.am-energy-control select {
+  min-width: 112px;
+  max-width: 100%;
+  border: 1px solid #dcd8e7;
+  border-radius: 10px;
+  background: #fff;
+  padding: 7px 28px 7px 9px;
+  color: #302f39;
+  font: inherit;
+}
+
+.am-live-inspector {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid #dcd7f5;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #faf8ff, #f4f2fb);
+  padding: 14px;
+}
+
+.am-live-inspector[hidden] {
+  display: none;
+}
+
+.am-object-id {
+  color: #6348f5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.am-live-inspector h3 {
+  min-width: 0;
+  margin: 0;
+  color: #292833;
+  font-size: 17px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.am-object-confidence,
+.am-object-detail {
+  color: #66636e;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.am-toolbar {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.am-toggle-control,
+.am-energy-control {
+  border: 1px solid #e2deea;
+  border-radius: 12px;
+  background: #faf9fc;
+  padding: 8px 10px;
+}
+
+.am-toggle-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #55535e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.am-toggle-control input {
+  width: 18px;
+  height: 18px;
+  max-width: none;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #5f45f7;
+}
+
+.am-toggle-control span {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.am-toolbar .am-energy-control {
+  grid-column: 1 / -1;
+}
+
+.am-toolbar button {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid #dcd8e7;
+  border-radius: 12px;
+  background: #fff;
+  color: #302f39;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 730;
+  line-height: 1.2;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.am-toolbar button:not(:disabled):hover,
+.am-toolbar button:not(:disabled):focus-visible {
+  border-color: #5f45f7;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 69, 247, 0.14);
+}
+
+.am-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.am-privacy-note {
+  border-left: 3px solid #b4a5ff;
+  color: #66636f;
+  padding-left: 10px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.am-diagnostics {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e3dfec;
+  border-radius: 12px;
+  background: #faf9fc;
+}
+
+.am-diagnostics[hidden] {
+  display: none;
+}
+
+.am-diagnostics summary {
+  cursor: pointer;
+  min-width: 0;
+  padding: 9px 10px;
+  font-size: 10px;
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
+
+.am-diagnostics dl {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: #e8e4ee;
+}
+
+.am-diagnostics dl div {
+  min-width: 0;
+  background: #fff;
+  padding: 7px 9px;
+}
+
+.am-diagnostics dt,
+.am-diagnostics dd,
+.am-diagnostics p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.am-diagnostics dt {
+  color: #716e79;
+  font-size: 9px;
+}
+
+.am-diagnostics dd {
+  color: #302f39;
+  font-size: 10px;
+  font-weight: 730;
+}
+
+.am-diagnostics p {
+  padding: 8px 9px;
+  color: #66636f;
+  font-size: 9px;
+}
+
+@media (max-width: 720px) {
+  .am-panel {
+    gap: 11px;
+    padding: 15px !important;
+  }
+
+  .am-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .am-toolbar .am-energy-control {
+    grid-column: auto;
+  }
+
+  .am-energy-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .am-energy-control select {
+    width: 100%;
+  }
+
+  .am-diagnostics dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1120px) {
+  body[data-view="primary"].sf-microscope-surface #microscopePanel {
+    width: 100% !important;
+    max-width: none !important;
+    order: 3 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .am-live-object {
+    transition: none;
+  }
+}

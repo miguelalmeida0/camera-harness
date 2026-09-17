@@ -59,6 +59,7 @@ import {
 
 const html = readFileSync(resolve("packages/perception/browser-local-capture/prototype/index.html"), "utf8");
 const source = readFileSync(resolve("packages/perception/browser-local-capture/prototype/local-capture.js"), "utf8");
+const coreCss = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception-core.css"), "utf8");
 const gestureWorkerSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/gesture-recognizer-worker.js"), "utf8");
 const gestureEngineSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/local-gesture-engine.js"), "utf8");
 const gestureStabilizerSource = readFileSync(resolve("packages/perception/browser-local-capture/prototype/perception/gesture-stabilizer.js"), "utf8");
@@ -107,9 +108,9 @@ const primaryVisibleText = primaryHtml
   .trim();
 const primaryButtonCount = (primaryHtml.match(/<button\b/g) || []).length;
 const primaryPrimaryButtonCount = (primaryHtml.match(/class="[^"]*\bdq-button\b[^"]*\bprimary\b[^"]*"/g) || []).length;
-const responseSentenceCss = html.slice(
-  html.indexOf(".sf-response-card .dq-movement-sentence"),
-  html.indexOf(".sf-response-card .dq-movement-hint")
+const responseSentenceCss = coreCss.slice(
+  coreCss.indexOf(".pc-response .dq-movement-sentence"),
+  coreCss.indexOf(".pc-response .dq-movement-hint")
 );
 
 assert.equal(html.includes("<title>Sensefield Visual Companion</title>"), true, "browser title is Sensefield");
@@ -134,15 +135,15 @@ for (const requiredPrimary of [
   'id="cameraSuggestions"',
   'id="movementSummaryRow"',
   'id="voiceStatus"',
-  'id="savedActionsCard"',
-  'id="savedActionsList"',
   'id="recentMomentsCard"',
   'id="recentMomentsList"'
 ]) {
   assert.equal(primaryHtml.includes(requiredPrimary), true, "missing primary Sensefield marker: " + requiredPrimary);
 }
 
-assert.equal(primaryButtonCount, 1, "primary UI has exactly one button element");
+assert.equal(primaryButtonCount, 12, "primary DOM has six core controls and six hidden Ask conversation controls");
+assert.match(primaryHtml, /id="askReturnToLatest"[^>]*hidden/, "Ask return control stays hidden outside an active conversation");
+assert.match(primaryHtml, /id="askControlsDisclosure"[^>]*hidden/, "Ask voice controls stay hidden outside an active conversation");
 assert.equal(primaryPrimaryButtonCount, 1, "primary UI has exactly one primary CTA");
 assert.equal(primaryHtml.includes('class="dq-product-header"'), false, "primary UI has no app header bar");
 assert.equal(primaryHtml.includes('class="dq-segmented"'), false, "primary UI has no Capture/Observe segmented control");
@@ -167,20 +168,22 @@ assert.equal(primaryHtml.includes("Confirm suggested action"), false, "primary U
 assert.equal(primaryHtml.includes("Not this / Correct"), false, "primary UI has no correction action row");
 assert.equal(primaryHtml.includes("Why?"), false, "primary UI has no Why action");
 assert.equal(primaryHtml.includes("Observe again"), false, "primary UI has no Observe again button");
-assert.equal(primaryHtml.includes("Saved actions"), true, "primary UI shows Saved Actions");
+assert.equal(primaryHtml.includes("Saved actions"), false, "primary UI removes Saved Actions");
+assert.equal(primaryHtml.includes('id="savedActionsCard"'), false, "primary UI has no Saved Actions card");
+assert.equal(primaryHtml.includes('id="savedActionsList"'), false, "primary UI has no Saved Actions list");
 assert.equal(primaryHtml.includes("Recent moments"), true, "primary UI shows Recent Moments");
 assert.equal(primaryHtml.includes("Your recent observations will appear here."), true, "recent moments has a useful empty state");
-assert.equal(primaryHtml.includes("Sensefield is observing. Show an action, object, or change."), true, "visual response has useful observing empty state");
+assert.equal(source.includes("Show me a movement or object change."), true, "Watch mode retains a useful observing empty state");
 assert.equal(html.includes(".sf-primary-page #analyzeMovement::after"), true, "primary CTA suppresses inherited sublabel");
 assert.equal(html.includes("content: none !important"), true, "primary CTA label remains a single visible state");
 assert.equal(html.includes(".sf-primary-page #analyzeMovement.sf-primary-action:hover"), true, "primary CTA hover keeps route-scoped positioning");
 assert.equal(html.includes("transform: translateX(-50%) !important"), true, "primary CTA hover cannot erase horizontal centering");
 assert.equal(html.includes(".sf-response-card .dq-movement-status"), true, "primary response suppresses duplicate inherited status");
 
-for (const stateLabel of ["Start observing", "Starting…", "Stop observing", "Try again"]) {
+for (const stateLabel of ["Start observing", "Starting…", "End observing", "Try again"]) {
   assert.equal(source.includes(stateLabel) || primaryHtml.includes(stateLabel), true, "single-button state label exists: " + stateLabel);
 }
-for (const cameraState of ["Ready", "Observing", "Change detected", "Understanding", "Speaking", "Cooling down", "Paused", "Error"]) {
+for (const cameraState of ["Ready", "Starting…", "Ending…", "Understanding", "Speaking", "Watching", "Listening", "Error"]) {
   assert.equal(source.includes(cameraState) || primaryHtml.includes(cameraState), true, "camera-stage state exists: " + cameraState);
 }
 assert.equal(source.includes("function handlePrimaryAction"), true, "one stable CTA handler exists");
@@ -212,24 +215,30 @@ assert.equal(persistentObservationEventFromLocalChange([{ zone_id: "neutral_zone
 assert.equal(source.includes("if (isPrimaryView()) state.movementRecognition.autoSpeak = true"), true, "primary mode forces inherent auto-speak");
 assert.equal(source.includes("maybeAutoSpeakVisualResult(target)"), true, "successful visual responses auto-speak");
 assert.equal(source.includes("spokenObservationIds"), true, "auto-speech deduping remains state-backed");
-assert.equal(source.includes(".finally(() => completePersistentObservationCycle(target))"), true, "observation resumes after speech and cooldown");
+assert.equal(source.includes("completePersistentObservationCycle(target);") && source.includes("processRealtimeSessionScheduler(target);"), true, "observation resumes through the active-session scheduler or bounded completion path");
 assert.equal(source.includes("VISUAL_COMPANION_CLIENT_CONFIG.speakEndpoint"), true, "neural voice endpoint remains functional");
-assert.equal(source.includes("speakWithBrowserSpeech"), false, "browser/system speech fallback is absent");
+assert.equal(source.includes("trySystemVisualSpeech"), false, "browser/system speech fallback is absent");
 
 assert.equal(responseSentenceCss.includes("overflow: visible"), true, "response sentence is not clipped");
 assert.equal(responseSentenceCss.includes("text-overflow: clip"), true, "response sentence never ellipsizes");
 assert.equal(responseSentenceCss.includes("white-space: normal"), true, "response sentence wraps naturally");
 assert.equal(responseSentenceCss.includes("overflow-wrap: anywhere"), true, "response sentence remains contained");
-assert.equal(html.includes(".sf-primary-workspace"), true, "primary two-column layout CSS exists");
-assert.equal(html.includes("grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr)"), true, "desktop layout is Camera | right rail");
-assert.equal(html.includes(".sf-insight-rail"), true, "right rail balances response, saved actions, and moments");
-assert.equal(html.includes("--sf-camera-box-height"), true, "right rail is sized against the camera stage");
-assert.equal(html.includes("grid-template-rows: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 0.65fr)"), true, "right rail avoids unexplained blank space");
-assert.equal(html.includes(".sf-response-card .dq-movement-result.is-empty .dq-movement-sentence"), true, "response empty state uses quieter sizing");
-assert.equal(html.includes("order: 1 !important"), true, "primary mobile order keeps camera first");
-assert.equal(html.includes("@media (max-width: 900px)"), true, "tablet/mobile collapse breakpoint exists");
-assert.equal(html.includes("@media (max-width: 460px)"), true, "390px mobile containment breakpoint exists");
-assert.equal(html.includes("overflow-x: clip"), true, "page-level horizontal overflow is clipped");
+// Editorial Perception Core redesign (2026-09-17) replaced the icy premium
+// presentation layer wholesale (approved design change; see AGENTS.md design
+// freeze note and CLAUDE_PIXEL_IMPLEMENTATION_PROMPT.md). These assertions
+// check the same underlying invariants — a dominant camera/hero region next
+// to a Live Exchange rail, responsive containment, no leftover future/roadmap
+// cards — against the new single stylesheet instead of the retired one.
+assert.equal(html.includes('href="./perception-core.css"'), true, "primary view loads the editorial Perception Core presentation layer");
+assert.equal(coreCss.includes("grid-template-columns: minmax(0, 1fr) minmax(240px, 320px)"), true, "desktop instrument places the camera/hero and Live Exchange rail side by side");
+assert.equal(html.includes('<div class="dq-preview-live-chip"'), false, "camera views do not render an in-preview LIVE badge");
+assert.match(primaryHtml, /class="dq-camera-frame sf-camera-frame[^"]*"[\s\S]*id="analyzeMovement"/, "the single primary action follows the camera lens in document order");
+assert.equal(primaryHtml.includes('id="whatsNextPanel"'), false, "obsolete future-capability cards are absent from the primary screen");
+assert.equal(coreCss.includes("@media (max-width: 960px)"), true, "tablet instrument stacks the hero and Live Exchange rail");
+assert.equal(coreCss.includes("@media (max-width: 720px)"), true, "mobile containment breakpoint exists");
+assert.equal(coreCss.includes("overflow-x: hidden"), true, "page-level horizontal overflow is prohibited");
+assert.equal(primaryHtml.includes('data-interaction-mode="microscope"'), true, "Microscope is a functional primary interaction mode");
+assert.equal(primaryHtml.includes('id="microscopePanel"'), true, "Microscope live runtime panel is mounted");
 for (const viewport of ["390 × 844", "412 × 915", "768 × 1024", "1024 × 768", "1440 × 900"]) {
   assert.equal(typeof viewport, "string", "responsive viewport covered by visual QA plan: " + viewport);
 }
@@ -257,7 +266,7 @@ assert.equal(source.includes("mirrorFramesToPreview: true"), true, "capture fram
 assert.equal(source.includes("savedActionsSummaryHtml"), true, "Saved Actions summary renderer exists");
 assert.equal(source.includes(".slice(0, 3)"), true, "Saved Actions and Recent Moments cap visible rows");
 assert.equal(source.includes("recentMomentsSummaryHtml"), true, "Recent Moments summary renderer exists");
-assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false, "frontend exposes no direct LLM/VLM keys or raw fetch calls");
+assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{12,}/i.test(source), false, "frontend exposes no direct LLM/VLM keys or raw fetch calls");
 assert.equal(/MediaRecorder|toDataURL|readAsDataURL|indexedDB|navigator\.sendBeacon/i.test(source), false, "frontend still avoids raw media persistence APIs");
 
 for (const marker of [
@@ -479,7 +488,7 @@ assert.equal(source.includes('from "./perception/action-cooldowns.js"'), true, "
 assert.equal(launcherSource.includes("legacyPrototypePrefix") && launcherSource.includes("decodedPath.startsWith(legacyPrototypePrefix)"), true, "legacy deep URL fallback remains");
 assert.equal(source.includes("selectMovementAnalysisBackend"), true, "Observe selects local visual or cloud backend before capture");
 assert.equal(source.includes('kind: "hf_cloud"'), true, "Observe can use HF cloud when local visual service is unavailable");
-assert.equal(source.includes("await requestMovementRecognition({"), true, "cloud fallback goes through the guarded movement-recognition API");
+assert.equal(source.includes("requestMovementRecognition({"), true, "cloud fallback goes through the guarded movement-recognition API");
 const originalFetchForBackendSelector = globalThis.fetch;
 try {
   globalThis.fetch = async (url) => {
@@ -526,7 +535,7 @@ assert.equal(source.includes('data-suggestion-action="reject"'), true, "advanced
 assert.equal(source.includes("Confidence \${suggestion.confidence.toFixed(2)}"), true, "advanced confidence copy remains available");
 assert.equal(source.includes("naturalizeMovementText"), true, "internal zone labels are naturalized");
 assert.equal(source.includes("readableDetailHtml"), true, "reason details remain available");
-assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|sk-proj-|sk-[A-Za-z0-9]/i.test(source), false, "no direct LLM/VLM hooks");
+assert.equal(/fetch\s*\(|WebSocket|OpenAI|OPENAI_API_KEY|(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{12,}/i.test(source), false, "no direct LLM/VLM hooks");
 assert.equal(/MediaRecorder|toDataURL|readAsDataURL|indexedDB|navigator\.sendBeacon/i.test(source), false, "no raw media hooks");
 assert.equal(source.includes("DARKQUEST_SESSION_STORAGE_KEY"), true, "sessionStorage use is scoped to anonymous cloud usage id");
 for (const claim of ["autonomous vision", "object detection proven", "gesture recognition proven", "production perception", "production action recognition", "VLM-powered", "cloud vision"]) {

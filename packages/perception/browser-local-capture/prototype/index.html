@@ -2964,8 +2964,8 @@
           display: contents;
         }
 
-        .dq-camera-card { order: 1; }
-        #operatorCommandsCard { order: 2; }
+        body[data-view="advanced"] .dq-camera-card { order: 1; }
+        body[data-view="advanced"] #operatorCommandsCard { order: 2; }
         .dq-privacy-card { order: 3; }
         #objectiveCard { order: 4; }
         #flowCard { order: 5; }
@@ -4108,7 +4108,7 @@
         white-space: nowrap;
       }
 
-      #mainWorkspace {
+      body[data-view="advanced"] #mainWorkspace {
         width: 100% !important;
         grid-template-columns: minmax(0, 8fr) minmax(332px, 4fr) !important;
         grid-template-areas:
@@ -4259,7 +4259,7 @@
       }
 
       @media (max-width: 1180px) {
-        #mainWorkspace,
+        body[data-view="advanced"] #mainWorkspace,
         .dq-dashboard-grid {
           grid-template-columns: minmax(0, 1fr) !important;
           grid-template-areas:
@@ -4408,7 +4408,7 @@
           width: 100%;
         }
 
-        #analyzeMovement {
+        body[data-view="advanced"] #analyzeMovement {
           order: -1;
           min-height: 54px;
           width: 100%;
@@ -4492,1437 +4492,103 @@
         }
       }
 
-      /* Sensefield primary mode: camera, one action, visual response. */
-      .sf-primary-page {
-        width: 100%;
-        min-width: 0;
-        padding: clamp(12px, 2vw, 28px);
-      }
-
-      .sf-primary-workspace {
-        --sf-camera-box-height: calc(clamp(500px, 68vh, 720px) + (clamp(12px, 1.6vw, 20px) * 2));
-        display: grid !important;
-        width: 100% !important;
-        max-width: 1280px;
-        min-width: 0;
-        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr) !important;
-        gap: clamp(16px, 2vw, 28px);
-        align-items: stretch;
-        margin: 0 auto;
-      }
-
-      body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
-        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr) !important;
-      }
-
-      body[data-view="primary"] #mainWorkspace.sf-primary-workspace > .sf-camera-stage {
-        grid-area: auto !important;
-        grid-column: auto !important;
-        grid-row: auto !important;
-        order: 1 !important;
-      }
-
-      body[data-view="primary"] #mainWorkspace.sf-primary-workspace > .sf-insight-rail {
-        grid-area: auto !important;
-        grid-column: auto !important;
-        grid-row: auto !important;
-        order: 2 !important;
-      }
-
-      .sf-primary-page .dq-card {
-        min-width: 0;
-      }
-
-      .sf-camera-stage,
-      .sf-response-card,
-      .sf-compact-card {
-        display: grid;
-        min-width: 0;
-        overflow: hidden;
-      }
-
-      .sf-camera-stage {
-        padding: clamp(12px, 1.6vw, 20px);
-      }
-
-      .sf-camera-frame {
-        min-height: clamp(500px, 68vh, 720px);
-        aspect-ratio: 16 / 10;
-      }
-
-      .sf-primary-page .dq-camera-empty {
-        padding-bottom: 116px;
-      }
-
-      .sf-primary-page .dq-preview-chips {
-        left: 18px;
-        right: auto;
-        bottom: 18px;
-        max-width: calc(100% - 210px);
-      }
-
-      .sf-primary-page .dq-camera-status-chip {
-        top: 18px;
-        left: 18px;
-      }
-
-      .sf-primary-page .dq-preview-live-chip {
-        top: 18px;
-        right: 18px;
-      }
-
-      .sf-camera-state {
-        position: absolute;
-        top: 18px;
-        left: 50%;
-        z-index: 3;
-        max-width: calc(100% - 220px);
-        transform: translateX(-50%);
-        color: rgba(255, 255, 255, 0.82);
-        font-size: 12px;
-        font-weight: 800;
-        line-height: 1;
-        text-align: center;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .sf-insight-rail {
-        display: grid;
-        min-width: 0;
-        gap: clamp(14px, 1.6vw, 20px);
-        height: var(--sf-camera-box-height);
-        max-height: var(--sf-camera-box-height);
-        grid-template-rows: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 0.65fr);
-        align-self: start;
-      }
-
-      .sf-insight-rail > #operatorCommandsCard {
-        order: 1 !important;
-      }
-
-      .sf-insight-rail > #savedActionsCard {
-        order: 2 !important;
-      }
-
-      .sf-insight-rail > #recentMomentsCard {
-        order: 3 !important;
-      }
-
-      .sf-primary-action {
-        position: absolute;
-        left: 50%;
-        bottom: 18px;
-        z-index: 4;
-        min-width: min(260px, calc(100% - 36px));
-        min-height: 54px;
-        transform: translateX(-50%);
-        padding-inline: 28px;
-      }
-
-      .sf-primary-page #analyzeMovement.sf-primary-action {
-        width: calc(100% - 36px);
-        max-width: calc(100% - 36px);
-        transform: translateX(-50%) !important;
-      }
-
-      .sf-primary-page #analyzeMovement.sf-primary-action:hover,
-      .sf-primary-page #analyzeMovement.sf-primary-action:focus-visible,
-      .sf-primary-page #analyzeMovement.sf-primary-action:active,
-      .sf-primary-page #analyzeMovement.sf-primary-action:disabled {
-        transform: translateX(-50%) !important;
-      }
-
-      .sf-primary-action:disabled {
-        cursor: wait;
-      }
-
-      .sf-primary-page #analyzeMovement::after {
-        content: none !important;
-        display: none !important;
-      }
-
-      .sf-response-card,
-      .sf-compact-card {
-        align-content: center;
-        gap: 14px;
-        padding: clamp(18px, 2vw, 28px);
-      }
-
-      .sf-primary-page #operatorCommandsCard.sf-response-card {
-        display: flex !important;
-        flex-direction: column;
-        align-items: stretch;
-        justify-content: flex-start;
-        min-height: 0;
-        overflow: hidden;
-        grid-area: auto !important;
-        grid-column: auto !important;
-        grid-row: auto !important;
-        border-color: #e7e0d5;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.88);
-        box-shadow: 0 1px 2px rgba(30, 20, 10, 0.03), 0 16px 38px -28px rgba(30, 20, 10, 0.25);
-      }
-
-      .sf-primary-page .dq-camera-card {
-        grid-area: auto !important;
-        grid-column: auto !important;
-        grid-row: auto !important;
-      }
-
-      .sf-response-state,
-      .sf-speech-state,
-      .sf-response-meta {
-        min-width: 0;
-        color: var(--dq-text-muted);
-        font-size: 12px;
-        font-weight: 800;
-        line-height: 1.35;
-        overflow-wrap: anywhere;
-      }
-
-      .sf-response-state {
-        text-transform: uppercase;
-      }
-
-      .sf-mode-selector {
-        flex: 0 0 auto;
-        width: min(100%, 236px);
-        min-height: 34px;
-        align-self: flex-start;
-        box-shadow: none;
-      }
-
-      .sf-mode-selector button {
-        min-height: 28px;
-        font-size: 12px;
-      }
-
-      .sf-response-body {
-        flex: 1 1 auto;
-        min-height: 0;
-        max-height: min(34vh, 320px);
-        margin: 0;
-        padding: 0;
-        overflow-x: hidden;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-      }
-
-      .sf-response-state,
-      .sf-response-meta,
-      .sf-speech-state {
-        flex: 0 0 auto;
-        margin: 0;
-      }
-
-      .sf-response-card .dq-movement-result {
-        min-height: 0;
-        gap: 8px;
-        border: 0;
-        background: transparent;
-        box-shadow: none;
-        padding: 0;
-      }
-
-      .sf-response-card .dq-movement-status {
-        display: none !important;
-      }
-
-      .sf-response-card .dq-movement-sentence {
-        font-size: clamp(28px, 2.6vw, 38px);
-        line-height: 1.08;
-        max-width: 100%;
-        overflow-wrap: anywhere;
-        text-overflow: clip;
-        white-space: normal;
-      }
-
-      .sf-response-card .dq-movement-result.is-empty .dq-movement-sentence {
-        font-size: clamp(24px, 2vw, 32px);
-        line-height: 1.1;
-      }
-
-      .sf-response-card .dq-movement-hint {
-        margin: 0;
-        color: var(--dq-text-muted);
-        font-size: 13px;
-        line-height: 1.45;
-        overflow-wrap: anywhere;
-      }
-
-      .sf-compact-card {
-        align-content: start;
-        border-color: #e7e0d5;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.88);
-        box-shadow: 0 1px 2px rgba(30, 20, 10, 0.03), 0 16px 38px -28px rgba(30, 20, 10, 0.2);
-      }
-
-      .sf-card-title {
-        margin: 0;
-        color: #5f564d;
-        font-size: 12px;
-        font-weight: 900;
-        line-height: 1.2;
-        text-transform: uppercase;
-      }
-
-      .sf-action-list,
-      .sf-moment-list {
-        display: grid;
-        gap: 6px;
-        min-width: 0;
-      }
-
-      .sf-action-row,
-      .sf-moment-row {
-        display: grid;
-        min-width: 0;
-        gap: 4px;
-        border-radius: 12px;
-        color: #111827;
-        overflow-wrap: anywhere;
-      }
-
-      .sf-action-row {
-        grid-template-columns: 24px minmax(0, 1fr) auto auto;
-        align-items: center;
-        cursor: pointer;
-      }
-
-      .sf-action-row:focus-visible {
-        outline: 2px solid rgba(108, 69, 232, 0.45);
-        outline-offset: 3px;
-      }
-
-      .sf-action-icon {
-        display: grid;
-        width: 24px;
-        height: 24px;
-        place-items: center;
-        border-radius: 999px;
-        background: rgba(108, 69, 232, 0.1);
-        color: #6c45e8;
-        font-size: 12px;
-        font-weight: 900;
-      }
-
-      .sf-action-copy,
-      .sf-moment-copy {
-        display: grid;
-        min-width: 0;
-        gap: 2px;
-      }
-
-      .sf-action-copy strong,
-      .sf-moment-copy strong {
-        min-width: 0;
-        font-size: 13px;
-        line-height: 1.25;
-        overflow-wrap: anywhere;
-      }
-
-      .sf-action-copy span,
-      .sf-moment-copy span,
-      .sf-action-state,
-      .sf-action-chevron {
-        min-width: 0;
-        color: var(--dq-text-muted);
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.35;
-        overflow-wrap: anywhere;
-      }
-
-      .sf-action-state {
-        color: #187453;
-        white-space: nowrap;
-      }
-
-      .sf-action-add,
-      .sf-action-view-all {
-        margin-top: 0;
-        color: #6c45e8;
-        font-size: 12px;
-        font-weight: 900;
-        line-height: 1.3;
-        cursor: pointer;
-      }
-
-      .sf-moment-row {
-        gap: 3px;
-      }
-
-      .sf-moment-time {
-        color: var(--dq-text-muted);
-        font-size: 11px;
-        font-weight: 900;
-        line-height: 1.25;
-      }
-
       body[data-view="advanced"] .sf-primary-page {
         display: none;
       }
-
-      @media (max-width: 900px) {
-        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
-          grid-template-columns: minmax(0, 1fr) !important;
-        }
-
-        .sf-insight-rail {
-          height: auto;
-          max-height: none;
-          grid-template-rows: none;
-        }
-
-        .sf-camera-frame {
-          min-height: min(62vh, 520px);
-          aspect-ratio: 4 / 3;
-        }
-      }
-
-      @media (max-width: 460px) {
-        .sf-primary-page {
-          padding: 10px;
-        }
-
-        .sf-primary-workspace {
-          gap: 12px;
-        }
-
-        .sf-camera-stage,
-        .sf-response-card,
-        .sf-compact-card {
-          padding: 14px !important;
-        }
-
-        .sf-camera-frame {
-          min-height: 420px;
-          aspect-ratio: 1 / 1.14;
-        }
-
-        .sf-primary-page .dq-preview-chips {
-          max-width: calc(100% - 36px);
-        }
-
-        .sf-response-card .dq-movement-sentence {
-          font-size: 30px;
-          line-height: 1.1;
-        }
-      }
     </style>
-    <style id="sensefieldPremiumRedesign">
-      :root {
-        --sf-page-bg: #f8f7f4;
-        --sf-surface: #ffffff;
-        --sf-surface-elevated: rgba(255, 255, 255, 0.96);
-        --sf-surface-subtle: #f7f7f8;
-        --sf-surface-lavender: #f7f5ff;
-        --sf-text-primary: #111944;
-        --sf-text-secondary: #465077;
-        --sf-text-tertiary: #7b84a5;
-        --sf-border-subtle: rgba(28, 36, 78, 0.09);
-        --sf-border-emphasized: rgba(105, 76, 255, 0.24);
-        --sf-accent-violet: #6d4aff;
-        --sf-accent-indigo: #3157ee;
-        --sf-accent-soft: #f0edff;
-        --sf-success: #00866c;
-        --sf-warning: #ba7a13;
-        --sf-danger: #d74452;
-        --sf-shadow-small: 0 2px 8px rgba(29, 33, 65, 0.04);
-        --sf-shadow-medium: 0 12px 30px rgba(29, 33, 65, 0.07);
-        --sf-shadow-large: 0 20px 50px rgba(29, 33, 65, 0.09);
-        --sf-radius-small: 10px;
-        --sf-radius-medium: 18px;
-        --sf-radius-large: 30px;
-        --sf-radius-pill: 999px;
-        --sf-space-1: 4px;
-        --sf-space-2: 8px;
-        --sf-space-3: 12px;
-        --sf-space-4: 16px;
-        --sf-space-5: 20px;
-        --sf-space-6: 24px;
-        --sf-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --sf-motion: 180ms ease-out;
-      }
-
-      body[data-view="primary"] {
-        min-width: 0;
-        overflow-x: clip;
-        background: var(--sf-page-bg);
-        color: var(--sf-text-primary);
-        font-family: var(--sf-font);
-      }
-
-      body[data-view="primary"] .dq-app,
-      body[data-view="primary"] .sf-primary-page {
-        width: 100%;
-        min-width: 0;
-      }
-
-      body[data-view="primary"] .sf-primary-page {
-        padding: clamp(20px, 1.55vw, 28px) clamp(18px, 2.1vw, 36px) !important;
-      }
-
-      body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
-        display: grid !important;
-        width: 100% !important;
-        max-width: 1660px !important;
-        grid-template-columns: minmax(0, 2.06fr) minmax(390px, 1fr) !important;
-        gap: clamp(18px, 1.35vw, 24px) !important;
-        align-items: start !important;
-        margin: 0 auto;
-      }
-
-      .sf-left-column,
-      .sf-insight-rail,
-      .sf-left-column > *,
-      .sf-insight-rail > * {
-        min-width: 0;
-      }
-
-      .sf-left-column {
-        display: grid;
-        gap: clamp(16px, 1.2vw, 20px);
-      }
-
-      body[data-view="primary"] .sf-insight-rail {
-        display: grid !important;
-        height: auto !important;
-        max-height: none !important;
-        grid-template-rows: auto !important;
-        gap: clamp(14px, 1vw, 18px) !important;
-        align-content: start;
-      }
-
-      body[data-view="primary"] .dq-card {
-        min-width: 0;
-        border: 1px solid var(--sf-border-subtle);
-        background: var(--sf-surface-elevated);
-        box-shadow: var(--sf-shadow-medium);
-      }
-
-      body[data-view="primary"] .sf-camera-stage {
-        display: block !important;
-        padding: clamp(16px, 1.45vw, 24px) !important;
-        overflow: visible;
-        border-radius: var(--sf-radius-large) !important;
-        box-shadow: var(--sf-shadow-large);
-      }
-
-      body[data-view="primary"] .sf-camera-frame {
-        width: 100%;
-        height: auto !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        aspect-ratio: 1.415 / 1 !important;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.52);
-        border-radius: 24px !important;
-        background: #111629;
-      }
-
-      body[data-view="primary"] .sf-camera-frame #preview {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      body[data-view="primary"] .dq-camera-empty {
-        gap: 10px;
-        max-width: 340px;
-        padding: 24px 24px 112px !important;
-        color: rgba(255, 255, 255, 0.84);
-        text-align: center;
-      }
-
-      body[data-view="primary"] .dq-camera-empty svg {
-        width: 28px;
-        height: 28px;
-      }
-
-      body[data-view="primary"] .dq-camera-empty strong {
-        color: #ffffff;
-        font-size: 18px;
-        line-height: 1.25;
-      }
-
-      body[data-view="primary"] .dq-camera-empty span {
-        font-size: 13px;
-        line-height: 1.45;
-      }
-
-      body[data-view="primary"] .dq-camera-status-chip,
-      body[data-view="primary"] .dq-preview-live-chip,
-      body[data-view="primary"] .dq-preview-chips,
-      body[data-view="primary"] .sf-camera-state {
-        z-index: 5;
-        font-family: var(--sf-font);
-      }
-
-      body[data-view="primary"] .dq-camera-status-chip {
-        top: 20px !important;
-        left: 20px !important;
-        display: inline-flex;
-        align-items: center;
-        gap: 9px;
-        min-height: 46px;
-        padding: 0 18px;
-        border: 1px solid rgba(255, 255, 255, 0.78);
-        border-radius: var(--sf-radius-pill);
-        background: rgba(255, 255, 255, 0.91);
-        box-shadow: var(--sf-shadow-small);
-        color: var(--sf-text-primary);
-        font-size: 14px;
-        font-weight: 650;
-        backdrop-filter: blur(10px);
-      }
-
-      body[data-view="primary"] .dq-camera-status-chip svg {
-        width: 18px;
-        height: 18px;
-        color: #20bd72;
-        stroke-width: 1.9;
-      }
-
-      body[data-view="primary"] .dq-preview-live-chip {
-        top: 20px !important;
-        right: 20px !important;
-        display: inline-flex;
-        align-items: center;
-        gap: 9px;
-        min-height: 42px;
-        padding: 0 16px;
-        border: 0;
-        border-radius: var(--sf-radius-pill);
-        background: rgba(17, 25, 61, 0.92);
-        color: #ffffff;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity var(--sf-motion), visibility var(--sf-motion);
-      }
-
-      body[data-view="primary"] .dq-camera-frame.is-live .dq-preview-live-chip {
-        opacity: 1;
-        visibility: visible;
-      }
-
-      body[data-view="primary"] .dq-preview-live-chip span {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #ff4059;
-      }
-
-      body[data-view="primary"] .dq-camera-frame.is-live .dq-preview-live-chip span {
-        animation: sf-live-pulse 1.8s ease-in-out infinite;
-      }
-
-      body[data-view="primary"] .dq-preview-chips {
-        left: 22px !important;
-        bottom: 106px !important;
-        max-width: min(220px, calc(100% - 44px)) !important;
-        color: rgba(255, 255, 255, 0.78);
-        font-size: 11px;
-        opacity: 0.86;
-      }
-
-      body[data-view="primary"] .sf-camera-state {
-        top: 22px !important;
-        max-width: calc(100% - 300px) !important;
-        padding: 8px 12px;
-        border-radius: var(--sf-radius-pill);
-        background: rgba(17, 25, 61, 0.72);
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 11px;
-        font-weight: 650;
-        letter-spacing: 0;
-        transition: opacity var(--sf-motion);
-        backdrop-filter: blur(8px);
-      }
-
-      body[data-view="primary"] .sf-camera-state[hidden] {
-        display: none !important;
-      }
-
-      body[data-view="primary"] #analyzeMovement.sf-primary-action {
-        left: 50%;
-        bottom: 30px;
-        display: inline-flex;
-        width: calc(100% - 76px);
-        max-width: calc(100% - 76px);
-        min-height: 64px;
-        align-items: center;
-        justify-content: center;
-        gap: 11px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: var(--sf-radius-pill) !important;
-        padding: 0 28px;
-        background: linear-gradient(100deg, #a43ff2 0%, var(--sf-accent-violet) 44%, var(--sf-accent-indigo) 100%);
-        box-shadow: 0 12px 28px rgba(74, 59, 236, 0.28);
-        color: #ffffff;
-        font-size: 15px;
-        font-weight: 700;
-        line-height: 1;
-        transform: translateX(-50%) !important;
-        transition: filter var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
-      }
-
-      body[data-view="primary"] #analyzeMovement.sf-primary-action svg {
-        width: 18px;
-        height: 18px;
-        flex: 0 0 auto;
-        stroke-width: 1.9;
-      }
-
-      body[data-view="primary"] #analyzeMovement.sf-primary-action:hover,
-      body[data-view="primary"] #analyzeMovement.sf-primary-action:focus-visible {
-        filter: saturate(1.05) brightness(1.03);
-        box-shadow: 0 15px 32px rgba(74, 59, 236, 0.34);
-        transform: translateX(-50%) !important;
-      }
-
-      body[data-view="primary"] #analyzeMovement.sf-primary-action:active {
-        transform: translateX(-50%) scale(0.98) !important;
-      }
-
-      body[data-view="primary"] #analyzeMovement.sf-primary-action:disabled {
-        opacity: 0.66;
-        transform: translateX(-50%) !important;
-      }
-
-      body[data-view="primary"] .sf-mode-selector {
-        display: grid !important;
-        width: 100% !important;
-        min-height: 64px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        align-self: stretch;
-        padding: 7px;
-        border: 1px solid var(--sf-border-subtle);
-        border-radius: 20px;
-        background: rgba(245, 245, 247, 0.92);
-        box-shadow: var(--sf-shadow-small);
-      }
-
-      body[data-view="primary"] .sf-mode-selector button {
-        display: inline-flex;
-        min-width: 0;
-        min-height: 48px;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        border: 1px solid transparent;
-        border-radius: 15px;
-        background: transparent;
-        color: var(--sf-text-secondary);
-        font-size: 13px;
-        font-weight: 650;
-        transition: color var(--sf-motion), background var(--sf-motion), border-color var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
-      }
-
-      body[data-view="primary"] .sf-mode-selector button svg {
-        width: 17px;
-        height: 17px;
-        flex: 0 0 auto;
-        stroke-width: 1.8;
-      }
-
-      body[data-view="primary"] .sf-mode-selector button[aria-pressed="true"] {
-        border-color: rgba(118, 83, 255, 0.28);
-        background: #ffffff;
-        box-shadow: 0 0 0 2px rgba(118, 83, 255, 0.13), var(--sf-shadow-small);
-        color: #4f34ef;
-      }
-
-      body[data-view="primary"] .sf-mode-selector button:active {
-        transform: scale(0.98);
-      }
-
-      body[data-view="primary"] #operatorCommandsCard.sf-response-card,
-      body[data-view="primary"] .sf-compact-card {
-        border-radius: 22px !important;
-        box-shadow: var(--sf-shadow-medium);
-      }
-
-      body[data-view="primary"] #operatorCommandsCard.sf-response-card {
-        position: relative;
-        display: flex !important;
-        min-height: clamp(230px, 22vw, 292px);
-        flex-direction: column;
-        gap: 12px;
-        padding: clamp(22px, 1.8vw, 30px) !important;
-        overflow: hidden;
-        border-color: var(--sf-border-emphasized);
-        background:
-          radial-gradient(circle at 88% 78%, rgba(113, 83, 255, 0.08) 0 1px, transparent 1.5px) 0 0 / 8px 8px,
-          linear-gradient(145deg, #ffffff 0%, var(--sf-surface-lavender) 100%);
-      }
-
-      body[data-view="primary"] #operatorCommandsCard.sf-response-card:has(.dq-movement-result.is-empty) {
-        min-height: 160px;
-      }
-
-      body[data-view="primary"] .sf-response-state,
-      body[data-view="primary"] .sf-card-title,
-      body[data-view="primary"] .sf-roadmap-heading h2 {
-        margin: 0;
-        color: var(--sf-text-primary);
-        font-size: 11px;
-        font-weight: 750;
-        line-height: 1.2;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-      }
-
-      body[data-view="primary"] .sf-response-state {
-        color: #5538ef;
-      }
-
-      body[data-view="primary"] .sf-response-body {
-        flex: 1 1 auto;
-        min-height: 0;
-        max-height: 220px !important;
-        overflow-x: hidden;
-        overflow-y: auto;
-        scrollbar-width: thin;
-      }
-
-      body[data-view="primary"] .sf-response-card .dq-movement-result {
-        display: grid;
-        gap: 10px;
-        min-height: 0;
-        border: 0;
-        padding: 0;
-        background: transparent;
-        box-shadow: none;
-      }
-
-      body[data-view="primary"] .sf-response-card .dq-movement-sentence {
-        display: block;
-        max-width: 100%;
-        color: var(--sf-text-primary);
-        font-size: clamp(26px, 2vw, 34px);
-        font-weight: 680;
-        line-height: 1.14;
-        letter-spacing: 0;
-        white-space: normal;
-        overflow: visible;
-        overflow-wrap: anywhere;
-        text-overflow: clip;
-      }
-
-      body[data-view="primary"] .sf-response-card .dq-movement-result.is-empty .dq-movement-sentence {
-        font-size: clamp(24px, 1.8vw, 30px);
-      }
-
-      body[data-view="primary"] .sf-response-card .dq-movement-hint {
-        margin: 0;
-        color: var(--sf-text-secondary);
-        font-size: 13px;
-        line-height: 1.5;
-      }
-
-      body[data-view="primary"] .sf-response-meta {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        gap: 9px;
-        margin: 4px -30px -30px !important;
-        padding: 16px 30px;
-        border-top: 1px solid var(--sf-border-subtle);
-        color: var(--sf-text-secondary);
-        font-size: 12px;
-        line-height: 1.3;
-      }
-
-      body[data-view="primary"] .sf-response-meta:empty,
-      body[data-view="primary"] .sf-speech-state:empty {
-        display: none;
-      }
-
-      body[data-view="primary"] .sf-response-meta svg {
-        width: 17px;
-        height: 17px;
-        color: var(--sf-accent-violet);
-      }
-
-      body[data-view="primary"] .sf-confidence-value {
-        margin-left: auto;
-        white-space: nowrap;
-      }
-
-      body[data-view="primary"] .sf-confidence-dots {
-        display: inline-flex;
-        gap: 5px;
-      }
-
-      body[data-view="primary"] .sf-confidence-dots i {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: #d8d2fb;
-      }
-
-      body[data-view="primary"] .sf-confidence-dots i.is-active {
-        background: var(--sf-accent-violet);
-      }
-
-      body[data-view="primary"] .sf-speech-state {
-        margin: 0;
-        color: var(--sf-text-secondary);
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1.35;
-      }
-
-      body[data-view="primary"] .sf-compact-card {
-        display: grid !important;
-        align-content: start;
-        gap: 14px;
-        padding: clamp(18px, 1.45vw, 24px) !important;
-        background: var(--sf-surface-elevated);
-      }
-
-      body[data-view="primary"] .sf-action-list,
-      body[data-view="primary"] .sf-moment-list {
-        display: grid;
-        min-width: 0;
-        gap: 0;
-      }
-
-      body[data-view="primary"] .sf-action-row {
-        display: grid;
-        min-width: 0;
-        grid-template-columns: 42px minmax(0, 1fr) auto;
-        gap: 11px;
-        align-items: center;
-        min-height: 58px;
-        border-radius: 12px;
-        padding: 7px 0;
-        color: var(--sf-text-primary);
-        cursor: pointer;
-        transition: background var(--sf-motion), transform var(--sf-motion);
-      }
-
-      body[data-view="primary"] .sf-action-row:hover {
-        background: var(--sf-surface-subtle);
-      }
-
-      body[data-view="primary"] .sf-action-row:active {
-        transform: scale(0.99);
-      }
-
-      body[data-view="primary"] .sf-action-icon {
-        display: grid;
-        width: 40px;
-        height: 40px;
-        place-items: center;
-        border-radius: 12px;
-        background: var(--sf-accent-soft);
-        color: var(--sf-accent-violet);
-        font-size: 0;
-      }
-
-      body[data-view="primary"] .sf-action-icon svg {
-        width: 21px;
-        height: 21px;
-        stroke-width: 1.75;
-      }
-
-      body[data-view="primary"] .sf-action-copy,
-      body[data-view="primary"] .sf-moment-copy {
-        display: grid;
-        min-width: 0;
-        gap: 2px;
-      }
-
-      body[data-view="primary"] .sf-action-copy strong {
-        color: var(--sf-text-primary);
-        font-size: 13px;
-        font-weight: 700;
-        line-height: 1.25;
-      }
-
-      body[data-view="primary"] .sf-action-copy span {
-        color: var(--sf-text-secondary);
-        font-size: 11px;
-        line-height: 1.35;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      body[data-view="primary"] .sf-action-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        color: var(--sf-success);
-        font-size: 11px;
-        font-weight: 650;
-        white-space: nowrap;
-      }
-
-      body[data-view="primary"] .sf-status-toggle {
-        position: relative;
-        display: inline-block;
-        width: 28px;
-        height: 16px;
-        flex: 0 0 auto;
-        border-radius: var(--sf-radius-pill);
-        background: #c8c9d8;
-      }
-
-      body[data-view="primary"] .sf-status-toggle::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #ffffff;
-        box-shadow: 0 1px 3px rgba(17, 25, 68, 0.2);
-      }
-
-      body[data-view="primary"] .sf-action-state[data-enabled="true"] .sf-status-toggle {
-        background: #6352ed;
-      }
-
-      body[data-view="primary"] .sf-action-state[data-enabled="true"] .sf-status-toggle::after {
-        left: 14px;
-      }
-
-      body[data-view="primary"] .sf-action-chevron {
-        display: none;
-      }
-
-      body[data-view="primary"] .sf-action-chevron svg {
-        width: 14px;
-        height: 14px;
-      }
-
-      body[data-view="primary"] .sf-action-add,
-      body[data-view="primary"] .sf-action-view-all {
-        display: flex;
-        min-height: 38px;
-        align-items: center;
-        justify-content: space-between;
-        margin-top: 3px;
-        border-top: 1px solid var(--sf-border-subtle);
-        color: #5138ef;
-        font-size: 12px;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      body[data-view="primary"] .sf-action-view-all svg,
-      body[data-view="primary"] .sf-card-footer-link svg {
-        width: 15px;
-        height: 15px;
-        flex: 0 0 auto;
-      }
-
-      body[data-view="primary"] .sf-card-footer-link {
-        display: flex;
-        min-width: 0;
-        min-height: 38px;
-        align-items: center;
-        justify-content: space-between;
-        margin-top: 2px;
-        border-top: 1px solid var(--sf-border-subtle);
-        color: #5138ef;
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 1.3;
-        text-decoration: none;
-      }
-
-      body[data-view="primary"] .sf-moment-list {
-        position: relative;
-        gap: 8px;
-      }
-
-      body[data-view="primary"] .sf-moment-list:has(.sf-moment-row)::before {
-        content: "";
-        position: absolute;
-        top: 12px;
-        bottom: 12px;
-        left: 5px;
-        width: 1px;
-        background: #dfe1ed;
-      }
-
-      body[data-view="primary"] .sf-moment-row {
-        position: relative;
-        display: grid;
-        min-width: 0;
-        gap: 4px;
-        padding-left: 22px;
-        color: var(--sf-text-secondary);
-      }
-
-      body[data-view="primary"] .sf-moment-row::before {
-        content: "";
-        position: absolute;
-        top: 7px;
-        left: 2px;
-        width: 7px;
-        height: 7px;
-        border: 2px solid #ffffff;
-        border-radius: 50%;
-        background: #7a80a0;
-      }
-
-      body[data-view="primary"] .sf-moment-time {
-        color: var(--sf-text-tertiary);
-        font-size: 10px;
-        font-weight: 600;
-        line-height: 1.3;
-      }
-
-      body[data-view="primary"] .sf-moment-copy {
-        display: block;
-        color: var(--sf-text-secondary);
-        font-size: 11px;
-        line-height: 1.45;
-        overflow-wrap: anywhere;
-      }
-
-      body[data-view="primary"] .sf-moment-copy strong {
-        display: inline-block;
-        margin-right: 8px;
-        border-radius: var(--sf-radius-pill);
-        padding: 3px 9px;
-        background: var(--sf-accent-soft);
-        color: #5543da;
-        font-size: 10px;
-        font-weight: 700;
-      }
-
-      body[data-view="primary"] .sf-roadmap-card {
-        display: grid;
-        gap: 16px;
-        padding: clamp(18px, 1.45vw, 24px) !important;
-        border-radius: 28px !important;
-      }
-
-      body[data-view="primary"] .sf-roadmap-heading {
-        display: grid;
-        gap: 5px;
-      }
-
-      body[data-view="primary"] .sf-roadmap-heading p {
-        margin: 0;
-        color: var(--sf-text-secondary);
-        font-size: 12px;
-        line-height: 1.4;
-      }
-
-      body[data-view="primary"] .sf-roadmap-grid {
-        display: grid;
-        min-width: 0;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 12px;
-      }
-
-      body[data-view="primary"] .sf-roadmap-tile {
-        display: grid;
-        min-width: 0;
-        grid-template-columns: 40px minmax(0, 1fr);
-        gap: 10px;
-        align-items: start;
-        min-height: 88px;
-        border: 1px solid var(--sf-border-subtle);
-        border-radius: 15px;
-        padding: 12px;
-        background: #ffffff;
-        box-shadow: var(--sf-shadow-small);
-        transition: border-color var(--sf-motion), box-shadow var(--sf-motion), transform var(--sf-motion);
-      }
-
-      body[data-view="primary"] .sf-roadmap-tile:hover {
-        border-color: rgba(105, 76, 255, 0.18);
-        box-shadow: 0 8px 18px rgba(29, 33, 65, 0.07);
-        transform: translateY(-2px);
-      }
-
-      body[data-view="primary"] .sf-roadmap-icon {
-        display: grid;
-        width: 38px;
-        height: 38px;
-        place-items: center;
-        border-radius: 11px;
-        background: var(--sf-accent-soft);
-        color: var(--sf-accent-violet);
-      }
-
-      body[data-view="primary"] .sf-roadmap-icon svg {
-        width: 21px;
-        height: 21px;
-        stroke-width: 1.7;
-      }
-
-      body[data-view="primary"] .sf-roadmap-tile > span:last-child {
-        display: grid;
-        min-width: 0;
-        gap: 3px;
-      }
-
-      body[data-view="primary"] .sf-roadmap-tile strong {
-        color: var(--sf-text-primary);
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.25;
-        overflow-wrap: normal;
-      }
-
-      body[data-view="primary"] .sf-roadmap-tile small {
-        color: var(--sf-text-secondary);
-        font-size: 10px;
-        line-height: 1.45;
-        overflow-wrap: normal;
-      }
-
-      body[data-view="primary"] :where(button, [role="link"]):focus-visible {
-        outline: 3px solid rgba(105, 76, 255, 0.28);
-        outline-offset: 3px;
-      }
-
-      @keyframes sf-live-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 64, 89, 0.35); }
-        50% { box-shadow: 0 0 0 6px rgba(255, 64, 89, 0); }
-      }
-
-      @media (max-width: 1120px) {
-        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
-          display: flex !important;
-          flex-direction: column;
-          align-items: stretch !important;
-          gap: 16px !important;
-        }
-
-        body[data-view="primary"] .sf-left-column,
-        body[data-view="primary"] .sf-insight-rail {
-          display: contents !important;
-        }
-
-        body[data-view="primary"] .sf-camera-stage { order: 1 !important; }
-        body[data-view="primary"] .sf-mode-selector { order: 2 !important; }
-        body[data-view="primary"] #operatorCommandsCard { order: 3 !important; }
-        body[data-view="primary"] #savedActionsCard { order: 4 !important; }
-        body[data-view="primary"] #recentMomentsCard { order: 5 !important; }
-        body[data-view="primary"] .sf-roadmap-card { order: 6 !important; }
-
-        body[data-view="primary"] :is(.sf-camera-stage, .sf-mode-selector, #operatorCommandsCard, #savedActionsCard, #recentMomentsCard, .sf-roadmap-card) {
-          width: 100% !important;
-          max-width: none !important;
-          align-self: stretch !important;
-        }
-
-        body[data-view="primary"] .sf-camera-frame {
-          aspect-ratio: 16 / 10 !important;
-        }
-
-        body[data-view="primary"] .sf-roadmap-grid {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+    <link rel="stylesheet" href="./microscope/microscope.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three/build/three.module.min.js",
+          "three/addons/": "/vendor/three/examples/jsm/"
         }
       }
-
-      @media (min-width: 1121px) and (max-height: 950px) {
-        body[data-view="primary"] .sf-camera-frame {
-          aspect-ratio: 16 / 10 !important;
-        }
-      }
-
-      @media (max-width: 600px) {
-        body[data-view="primary"] .sf-primary-page {
-          padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important;
-        }
-
-        body[data-view="primary"] #mainWorkspace.sf-primary-workspace {
-          gap: 12px !important;
-        }
-
-        body[data-view="primary"] .sf-mode-selector { order: 1 !important; }
-        body[data-view="primary"] .sf-camera-stage { order: 2 !important; }
-
-        body[data-view="primary"] .sf-mode-selector {
-          min-height: 58px;
-          padding: 6px;
-          border-radius: 17px;
-        }
-
-        body[data-view="primary"] .sf-mode-selector button {
-          min-height: 46px;
-          gap: 7px;
-          padding: 0 8px;
-          font-size: 12px;
-        }
-
-        body[data-view="primary"] .sf-camera-stage,
-        body[data-view="primary"] .sf-roadmap-card,
-        body[data-view="primary"] #operatorCommandsCard.sf-response-card,
-        body[data-view="primary"] .sf-compact-card {
-          border-radius: 20px !important;
-        }
-
-        body[data-view="primary"] .sf-camera-stage {
-          padding: 10px !important;
-        }
-
-        body[data-view="primary"] .sf-camera-frame {
-          aspect-ratio: 4 / 5 !important;
-          border-radius: 15px !important;
-        }
-
-        body[data-view="primary"] .dq-camera-status-chip {
-          top: 12px !important;
-          left: 12px !important;
-          min-height: 40px;
-          padding: 0 13px;
-          font-size: 12px;
-        }
-
-        body[data-view="primary"] .dq-preview-live-chip {
-          top: 12px !important;
-          right: 12px !important;
-          min-height: 38px;
-          padding: 0 12px;
-          font-size: 11px;
-        }
-
-        body[data-view="primary"] .sf-camera-state {
-          top: 58px !important;
-          max-width: calc(100% - 24px) !important;
-        }
-
-        body[data-view="primary"] #analyzeMovement.sf-primary-action {
-          bottom: 18px;
-          width: calc(100% - 28px);
-          max-width: calc(100% - 28px);
-          min-height: 56px;
-          padding: 0 18px;
-        }
-
-        body[data-view="primary"] .dq-preview-chips {
-          bottom: 84px !important;
-          left: 16px !important;
-          max-width: calc(100% - 32px) !important;
-        }
-
-        body[data-view="primary"] #operatorCommandsCard.sf-response-card {
-          min-height: 248px;
-          padding: 20px !important;
-        }
-
-        body[data-view="primary"] .sf-response-meta {
-          margin: 4px -20px -20px !important;
-          padding: 14px 20px;
-        }
-
-        body[data-view="primary"] .sf-action-row {
-          grid-template-columns: 40px minmax(0, 1fr) auto;
-          gap: 9px;
-        }
-
-        body[data-view="primary"] .sf-roadmap-grid {
-          grid-template-columns: minmax(0, 1fr);
-        }
-
-        body[data-view="primary"] .sf-roadmap-tile {
-          min-height: 76px;
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        body[data-view="primary"] *,
-        body[data-view="primary"] *::before,
-        body[data-view="primary"] *::after {
-          scroll-behavior: auto !important;
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-        }
-      }
-    </style>
+    </script>
+    <link rel="stylesheet" href="./perception-core.css">
   </head>
   <body>
+    <script src="./view-mode.js"></script>
     <main class="dq-app">
-      <div id="dashboard" class="dq-page sf-primary-page" data-primary-view aria-label="Sensefield visual companion">
-        <section id="mainWorkspace" class="sf-primary-workspace" aria-label="Sensefield workspace">
-          <div class="sf-left-column">
-          <section class="dq-card dq-camera-card sf-camera-stage card-contained" aria-labelledby="cameraTitle">
-            <h1 id="cameraTitle" class="sr-only">Sensefield camera</h1>
+      <div id="dashboard" class="dq-page sf-primary-page pc-board" data-primary-view aria-label="Sensefield visual companion">
+        <div class="pc-header" role="banner">
+          <div class="sf-perception-brand pc-brand" aria-label="Perception Core">
+            <span class="sf-perception-brand-mark pc-brand-mark" aria-hidden="true"></span>
+            <span>
+              <strong>Perception Core</strong>
+              <small>AI observation system</small>
+            </span>
+          </div>
+          <div id="interactionModeSelector" class="sf-mode-selector pc-segmented" role="group" aria-label="Perception mode">
+            <button type="button" data-interaction-mode="conversation" aria-pressed="true">
+              <i data-lucide="message-circle" aria-hidden="true"></i>
+              <span>Ask</span>
+            </button>
+            <button type="button" data-interaction-mode="observing" aria-pressed="false">
+              <i data-lucide="eye" aria-hidden="true"></i>
+              <span>Watch</span>
+            </button>
+            <button type="button" data-interaction-mode="microscope" aria-label="AI Microscope" aria-pressed="false">
+              <i data-lucide="scan-line" aria-hidden="true"></i>
+              <span>Microscope</span>
+            </button>
+          </div>
+          <p class="pc-header-status" aria-hidden="true"><span class="pc-header-status-dot"></span>A closer<br>tomorrow</p>
+        </div>
+
+        <section id="mainWorkspace" class="sf-primary-workspace pc-board-body" aria-label="Sensefield perception workspace">
+          <section class="dq-camera-card sf-camera-stage pc-hero" aria-labelledby="cameraTitle">
+            <p id="perceptionCoreLabel" class="sr-only">Perception core</p>
+
+            <ul class="pc-hero-tags pc-hero-tags--top" aria-hidden="true">
+              <li>See</li>
+              <li>Question</li>
+              <li>Discover</li>
+              <li>Belong</li>
+            </ul>
+            <ul class="pc-hero-tags pc-hero-tags--bottom" aria-hidden="true">
+              <li>More</li>
+              <li>Human</li>
+              <li>Insights</li>
+              <li>A brighter</li>
+              <li>Tomorrow</li>
+            </ul>
+
             <div class="dq-camera-frame sf-camera-frame preview-wrap">
               <video id="preview" autoplay playsinline muted aria-label="Sensefield local camera preview" data-mirror-default="on" data-analysis-mirror="on"></video>
-              <div class="dq-camera-empty" aria-hidden="true">
-                <i data-lucide="camera" aria-hidden="true"></i>
-                <strong>Camera is off</strong>
-                <span>Start a mode to begin. No raw media stored.</span>
+              <div id="microscopeObjectLayer" class="am-live-object-layer" aria-label="Live tracked objects" hidden></div>
+              <div id="perceptionCoreAwakening" class="sf-optical-core" data-state="loading" aria-hidden="true">
+                <canvas id="perceptionCoreCanvas"></canvas>
               </div>
-              <div class="dq-camera-status-chip" aria-label="Camera status">
+            </div>
+
+            <div class="dq-camera-empty pc-hero-copy">
+              <h1 id="cameraTitle" class="pc-hero-heading">
+                <span id="cameraDormantTitle">Ask the world</span>
+              </h1>
+              <p id="cameraDormantCopy" class="pc-hero-subhead">Start a conversation about anything in view.</p>
+              <p class="pc-hero-body">Get perspectives, context, and ideas<br>from the world around you.</p>
+              <button id="analyzeMovement" class="dq-button primary sf-primary-action pc-cta" type="button" aria-label="Start conversation" aria-describedby="movementControlHelp">
+                <i data-lucide="sparkles" aria-hidden="true"></i>
+                <span>Start conversation</span>
+              </button>
+            </div>
+
+            <div class="sf-camera-glass-reflection" aria-hidden="true"></div>
+            <div class="sf-camera-status-rail pc-camera-status">
+              <div class="dq-camera-status-chip" role="status" aria-live="polite" aria-label="Camera status">
                 <i data-lucide="video" aria-hidden="true"></i>
                 <span id="cameraStatusChip">Camera off</span>
               </div>
-              <span id="primaryObservationState" class="sf-camera-state">Ready</span>
-              <div class="dq-preview-live-chip" aria-hidden="true">
-                <span></span>
-                LIVE
-              </div>
-              <div class="dq-preview-chips" aria-label="Preview privacy">
-                <span>No raw media stored</span>
-              </div>
-              <button id="analyzeMovement" class="dq-button primary sf-primary-action" type="button" aria-label="Start conversation"><i data-lucide="sparkles" aria-hidden="true"></i><span>Start conversation</span></button>
+              <span id="primaryObservationState" class="sf-camera-state" role="status" aria-live="polite">Ready</span>
+              <span class="sf-camera-privacy"><i data-lucide="shield-check" aria-hidden="true"></i>No raw media stored</span>
             </div>
             <p id="movementControlHelp" class="sr-only">Start conversation.</p>
-            <div id="errorBanner" class="error-banner" hidden></div>
-          </section>
+            <div id="errorBanner" class="error-banner" role="alert" hidden></div>
 
-          <section id="whatsNextPanel" class="dq-card sf-roadmap-card card-contained" aria-labelledby="whatsNextTitle">
-            <div class="sf-roadmap-heading">
-              <h2 id="whatsNextTitle">What's next</h2>
-              <p>Future capabilities we're building for you.</p>
-            </div>
-            <div class="sf-roadmap-grid" aria-label="Future capabilities">
-              <article class="sf-roadmap-tile">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="box"></i></span>
-                <span><strong>Spatial Awareness</strong><small>Understand 3D space and distances.</small></span>
-              </article>
-              <article class="sf-roadmap-tile">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="hand"></i></span>
-                <span><strong>Hand Motion</strong><small>Understand gestures and fine movements.</small></span>
-              </article>
-              <article class="sf-roadmap-tile">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="languages"></i></span>
-                <span><strong>Live Translation</strong><small>Real-time translation across languages.</small></span>
-              </article>
-              <article class="sf-roadmap-tile">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="scan-line"></i></span>
-                <span><strong>Scene Mapping</strong><small>Build maps of your environment.</small></span>
-              </article>
-              <article class="sf-roadmap-tile">
-                <span class="sf-roadmap-icon" aria-hidden="true"><i data-lucide="shield-check"></i></span>
-                <span><strong>Graceful Fallback</strong><small>Stay useful even when uncertain.</small></span>
-              </article>
-            </div>
-          </section>
-          </div>
-
-          <aside class="sf-insight-rail" aria-label="Observation summary">
-            <div id="interactionModeSelector" class="dq-segmented sf-mode-selector" role="group" aria-label="Interaction mode">
-              <button type="button" data-interaction-mode="conversation" aria-pressed="true"><i data-lucide="message-circle" aria-hidden="true"></i><span>Conversation</span></button>
-              <button type="button" data-interaction-mode="observing" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i><span>Observing</span></button>
-            </div>
-            <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained" data-product-card="visual-response" aria-labelledby="movementResultTitle">
+            <section id="operatorCommandsCard" class="dq-card sf-response-card card-contained pc-response" data-product-card="visual-response" aria-labelledby="movementResultTitle">
               <span id="cameraSuggestionCount" class="sf-response-state">Response</span>
-              <h2 id="movementResultTitle" class="sr-only">Visual Response</h2>
+              <h2 id="movementResultTitle" class="sr-only">Visual response</h2>
               <div id="cameraSuggestions" class="dq-suggestion-list sf-response-body" aria-live="polite">
                 <div class="dq-movement-result result-card-stable result-hero is-empty text-contained">
                   <span class="dq-movement-status">Response</span>
@@ -5934,18 +4600,69 @@
               <p id="voiceStatus" class="sf-speech-state">Voice unavailable</p>
             </section>
 
-            <section id="savedActionsCard" class="dq-card sf-compact-card card-contained" aria-labelledby="savedActionsTitle">
-              <h2 id="savedActionsTitle" class="sf-card-title">Saved actions</h2>
-              <div id="savedActionsList" class="sf-action-list" aria-label="Saved actions summary"></div>
+            <section id="microscopePanel" class="dq-card am-panel card-contained pc-microscope" aria-labelledby="microscopePanelTitle" hidden>
+              <header class="am-panel-header">
+                <p class="am-kicker">Local vision</p>
+                <h2 id="microscopePanelTitle">AI Microscope Live</h2>
+              </header>
+              <section class="am-instrument-state" aria-live="polite" aria-atomic="true">
+                <span id="microscopeState" class="am-state-label">Inactive</span>
+                <p id="microscopeNotice" class="am-notice">Automatic recognition starts with the live camera.</p>
+              </section>
+              <div class="am-live-summary"><span>Objects understood</span><strong id="microscopeObjectCount">0</strong></div>
+              <div class="am-toolbar" aria-label="Microscope controls">
+                <label class="am-toggle-control" for="microscopeAutomaticVision">
+                  <input id="microscopeAutomaticVision" type="checkbox" checked>
+                  <span>Automatic vision</span>
+                </label>
+                <label class="am-toggle-control" for="microscopeLabels">
+                  <input id="microscopeLabels" type="checkbox" checked>
+                  <span>Labels</span>
+                </label>
+                <button id="microscopePause" type="button">Pause</button>
+                <button id="exitMicroscope" type="button">Exit Microscope</button>
+              </div>
+              <p class="am-privacy-note" role="note"><strong>Recognition stays local.</strong> Labels are candidates; confirm important details manually.</p>
             </section>
+          </section>
 
-            <section id="recentMomentsCard" class="dq-card sf-compact-card card-contained" aria-labelledby="recentMomentsTitle">
-              <h2 id="recentMomentsTitle" class="sf-card-title">Recent moments</h2>
-              <div id="recentMomentsList" class="sf-moment-list" aria-label="Recent moments summary">Your recent observations will appear here.</div>
-              <a class="sf-card-footer-link" href="?advanced=1#movementHistoryPanel">View all moments <i data-lucide="chevron-right" aria-hidden="true"></i></a>
-            </section>
-          </aside>
+          <section id="recentMomentsCard" class="dq-card sf-compact-card sf-recent-moments-orbit card-contained pc-rail" aria-labelledby="recentMomentsTitle">
+            <h2 id="recentMomentsTitle" class="sf-card-title pc-rail-title">Live exchange</h2>
+            <span class="pc-rail-rule" aria-hidden="true"></span>
+            <div id="recentMomentsList" class="sf-moment-list pc-rail-list" aria-label="Recent moments summary" aria-live="polite">Your recent observations will appear here.</div>
+            <div class="pc-rail-orbit" aria-hidden="true">
+              <span class="pc-rail-orbit-axis"></span>
+              <span class="pc-rail-orbit-circle pc-rail-orbit-circle--top"></span>
+              <span class="pc-rail-orbit-circle pc-rail-orbit-circle--bottom"></span>
+              <span class="pc-rail-orbit-dot pc-rail-orbit-dot--ink"></span>
+              <span class="pc-rail-orbit-dot pc-rail-orbit-dot--paper"></span>
+            </div>
+            <p class="pc-rail-tagline">New perspectives<br>live here.</p>
+            <button id="askReturnToLatest" class="sf-ask-return" type="button" hidden>Return to latest</button>
+            <details id="askControlsDisclosure" class="sf-live-controls-disclosure" hidden>
+              <summary>Voice controls</summary>
+              <div id="askConversationControls" class="sf-ask-controls" aria-label="Conversation controls" hidden>
+                <button id="askToggleListening" type="button">Pause listening</button>
+                <button id="askStopSpeaking" type="button" disabled>Stop speaking</button>
+                <button id="askToggleVoice" type="button">Mute voice</button>
+                <button id="askClearConversation" type="button" disabled>Clear</button>
+                <button id="askRetry" type="button" hidden>Retry</button>
+              </div>
+            </details>
+            <p id="askConversationAnnouncement" class="sr-only" aria-live="polite" aria-atomic="true"></p>
+            <span class="pc-rail-rule" aria-hidden="true"></span>
+            <a id="recentMomentsLink" class="sf-card-footer-link pc-rail-link" href="?advanced=1#movementHistoryPanel">View all moments <i data-lucide="chevron-right" aria-hidden="true"></i></a>
+          </section>
+
+          <p id="primaryModeStatus" class="sr-only" aria-live="polite">Ask mode selected.</p>
+          <p id="microscopeAvailability" class="sr-only">Microscope uses local live object recognition.</p>
         </section>
+
+        <footer class="pc-footer" aria-hidden="true">
+          <p class="pc-footer-brand">Perception Core</p>
+          <span class="pc-footer-rule"></span>
+          <p class="pc-footer-tags">Observe / Understand / Belong</p>
+        </footer>
       </div>
 
       <template id="advancedViewTemplate">
@@ -6066,10 +4783,6 @@
                 <div class="dq-camera-status-chip" aria-label="Camera status">
                   <span class="dq-camera-icon" aria-hidden="true"></span>
                   <span id="cameraStatusChip">Camera off</span>
-                </div>
-                <div class="dq-preview-live-chip" aria-hidden="true">
-                  <span></span>
-                  LIVE
                 </div>
                 <div class="dq-preview-chips" aria-label="Preview privacy">
                   <span>Local preview</span>
@@ -6785,5 +5498,6 @@ Downloaded filename: live_physical_focus_ritual_001.v0.json</pre>
     <script src="./assets/lucide.min.js"></script>
     <script type="module" src="./premium-ui.js"></script>
     <script type="module" src="./local-capture.js"></script>
+    <script type="module" src="./editorial-shell.js"></script>
   </body>
 </html>

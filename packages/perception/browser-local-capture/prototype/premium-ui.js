@@ -95,6 +95,22 @@ function decorateConfidence() {
   meta.append(icon, label, value, dots);
 }
 
+let lastMomentSignature;
+
+function decorateRecentMoments() {
+  const rows = [...document.querySelectorAll("#recentMomentsList .sf-moment-row")];
+  const signature = rows.map((row) => row.textContent.trim()).join("|");
+  if (lastMomentSignature !== undefined && signature && signature !== lastMomentSignature) {
+    rows[0]?.classList.add("is-new-memory");
+  }
+  lastMomentSignature = signature;
+}
+
+function updateModeShell() {
+  const selected = document.querySelector('#interactionModeSelector [data-interaction-mode][aria-pressed="true"]');
+  document.body.dataset.activePerceptionMode = selected?.dataset.interactionMode || "conversation";
+}
+
 function updateCameraTransition() {
   const state = document.querySelector("#primaryObservationState");
   if (!state) return;
@@ -104,7 +120,9 @@ function updateCameraTransition() {
 function enhancePremiumUi() {
   decoratePrimaryAction();
   decorateSavedActions();
+  decorateRecentMoments();
   decorateConfidence();
+  updateModeShell();
   updateCameraTransition();
   if (document.querySelector("i[data-lucide]")) {
     globalThis.lucide?.createIcons?.({ attrs: { "stroke-width": 1.8 } });
