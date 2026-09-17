@@ -155,3 +155,8 @@ Camera Harness is an **experimental interaction and evaluation system**, not a c
 ---
 
 Built by [Miguel Almeida](https://github.com/miguelalmeida0).
+
+
+[Repository guide](./docs/START_HERE.md)
+
+<!-- repository-presentation-repair:1 -->
